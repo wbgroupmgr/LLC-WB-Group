@@ -35,7 +35,8 @@ Creating a website on GitHub typically involves using GitHub Pages, a feature th
 - Click "Save."
 
 ### 5. View Your Website:
-After configuring GitHub Pages, it may take a few minutes for the site to deploy.
-The URL for your website will be displayed in the "Pages" settings. For user/organization sites, it will be username.github.io. For project sites, it will be username.github.io/repository-name.
-You can also optionally configure a custom domain for your GitHub Pages site.
+- After configuring GitHub Pages, it may take a few minutes for the site to deploy.
+- The URL for your website will be displayed in the "Pages" settings. For user/organization sites, it will be username.github.io. For project sites, it will be username.github.io/repository-name.
+- You can also optionally configure a custom domain for your GitHub Pages site.
+
 Note: GitHub Pages primarily supports static websites. This means you cannot directly host dynamic server-side applications or databases on GitHub Pages. For dynamic content, you would need to use a different hosting solution or integrate with external services.
