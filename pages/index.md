@@ -1,6 +1,6 @@
 # W&B Group LLC
 
-W&B Group LLC - is a company for managing rental income with a mission to transfer a legacy to the next generation. 
+W&B Group LLC - is a 'real estate investment and management' company to generate rental income within the mission to transfer a legacy to the next generation. 
 
 The `W&B` (Wiwa-Bello) refers to the parents of Francisco Javier Rojas (Frank) who devoted their lives to living a good life and leaving a legacy to their children and the generations to come.  Financial wealth was not the core of their legacy.  The core of their legacy is integrity, humility, grace and the love of Christ to all you encounter, especially FAMILY. 
 
