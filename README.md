@@ -1,6 +1,8 @@
 # LLC-WB-Group
 Repository for LLC W&amp;B Group documents and code
 
+[Getting Started](GettingStarted_Rental_LLC.md)
+
 
 ## Using Git to host website
 (Google: how to create a website in github)
