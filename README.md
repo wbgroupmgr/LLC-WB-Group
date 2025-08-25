@@ -1,7 +1,8 @@
 # LLC-WB-Group
 Repository for LLC W&amp;B Group documents and code
 
-[Getting Started](GettingStarted_Rental_LLC.md)
+- [W&B Group, LLC](pages/index.md)
+- [Getting Started](pages/GettingStarted_Rental_LLC.md)
 
 
 ## Using Git to host website
