@@ -8,7 +8,7 @@ Francisco Javier Rojas is also known as Francis X. Rojas and/or Frank.
 
 ## Mission Statement 
 
-Refer to W&G Group LLC Mission.md.
+- [Mission Statement](Mission_wbgroupllc.md)
 
 ## Guide / Tips
 
@@ -25,10 +25,10 @@ Refer to W&G Group LLC Mission.md.
 
 ## Table of Content
 
-- [Getting Started - Rental LLC](files/GettingStarted_Rental_LLC.md)
+- [Getting Started](GettingStarted_Rental_LLC.md)
 
 ## Expenae Management
-- [IRS Expense Info](files/Expenses_IRS_ExpenseGuide.md)
+- [IRS Expense Info](Expenses_IRS_ExpenseGuide.md)
 
 ### Management Legal Systems
 - [Legal Zoom](MgmtLegal_LegalZoom.md) [Link](https://www.legalzoom.com/business/business-formation/llc-overview.html)
