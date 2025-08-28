@@ -22,7 +22,7 @@ Francisco Javier Rojas is also known as Francis X. Rojas and/or Frank.
 ## Table of Content
 
 - [Mission](pages/Mission_wbgroupllc.md)
-- [Getting Started](GettingStarted_Rental_LLC.md)
+- [Getting Started](pages/GettingStarted_Rental_LLC.md)
 
 ### LLC Filing Docs
 - [Texas-LLC-Certificate-of-Formation.pdf](20250818-LLC_forms/Texas-LLC-Certificate-of-Formation.pdf)
