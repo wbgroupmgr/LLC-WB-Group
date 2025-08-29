@@ -50,6 +50,26 @@ For business use of your car, you can deduct expenses using either the standard 
 Travel expenses: Costs for business travel away from your tax home are deductible, including airfare, lodging, and transportation.
 Business meals: Meals with clients, customers, or employees are typically 50% deductible, provided they are not lavish and have a clear business purpose.
 
+1. When you use your car or other vehicle for your LLC, you can deduct common auto expenses from your qualified business income. Vehicles ...
+https://www.freshbooks.com › Hub › Taxes
+14 Tax Write-Offs for LLC
+
+2. Deductible expenses are ordinary and necessary costs directly related to running your business, such as office supplies, professional services, and business ...
+https://ramp.com › blog › llc-expenses-cheat-sheet
+LLC expenses cheat
+sheet: 15 LLC tax write-offs
+
+3. Whether it was strictly business, or a combination of business with a few vacation days tacked on, the business expenses of the trip are tax deductible. Like ...
+https://www.insureon.com › blog › small-business-tax-deducti...
+22 Small Business Tax
+Deductions Checklist for Your Return in 2025 | Insureon
+
+4. Making more items and services “business expenses” allows those costs to be written off of your total profit at the end of the year; the amount you spend on the ...
+https://longilbert.com › blog-and-updates › how-do-i-write-of...
+How to Write Off Business
+Expenses for Your LLC in 2025
+
+
 ## Professional services: 
 - Fees paid to accountants, lawyers, and consultants for business-related services are fully deductible.
 
@@ -76,4 +96,5 @@ Expenses are reported on a Schedule C and filed with your personal Form 1040. Yo
 
 ### Multi-member LLC (Partnership): 
 The LLC files a partnership tax return (Form 1065) to report its income and deductions. The business's profits and losses pass through to the owners via a Schedule K-1, which each owner reports on their personal tax return.
+
 
