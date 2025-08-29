@@ -1,3 +1,8 @@
-# Multi-Member Tax
-
-Content from the original Multi-Member Tax.mx file will be placed here.
+## Multi-member taxes
+- The LLC files Form 1065, 
+- U. S. Return of Partnership Income, on which the LLC reports profits, losses, credits, and 
+deductions related to the business. 
+- LLC then prepares Schedule K-1 documents for each member of the LLC.
+- Members Schedule K-1 (Form 1065) to show their share of income, credits, and deductions 
+   received from the LLC. The percentage each member of the LLC receives is pre-determined 
+   in the LLC’s operating agreement.
