@@ -19,8 +19,26 @@ To ensure you can successfully itemize your LLC's expenses and withstand an audi
 The following are common expenses that are generally deductible for an LLC, based on IRS rules: 
 
 ### Startup and organizational costs: 
-Initial costs like legal fees, state filing fees, market research, and advertising can be deducted, with up to $5,000 immediately expensed and the rest amortized over 15 years.
-Rent and utilities: You can deduct rent and utilities for a dedicated office, storefront, or storage space.
+- legal fees,
+- state filing fees,
+- market research, and a
+- dvertising can be deducted, with up to $5,000 immediately expensed and the rest amortized over 15 years.
+
+### Rent and utilities: 
+You can deduct rent and utilities for a dedicated office, storefront, or storage space.
+- `Office rent`:  Small business owners who rent office space can deduct the monthly payment from their taxable income. In addition to the cost of rent for the ...
+- Rent`:. If your business rents a storefront, office, or other space that serves as your principal place of business, you may be eligible to deduct some or all ...
+- `Expenses Cheat Sheet`: 14 Tax Write-Offs | Rippling
+If you rent property from your relatives or a related company and the IRS deems the rent to be excessive, the IRS will disallow the deduction.
+https://turbotax.intuit.com › tax-tips › taking-business-tax-ded...
+`Taking Business Tax Deductions`
+   - TurboTax Tax Tips & Videos
+   - Property/rent;
+- `Tools and technology`
+   - Self-employment taxes.
+   - Tip: Don't just throw receipts in a shoebox and hope for the best.
+   - [LINK](https://tax.thomsonreuters.com/blog/how-are-llcs-taxed-llc-tax-benefits-and-tips-to-reduce-taxes/)
+- `LLC tax benefits` and ways to reduce taxes
 
 ## Home office expenses:
 If you use a portion of your home exclusively and regularly for business, you can deduct a percentage of rent or mortgage, utilities, and insurance. You can use either a simplified or actual expense method for this deduction.
@@ -46,9 +64,11 @@ https://ramp.com › blog › llc-expenses-cheat-sheet
 
 
 ## Vehicle expenses: 
-For business use of your car, you can deduct expenses using either the standard mileage rate or the actual expense method (gas, oil, repairs, insurance). A mileage log is required for both methods.
-Travel expenses: Costs for business travel away from your tax home are deductible, including airfare, lodging, and transportation.
-Business meals: Meals with clients, customers, or employees are typically 50% deductible, provided they are not lavish and have a clear business purpose.
+For business use of your car, you can 
+- `Milage`: deduct expenses using either the standard mileage rate or the actual expense method (gas, oil, repairs, insurance).
+   - A mileage log is required for both methods.
+- `Travel expenses`: Costs for business travel away from your tax home are deductible, including airfare, lodging, and transportation.
+- `Business meals`: Meals with clients, customers, or employees are typically 50% deductible, provided they are not lavish and have a clear business purpose.
 
 1. When you use your car or other vehicle for your LLC, you can deduct common auto expenses from your qualified business income. Vehicles ...
 https://www.freshbooks.com › Hub › Taxes
@@ -96,5 +116,6 @@ Expenses are reported on a Schedule C and filed with your personal Form 1040. Yo
 
 ### Multi-member LLC (Partnership): 
 The LLC files a partnership tax return (Form 1065) to report its income and deductions. The business's profits and losses pass through to the owners via a Schedule K-1, which each owner reports on their personal tax return.
+
 
 
