@@ -16,13 +16,19 @@
     - questions; due dates shown, you can call us at the phone number or write to us at the address shown at the top of this notice.
     - If you need help in determining your annual accounting period (tax year), see Publication 538, Accounting Periods and Methods.
 
-### 2026.05.15 Franchise Report due 
+### 2026.05.15 Franchise Report due
+
+- [Controller Dashboard][1]
+- [Controller Home website][2]
+- Info
     - 512-463-4600 x 4650
-    - [Controller Dashboard](https://security.app.cpa.state.tx.us/)
-    - [Controller Home website](https://controller.texas.gov)
     - Go to Dashboard 
     - Click on `Vendor #`
     - Click on Pay Taxes / `File a Public/Ownership Information Report`
+
+[1]: https://security.app.cpa.state.tx.us/
+[2]: https://controller.texas.gov
+
 
 ------
 
