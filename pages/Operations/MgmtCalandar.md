@@ -1,5 +1,9 @@
 # LLC Calandar of Events
 
+## Monthly
+09 - PEC : autodraft from WF
+20 - Water Bill @ COMWSC
+
 ## LLC Startup
 
 1. Election of Entity
@@ -11,10 +15,21 @@
 
 ## Annual
 
+### 2026.02.02 - Prepare/Fill out Public/Ownership Info Report (see 5/15 Franchise Report)
 
-- 2026.03.15 :: Form 1065, `U.S. Return of Partnership Income`
+### 2026.03.15 :: Form 1065, `U.S. Return of Partnership Income`
     - Partnerships file an information return to report their income, gains, losses, deductions, credits, etc.
     - A partnership does not pay tax on its income but "passes through" any profits or losses to its partners.
     - Partners must include partnership items on their tax or information returns.
     - questions; due dates shown, you can call us at the phone number or write to us at the address shown at the top of this notice.
     - If you need help in determining your annual accounting period (tax year), see Publication 538, Accounting Periods and Methods.
+
+### 2026.05.15 Franchise Report due 
+    - 512-463-4600 x 4650
+    - [Controller Dashboard](https://security.app.cpa.state.tx.us/)
+    - [Controller Home website](https://controller.texas.gov)
+    - Go to Dashboard 
+    - Click on `Vendor #`
+    - Click on Pay Taxes / `File a Public/Ownership Information Report`
+ 
+
