@@ -1,18 +1,10 @@
 # LLC Calandar of Events
 
 ## Monthly
-09 - PEC : autodraft from WF
-20 - Water Bill @ COMWSC
+- 09 - PEC : autodraft from WF
+- 20 - Water Bill @ COMWSC
 
-## LLC Startup
-
-1. Election of Entity
-    - accept the default status of either partnership or disregarded entity
-    - `Form 8832` (Entity Classification Election). This form must be completed in a timely manner to receive corporation status.
-      See the instructions forcomplete information.
-    - `Form 2553` (Election by a Small Business Corporation). This form must be completed in a timely manner to receive S corporation status.
-      See the instructions for complete information.
-
+----- 
 ## Annual
 
 ### 2026.02.02 - Prepare/Fill out Public/Ownership Info Report (see 5/15 Franchise Report)
@@ -31,5 +23,16 @@
     - Go to Dashboard 
     - Click on `Vendor #`
     - Click on Pay Taxes / `File a Public/Ownership Information Report`
- 
+
+------
+
+## LLC Startup
+
+1. Election of Entity
+    - accept the default status of either partnership or disregarded entity
+    - `Form 8832` (Entity Classification Election). This form must be completed in a timely manner to receive corporation status.
+      See the instructions forcomplete information.
+    - `Form 2553` (Election by a Small Business Corporation). This form must be completed in a timely manner to receive S corporation status.
+      See the instructions for complete information.
+
 
