@@ -18,3 +18,7 @@
     - Partners must include partnership items on their tax or information returns.
     - questions; due dates shown, you can call us at the phone number or write to us at the address shown at the top of this notice.
     - If you need help in determining your annual accounting period (tax year), see Publication 538, Accounting Periods and Methods.
+
+## Monthly
+
+- 20th : Water bill - payable to COMWSC - Cedar Oaks Mesa Water Supply Corp
