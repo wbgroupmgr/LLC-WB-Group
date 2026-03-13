@@ -1,18 +1,16 @@
 # LLC Calandar of Events
 
-## LLC Startup
+## Monthly
+- 09 - PEC : autodraft from WF
+- 20 : Water bill - payable to COMWSC - Cedar Oaks Mesa Water Supply Corp
 
-1. Election of Entity
-    - accept the default status of either partnership or disregarded entity
-    - `Form 8832` (Entity Classification Election). This form must be completed in a timely manner to receive corporation status.
-      See the instructions forcomplete information.
-    - `Form 2553` (Election by a Small Business Corporation). This form must be completed in a timely manner to receive S corporation status.
-      See the instructions for complete information.
 
+----- 
 ## Annual
 
+### 2026.02.02 - Prepare/Fill out Public/Ownership Info Report (see 5/15 Franchise Report)
 
-- 2026.03.15 :: Form 1065, `U.S. Return of Partnership Income`
+### 2026.03.15 :: Form 1065, `U.S. Return of Partnership Income`
     - Partnerships file an information return to report their income, gains, losses, deductions, credits, etc.
     - A partnership does not pay tax on its income but "passes through" any profits or losses to its partners.
     - Partners must include partnership items on their tax or information returns.
@@ -34,10 +32,25 @@
           - all eligible business expenses (such as mortgage interest, property taxes, maintenance costs, and depreciation)
           - details their individual share of the net profits (or losses), deductions, and credits.
 
-- 2026.05.15 - Tx Report 
+
+### 2026.05.15 Franchise Report due
+
+- [1]: https://security.app.cpa.state.tx.us/
+- [2]: https://controller.texas.gov
+
     - Texas LLCs do not file traditional annual reports,
     - submit a Franchise Tax Report and Public Information Report (PIR)
     - send to the Comptroller of Public Accounts by May 15 annually.
+
+
+- [Controller Dashboard][1]
+- [Controller Home website][2]
+
+- Info
+    - 512-463-4600 x 4650
+    - Go to Dashboard 
+    - Click on `Vendor #`
+    - Click on Pay Taxes / `File a Public/Ownership Information Report`
 
 - FORM 1040 Sch E for rental income - per member
     - **Members Receive a Schedule K-1** :
@@ -52,6 +65,16 @@
           - The income will be reported on Schedule K-1 (Form 1065) after the partnership return is prepared.
           - If the K-1 has not been issued, you may want to wait to file until the partnership return is complete.
 
-## Monthly
+------
 
-- 20th : Water bill - payable to COMWSC - Cedar Oaks Mesa Water Supply Corp
+## LLC Startup
+
+1. Election of Entity
+    - accept the default status of either partnership or disregarded entity
+    - `Form 8832` (Entity Classification Election). This form must be completed in a timely manner to receive corporation status.
+      See the instructions forcomplete information.
+    - `Form 2553` (Election by a Small Business Corporation). This form must be completed in a timely manner to receive S corporation status.
+      See the instructions for complete information.
+
+
+
