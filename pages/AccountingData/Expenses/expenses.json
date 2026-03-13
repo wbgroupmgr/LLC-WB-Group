@@ -1,0 +1,17 @@
+{ "id_20260131T13:59" : {"Project" : "CamperBuild",
+        "category" : "improvement",
+        "amtEst" : 1200.00,
+        "amtBank" : 0.0,
+        "date" :"20260201",
+        "updated_at" : "20260131",
+        "desc" : "Daylabor to finish Outside Panels/Attach Roof\n1. raise roof\n2. Add L brace to top of roof\n3. Attach 6 panels (glue, screw), put seal between panels\n4. Lower roof, screw roof to brace"
+    },
+    "id_20260131T14:25" : {"Project" : "CamperBuild",
+        "category" : "materials",
+        "amtEst" : 50.00,
+        "amtBank" : 0.0,
+        "date" : "20260201",
+        "updated_at" : "20260131",
+        "desc" : ["purchase screws, bolts, support bar"]
+    }
+}

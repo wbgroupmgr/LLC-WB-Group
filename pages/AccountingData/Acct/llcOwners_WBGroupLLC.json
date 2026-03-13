@@ -1,0 +1,10 @@
+[{"oID": "o20250801-1", "nm": ["Francis X Rojas"], 
+    "addr": "177 Kingsway Dr, Wimberley, 78676", 
+    "status": "Manager", "pct": 0.96, 
+    "kw": ["WT FED#02M03 NATIONAL FINANCIAL"]}, 
+    {"oID": "o20250801-2", "nm": ["Alexandra Rojas"], 
+        "addr": "TBD", "status": "non_active member", 
+        "pct": 0.02, "kw": []}, 
+    {"oID": "o20250801-3", "nm": ["Nicola Rojas"], 
+        "addr": "805 High Mesa Dr, Wimberley, 78676", "status": "non-active member", 
+        "pct": 0.02, "kw": []}]
