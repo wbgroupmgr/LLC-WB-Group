@@ -61,6 +61,8 @@ class llcBank(ledgerObject):
         '''
         Classify all transactions with ledgerClassify, add columns: Acct, AcctSub and  TDesc
         '''
+        self.llc.assets()
+        self.llc.aObj.fetch()
         lc = ledgerClassify(self.llc, debug=self.debug)
         lList = self.df.apply(lambda r: lc.classifyTransaction(r), axis=1)
         return self.df.join(pd.DataFrame(list(lList)))

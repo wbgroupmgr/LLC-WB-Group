@@ -97,6 +97,12 @@ class LLC(object):
         return llcCustomers(self, debug=self.debug).load()
 
     def assets(self, **kwargs):
-        return llcAssets(self, debug=self.debug).load()
+        try:
+            return self.aObj
+        except:
+            # initialize assets  & fetch assets for downstream services
+            self.aObj = llcAssets(self, debug=self.debug)
+            self.aObj.fetch()
+            return self.aObj.df.to_dict(orient='records')
     
                 

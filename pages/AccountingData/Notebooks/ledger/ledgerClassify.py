@@ -50,6 +50,9 @@ class ledgerClassify(object):
         return False
 
     def _isExpRev(self, r, **kwargs):
+        '''
+        Transaction is either Rental Income/Expense
+        '''
 
         if r.TransType == 'Exp' :
             exp_rev = 'Expense'
@@ -79,7 +82,7 @@ class ledgerClassify(object):
         '''
         d = r.desc.lower()
 
-        # Eval special cases 1st
+        # Eval special cases 1st - assets purchases, investments
         tDict = self._isSpecial(r)
         if tDict : return tDict
         
@@ -102,14 +105,21 @@ class ledgerClassify(object):
     def _isSpecial(self, r):
         '''
         Handle Special transactions: investments, assets, bank actions
+        Match assets against bank transactions
         '''
-        owners = llcOwners(self.llc)
-        if r['dt']== '08/20/2025' and r.amt == 219000 :
-            oDict = owners.find(by = 'Francis X')
-            return self.acctDict(f'Acct.Cash.Investment',oDict['oID'],f"Initial Investment by member {oDict['nm']}")
-        if r['dt'] == '08/26/2025' and r.amt == -213936.95	 :
-            oDict = owners.find(by = 'Francis X')
-            return self.acctDict(f'Acct.Asset.Purchase',self.llc.objName,f"Purchase Property: 805 High Mesa")
+        clsTuple = self.llc.aObj._matchBk(r)
+        if clsTuple :
+            return self.acctDict(*clsTuple)
+        return None
+
+        if False:
+            owners = llcOwners(self.llc)
+            if r['dt']== '08/20/2025' and r.amt == 219000 :
+                oDict = owners.find(by = 'Francis X')
+                return self.acctDict(f'Acct.Cash.Investment',oDict['oID'],f"Initial Investment by member {oDict['nm']}")
+            if r['dt'] == '08/26/2025' and r.amt == -213936.95	 :
+                oDict = owners.find(by = 'Francis X')
+                return self.acctDict(f'Acct.Asset.Purchase',self.llc.objName,f"Purchase Property: 805 High Mesa")
         
     def _classifyExpense(self, d, **kwargs):
         '''
@@ -144,6 +154,7 @@ class ledgerClassify(object):
         expKWDict = {"comwsc": ['Acct.Cash.Util','Water','Pay Monthly Util'],
                      "pedernales" :['Acct.Cash.Util','Elec','Pay Monthly Util'],
                      "dispre.al" : ['Acct.Cash.Util','Waste','Pay Monthly Util'],
+                     "allstate" : ['Acct.Cash.Util','Ins_Home','Pay Monthly Util'],
                      "check # 101" : ['Acct.Cash.Util','Water','Pay Monthly Util'],
                      "check # 102" : ['Acct.Cash.Util','Util','Pay Electrician Repair Outlet'],
                      "venmo&&251022" : ['Acct.Cash.Expense','Maintenance','Repair Utility Outlet,Electrician'],
