@@ -4,4 +4,11 @@
     "purchaseDate": "2025.08.26",
     "stakeholderPct" : {"o20250801_1" : 100.0},
     "kwList": []
+},
+{"oID": "p20251229-RV1", 
+    "addr": "Mobile",
+    "purchaseValue": 177.00, 
+    "purchaseDate": "2025.12.29",
+    "stakeholderPct" : {"o20250801_1" : 100.0},
+    "kwList": []
 }]

@@ -23,20 +23,29 @@ class llcBank(ledgerObject):
         super().__init__(llc, **kwargs)
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
 
-    def dwnLd(self):
-        DIR = os.path.join(Path.home(), 'Downloads')
-        return DIR
+    def csvDIR(self):
+        return os.path.join(self.llc.TOP, self.llc.dirAccounting, str(self.llc.yr), 'BankStmts')
 
     def dwnLdCSV(self, **kwargs):
-        DIR = self.dwnLd()
-        csvList = [b for b in os.listdir(DIR) if ('csv' in b) and ('Checking' in b)]
-        csvBN = csvList[kwargs.get('csvIndex',0)]
+        DIR = self.csvDIR()
+        csvList = [b for b in os.listdir(DIR) if ('csv' in b) and ('.csv' in b)]
+        try:
+            csvBN = csvList[kwargs.get('csvIndex',-1)]
+        except Exception as err:
+            print("ERROR: No Bank CSV file found", DIR)
+            return None
         if self.debug : print(f"{self.oID} dwnLdCSV: importBankCSV csvBN:", csvBN)
         return os.path.join(DIR, csvBN)
 
     def importBankCSV(self, **kwargs):
-        self.df = pd.read_csv(self.dwnLdCSV(**kwargs), index_col=False, header=None, 
+        csvFN = self.dwnLdCSV(**kwargs)
+        if csvFN is None:
+            # No bank entries
+            self.df = pd.DataFrame()
+            return
+        self.df = pd.read_csv(csvFN, index_col=False, header=None, 
                               names=['dt', 'amt', 'C2', 'CheckNo','desc'])
+        if self.debug: print("llcBank CSV Loaded", csvFN)
         self.df['TransType'] = self.df.amt.apply(lambda v : 'Exp' if v < 0 else 'Rev')
 
     def bkFN(self):
@@ -56,7 +65,7 @@ class llcBank(ledgerObject):
         lList = self.df.apply(lambda r: lc.classifyTransaction(r), axis=1)
         return self.df.join(pd.DataFrame(list(lList)))
 
-    def summarize(self, **kwargs):
+    def fetch(self, **kwargs):
         self.importBankCSV(**kwargs)
         self.df = self.wrangleLedger()
         return

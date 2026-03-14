@@ -33,10 +33,13 @@ class ledgerObject(object):
         if itr : self.iterator()
 
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
-            
+
+    def _path(self, p):
+        # use expanduser() to expand path with ~
+        return Path(p).expanduser()
 
     def FN(self): 
-        fn = os.path.join(self.llc.dirData, f"{self.oID}_{self.llc.objName}.json")
+        fn = os.path.join(self.llc.TOP, f"{self.oID}_{self.llc.objName}.json")
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
 

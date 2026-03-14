@@ -1,1 +1,4 @@
-{"dirLLC": ["/Users/frankrojas/Library/CloudStorage/GoogleDrive-frankr6591@gmail.com/My Drive/Family/Assets-Hobby/RealEstateInvestments/LLC-WB-Group"], "dirData": "/Users/frankrojas/Library/CloudStorage/GoogleDrive-frankr6591@gmail.com/My Drive/Family/Assets-Hobby/RealEstateInvestments/LLC-WB-Group/pages/AccountingData/2025/"}
+{"YEAR" : 2025,
+    "TOP" : "~/GDrive/Family/Assets-Hobby/RealEstateInvestments/LLC-WB-Group",
+    "dirAccounting": "pages/AccountingData"
+}
