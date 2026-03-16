@@ -9,6 +9,7 @@
 ## Annual
 
 ### 2026.02.02 - Prepare/Fill out Public/Ownership Info Report (see 5/15 Franchise Report)
+- San Antonio: 210-342-2300
 
 ### 2026.03.15 :: Form 1065, `U.S. Return of Partnership Income`
     - Partnerships file an information return to report their income, gains, losses, deductions, credits, etc.

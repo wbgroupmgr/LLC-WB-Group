@@ -5,6 +5,7 @@
     "stakeholderPct" : {"o20250801_1" : 100.0},
     "acct" : "Acct.Cash.Investment",
     "desc" : "Open Bank Acct Investment",
+    "category" : "Asset.Equity.Cash",
     "kwList": []
 },{"oID": "p20250826-805HMD", 
     "addr": "805 High Mesa Dr, Wimberley, 78676",
@@ -13,6 +14,7 @@
     "stakeholderPct" : {"LLC" : 100.0},
     "acct" : "Acct.Asset.Purchase",
     "desc" : "Purchase Property: 805 High Mesa",
+    "category" : "Asset.Tangible.InService",
     "kwList": []
 },{"oID": "i20250826-Cash", 
     "addr": "177 Kingsway Dr, Wimberley, 786767",
@@ -21,6 +23,7 @@
     "stakeholderPct" : {"o20250801_1" : 100.0},
     "acct" : "Acct.Cash.Investment",
     "desc" : "Initial Investment by member",
+    "category" : "Asset.Equity.Cash",
     "kwList": []
 },
 {"oID": "p20251229-RV1", 
@@ -30,6 +33,7 @@
     "stakeholderPct" : {"LLC" : 100.0},
     "acct" : "Acct.Asset.Purchase",
     "desc" : "Purchase Rental RV",
+    "category" : "Asset.Tangible.InConstruction",
     "kwList": []
 },
 {"oID": "i20251229-Cash", 
@@ -39,5 +43,6 @@
     "stakeholderPct" : {"o20250801_1" : 100.0},
     "acct" : "Acct.Cash.Investment",
     "desc" : "Initial Investment by member",
+    "category" : "Asset.Equity.Cash",
     "kwList": []
 }]

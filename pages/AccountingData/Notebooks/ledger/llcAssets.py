@@ -1,6 +1,11 @@
 '''
 manage assets owned by LLC
 list of owners is stored in accountingData/YEAR/llcAssets_<llcName>.json
+
+Assets can be 
+- investmenet : 'i' in oID  -- Cash investment
+- property    : 'p' in oID  -- Purchase capital
+
 '''
 import os
 from ledger.ledgerObject import ledgerObject
@@ -19,6 +24,14 @@ class llcAssets(ledgerObject):
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
 
+    def investments(self):
+        self.fetch()
+        return [d for d in self.df.to_dict(orient='records') if d['oID'][0].lower() == 'i']
+
+    def properties(self):
+        self.fetch()
+        return [d for d in self.df.to_dict(orient='records') if d['oID'][0].lower() == 'p']
+
     """
     -----------------------------------------------
     Services for classification and reconcilation
@@ -30,8 +43,11 @@ class llcAssets(ledgerObject):
         Load assets into df
         Load aDict to get keys to match
         '''
-        self.df = pd.DataFrame(self.load())
-        self.kDict = self._keyDict()
+        try:
+            len(self.df)
+        except:
+            self.df = pd.DataFrame(self.load())
+            self.kDict = self._keyDict()
 
     def _key(self, r):
         # Return tuple of k,index for given row (dt, amt)
@@ -39,7 +55,7 @@ class llcAssets(ledgerObject):
         return (f"{r['dt']}_{r.amt}",r.name)
     
     def _keyDict(self):
-        
+        # map dt :: amt, return dict dt:amt 
         df = self.df
         df['dt'] = df.dt.apply(lambda v: datetime.datetime.strptime(v, '%Y.%m.%d').strftime('%m/%d/%Y'))
 

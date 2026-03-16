@@ -74,11 +74,25 @@ class LLC(object):
             if self.debug : print("Profile loaded", FN)
         return pDict
 
+    def getGLTaxDict(self):
+
+        glDict = self.entity | self.form1065
+
+        aCount = len(self._assets().properties())
+
+        glDict["total_assets"] = aCount
+        glDict["number_of_k1s"] = aCount
+        glDict["tax_year"] = str(self.yr)[2:]
+        glDict["preparer_date"] = datetime.datetime.now().strftime('%m/%d/%Y')
+        return glDict
+        
+
     def _Bank(self, **kwargs):
         self.bk = llcBank(self, debug=self.debug)
         
         # wrangle all transactions to create Accounting books add Acct, AcctSub, TDesc
         self.bk.fetch()
+        return self.bk
 
     def _Profile(self, **kwargs):
         pDict = self._ProfileLoad(**kwargs)
@@ -90,19 +104,61 @@ class LLC(object):
                 v = self._path(v)
             setattr(self, k, v)
 
+    ## ----- llc objects assets, owners, customers
+    def _owners(self, **kwargs):
+        # Return ornwers obj
+        return llcOwners(self, **kwargs)
+
+    def _customers(self, **kwargs):
+        # Return ornwers obj
+        return llcCustomers(self, **kwargs)
+
+    def _assets(self, **kwargs):
+        # Rturn ornwers obj 
+        return llcAssets(self, **kwargs)
+
+    ##  ----- llc lists per object
     def owners(self, **kwargs):
-        return llcOwners(self, debug = self.debug).load()
+        # Return list of entries in ownerDB
+        return self._owners(**kwargs).load()
 
     def customers(self, **kargs):
-        return llcCustomers(self, debug=self.debug).load()
+        return self._customers(**kwargs).load()
 
     def assets(self, **kwargs):
+        #Return list of entries in ownerDB
         try:
             return self.aObj
         except:
             # initialize assets  & fetch assets for downstream services
-            self.aObj = llcAssets(self, debug=self.debug)
+            self.aObj = self._assets(**kwargs)
+            # initialize aobj.df
             self.aObj.fetch()
+            # return as list of dicts
             return self.aObj.df.to_dict(orient='records')
+
+    def acctDir(self, **kwargs):
+        '''
+        Get AccountingData directories
+        '''
+        # Save entity information
+
+        # Top of AccountingData, based on year
+        acctDIR = os.path.join(self.TOP, self.dirAccounting, str(self.yr))
+        
+        dir = kwargs.get('dirName', 'acctTop')
+        if dir == 'acctTop' : 
+            return acctDIR
+        elif dir == 'ye' : 
+            # REeturn YE Records dir for the given year
+            return os.path.join(acctDIR, 'YE_Tax_Records')
+
+
+    def acctsDF(self):
+        bk = self._Bank()
+        glDF = bk.df.groupby(['Acct']).amt.sum()
+        glDF.loc[f'Balance'] = glDF.sum()
+        return glDF
+
     
                 
