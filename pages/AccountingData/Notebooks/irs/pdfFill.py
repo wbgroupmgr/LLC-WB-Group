@@ -5,9 +5,14 @@ pdfFill.py
 - fills each field with its own field identifier as the value, 
 - saves the result, 
 - tests that every field in the output contains the expected identifier.
-s
+
 Usage
 -----
+    pf = pdfFill(inFN, outFN, glDict = dict, verbose=False, debug=False)
+    formDict = pf.get(). --> pdfFieldName : "F#"
+    
+    fillPDF(
+    
     python pdf_field_filler.py input.pdf filled_output.pdf
 
 Requirements
@@ -175,7 +180,7 @@ class pdfFill(object):
     #  STEP 2 – CHOOSE A FILL VALUE FOR EACH FIELD TYPE
     # ─────────────────────────────────────────────────────────────────────────────
     
-    def fill(self, field: dict, tsDict = None) -> str:
+    def fill_ORIG(self, field: dict, tsDict = None) -> str:
         """
         Return the value to write.
         • text / unknown  →  the field_id string itself
@@ -236,50 +241,85 @@ class pdfFill(object):
     
         return None
     
+    # ─────────────────────────────────────────────────────────────────────────────
+    #  STEP 2 – CHOOSE A FILL VALUE FOR EACH FIELD TYPE
+    # ─────────────────────────────────────────────────────────────────────────────
     
+    def getField(self, fromDict, toDict):
+        """
+        Return the field value based on toDict given a fromDict
+        
+        fromDict : original dict from self.get -- fid
+        toDict : dict with new values
+        """
+        ftype = fromDict["type"]
+        
+                # ----- add new text 
+        if ftype == "text" or ftype.startswith("unknown"):
+            return toDict["field_id"]
+        
+        if ftype == "checkbox":
+            return fromDict["checked_value"]
+    
+        if ftype == "radio":
+            opts = fromDict.get("radio_options", [])
+            return opts[0] if opts else "/Yes"
+    
+        if ftype == "choice":
+            opts = fromDict.get("choice_options", [])
+            return opts[0] if opts else ""
+    
+        return None
+
     # ─────────────────────────────────────────────────────────────────────────────
     #  STEP 3 – FILL & SAVE
     # ─────────────────────────────────────────────────────────────────────────────
 
-    def fillPDF(self) -> dict:
+    def _testKey(self, i, fid, fldDict):
+        #pg = fid.split('.')[1].replace('Page','P').split('[')[0]
+        fldDict['field_id'] = f"F{i}"
+        fldDict['value'] = ""
+        return fldDict
+
+
+    def fillPDF(self, **kwargs) -> dict:
         """
         Discover all fields, fill each with its identifier, save to output_path.
     
         Returns the field map dict  { field_id: fill_value }  for inspection.
         """
+
+        # fields to update
+        fromDict = kwargs.get('from', self.get()) 
+        toDict = kwargs.get('to', fromDict) # fill with acro field name
+
+        # ------- Initialize PDF reader/writer -------
+        
         input_path = self.inFN
         output_path = self.outFN
         
         reader = PdfReader(input_path)
-        #fields = self.get(reader)
-        fields = self.get()
-        tsDict = {k:f"F{i}" for i,k in enumerate(fields)}
-        self.nonTextDict = {}
-    
-        if not fields:
-            raise ValueError(f"No AcroForm fields found in '{input_path}'. "
-                             "The PDF may be flat / scanned.")
-
-        bnOut = Path(output_path).name
+        
         
         if self.debug: print(f" fillPDF Start:  Writing output to '{bnOut}' →  Form Fields: {len(fields)}\n")
     
         # Build page-grouped fill dict
         page_fills: dict[int, dict[str, str]] = {}
-        fill_map:   dict[str, str]            = {}
+        outDict:   dict[str, str]            = {}
     
-        for fid, finfo in fields.items():
+        for fid,fldDict in fromDict.items():
 
-            v = self.fill(finfo, tsDict)
-            if v is None : 
-                # do nothing
-                continue
-            
-            value = v
-            ftype  = finfo["type"]
-            page   = finfo["page"]
-            fill_map[fid] = value
-            #print("debug: fillPDF  234", fid, value, finfo)
+            # Skip fields not in toDict
+            if fid not in toDict: continue
+
+            value = self.getField(fldDict, toDict[fid])
+            ftype  = fldDict["type"]
+            page   = fldDict["page"]
+
+            # save value per field
+            outDict[fid] = value
+
+            # save value for writing into pdf
             page_fills.setdefault(page, {})[fid] = value
             if self.debug: print(f"  {'[' + ftype + ']':<14}  p{page}  {fid[:60]:<60}  →  {value[:40]}")
     
@@ -299,9 +339,11 @@ class pdfFill(object):
         with open(output_path, "wb") as fh:
             writer.write(fh)
             
-        if self.verbose: 
-            print(f"\n✅  Saved → '{bnOut}'  ({len(fill_map)} fields filled)")
-        return fill_map
+        if self.verbose:
+            bnOut = Path(output_path).name
+            print(f"\n✅  Saved → '{bnOut}'  ({len(outDict)}/{len(toDict)} fields filled)")
+        
+        return outDict
     
     
     # ─────────────────────────────────────────────────────────────────────────────
