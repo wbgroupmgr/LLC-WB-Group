@@ -122,7 +122,7 @@ class LLC(object):
         # Return list of entries in ownerDB
         return self._owners(**kwargs).load()
 
-    def customers(self, **kargs):
+    def customers(self, **kwargs):
         return self._customers(**kwargs).load()
 
     def assets(self, **kwargs):

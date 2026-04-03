@@ -4,7 +4,7 @@ This example demonstrates the tax reporting for "ABC Consulting LLC," a 3-member
 using Form 1065 and Schedule K-1. 
 
 
-## 1. Scenario Fact Pattern
+## 1. Scenario Overview
 
 - LLC Name: ABC Consulting LLC
 - Ownership:

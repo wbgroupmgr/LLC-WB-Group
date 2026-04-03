@@ -2,6 +2,8 @@
 manage expenses
 
 
+
+
 '''
 import os
 from ledger.ledgerObject import ledgerObject
@@ -13,6 +15,7 @@ import datetime
 class llcExpenses(ledgerObject):
     def __init__(self, llc, **kwargs):
         super().__init__(llc, **kwargs)
+        self.md = mdIRS. # Display Tios/Guidelines
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
             
     def FN(self): 
@@ -53,11 +56,6 @@ class llcExpenses(ledgerObject):
             self.df = pd.DataFrame(self.load())
             self.kDict = self._keyDict()
 
-    def _key(self, r):
-        # Return tuple of k,index for given row (dt, amt)
-        # Return a unique key id for asset entry
-        return (f"{r['dt']}_{r.amt}",r.name)
-    
     def _keyDict(self):
         # map dt :: amt, return dict dt:amt 
         df = self.df
@@ -81,4 +79,42 @@ class llcExpenses(ledgerObject):
         except:
             return None
         
+mdIRS = '''
+<h2> Rental LLLC : Expense Guidelines
+- Taxes in a rental LLC financial report are generally classified as `pass-through expenses` (deductions) 
+- Not classified as entity-level income taxes
+- The LLCs usually do not pay taxes themselves. 
+- net income passes to members' personal returns via Schedule E or Schedule C 
+    - to avoid double taxation. 
 
+<h3> Key Tax Classifications in Financial Reports:
+- **Operating Expenses (Schedule E)**: Property taxes, licenses, and permit fees are categorized as operating expenses to reduce the net rental income, notes IRS (.gov).
+- **Pass-Through Income**: Net profit or loss is reported on the owner's personal Form 1040, usually under Schedule E (rental income) or Schedule C (if providing heavy services), notes TurboTax Support.
+- **Informational Returns**: 
+    - Multi-member LLCs (partnerships) file Form 1065
+    - provide a Schedule K-1 to members
+    
+<h3> Key Considerations:
+- **Self-Employment Tax**: 
+    - Generally, passive rental income is not subject to self-employment tax
+    - exceptions exist for `active management/dealer activity`.
+- **Deductions**: 
+    - Operating Expenses
+    - Property taxes 
+    - Mortgage interest
+    - maintenance, and 
+    - depreciation are deductible business expenses
+- **Taxed as Corporation**: 
+    - If the LLC elects to be taxed as an S-corp or C-corp, 
+    - taxes will be reported differently on company financial statements (e.g., Form 1120S or 1120)
+
+<h3> Sample LLC Expenses
+- Advertising: $5,000
+- Contract Labor: $10,000
+- Depreciation: $2,000
+- Office Expenses: $1,500
+- Rent: $12,000
+- Salaries & Wages: $30,000
+- Utilities: $2,500
+- Total Expenses: $63,000 
+'''

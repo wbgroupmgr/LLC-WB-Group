@@ -34,6 +34,24 @@ class ledgerObject(object):
 
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
 
+    def mdIRS(self):
+        try:
+            # Return Documentation (Tios/Guidelines) for object
+            return self.md
+        except:
+            # Return md provided or default
+            return f"{self.oID} ha not IRS Tips/Guidelines"
+
+    def _key(self, r):
+        # Return tuple of transKey,index for given row (dt, amt)
+        # Create unique Key per transaction:   <dt>_<amt>_<desc>, <index>
+        # Return a unique transaction key id for asset entry
+        try:
+            nm = r.name
+        except:
+            nm = ''
+        return (f"{r['dt']}_{r.amt}", nm)
+    
     def _path(self, p):
         # use expanduser() to expand path with ~
         return Path(p).expanduser()

@@ -6,6 +6,8 @@ this version is based on WellsFargo business bank account
 import os
 from pathlib import Path
 import pandas as pd
+import json
+import datetime
 
 from ledger.ledgerObject import ledgerObject
 from ledger.ledgerClassify import ledgerClassify
@@ -46,7 +48,12 @@ class llcBank(ledgerObject):
         self.df = pd.read_csv(csvFN, index_col=False, header=None, 
                               names=['dt', 'amt', 'C2', 'CheckNo','desc'])
         if self.debug: print("llcBank CSV Loaded", csvFN)
+
+        # Add field TransType
         self.df['TransType'] = self.df.amt.apply(lambda v : 'Exp' if v < 0 else 'Rev')
+
+        # Wrangle dt into format %Y.%m.%d
+        self.df['dt'] = self.df['dt'].apply(lambda v: datetime.datetime.strptime(v, '%m/%d/%Y').strftime('%Y.%m.%d'))
 
     def bkFN(self):
         DIR = os.path.join(self.dirDara, 'BankStmts')
@@ -63,9 +70,35 @@ class llcBank(ledgerObject):
         '''
         self.llc.assets()
         self.llc.aObj.fetch()
+        if self.debug: 
+            print(f"{self.oID}.wrangleLedger: llc assets:{len(self.llc.assets().load())}")
+            print(f"{self.oID}.wrangleLedger: llc owners:{len(self.llc.aObj.df)}")
+            print(f"{self.oID}.wrangleLedger: llc customers:{len(self.llc.customers())}")
         lc = ledgerClassify(self.llc, debug=self.debug)
-        lList = self.df.apply(lambda r: lc.classifyTransaction(r), axis=1)
-        return self.df.join(pd.DataFrame(list(lList)))
+        #lList = self.df.apply(lambda r: lc.classifyTransaction(r), axis=1)
+
+        ## Classify each entry, some transactions may have N accts to 1 bank item
+        transList = []
+        for i,r in self.df.iterrows():
+            tList = lc.classifyTransaction(r)
+            if not isinstance(tList,list) : 
+                # Older versions return tDict, convert to list
+                tList = [tList]
+            for tDict in tList:
+                # FIX: 2026.04 -handle 1 to N, record Multi acct per row
+                tDict =  {**r , **tDict}
+                transList.append(tDict)
+
+        # Create general ledger
+        glDF = pd.DataFrame(transList)
+        
+        if self.debug: 
+            print(f"{self.oID}.wrangleLedger: transList:{len(transList)}")
+            miscNum = glDF.groupby('Acct').Acct.count().loc['Acct.Cash.Misc'] 
+            print(f"{self.oID}.wrangleLedger: {'*'*10} Misc:{miscNum} Potential New, unClassified Ttansactions{'*'*5}")
+
+        # Return General Ledger - all Transactions
+        return glDF
 
     def fetch(self, **kwargs):
         self.importBankCSV(**kwargs)

@@ -14,15 +14,15 @@ class ledgerClassify(object):
 
     CLASSIFICATION WORK FLOW
     .classifyTransaction
-    -> ._isSpecial(row)  :: handle investments, non Exp/Inc items
+    -> ._isEquity(row)  :: handle investments, non Exp/Inc items
     -> ._isCust(desc) :: handle known customer income
-       -> ._isinDesc(desc) :: regex pattern
+       -> ._isinDesc(desc) :: Cust isinDesc; regex pattern
     -> ._isOwner(desc) :: handle if owner name in transaction 
-       -> ._isinDesc(desc) :: regex pattern
+       -> ._isinDesc(desc) :: Owner Nm isinDesc; regex pattern
     -> ._classifyExpense(r)
        -> ._isSupplier(desc) :: bank phrase PURCHASE AUTHORIZED
        -> ._isPurchase(desc) :: parse desc into Tranaction Identifier
-       -> ._isMatch(desc) :: match patterns into specific AcctSub, TDesc
+       -> ._isMatch(desc) :: create AcctSub, TDesc - match patterns
        -> Acct Misc
     -> ._classifyIncome(r)
     '''
@@ -63,7 +63,7 @@ class ledgerClassify(object):
 
         d = r.desc.lower()
         
-        # if a Customer ID is in the description - classify as cash
+        # if a Customer ID is in the description - classify as cash income
         custID = self._isCust(d)
         if custID:
             tDict = self.acctDict(f'Acct.Cash.{exp_rev}',custID,tDesc)
@@ -80,31 +80,43 @@ class ledgerClassify(object):
         '''
         Classify transaction
         '''
+        debug = True if self.debug == 'details' else False
+        
         d = r.desc.lower()
-
         # Eval special cases 1st - assets purchases, investments
-        tDict = self._isSpecial(r)
-        if tDict : return tDict
+        tDict = self._isEquity(r)
+        if tDict : 
+            if debug : print(f"{self.oID}/classify Special {tDict['Acct']} {r['dt']} {r['amt']}")
+            return tDict
         
         if r.TransType == 'Exp': 
             tDict = self._classifyExpense(d, **kwargs)
-            if tDict : return tDict
+            if tDict : 
+                if debug : print(f"{self.oID}/classify  Expense {tDict['Acct']} {r['dt']} {r['amt']}")
+                return tDict
             
             tDict = self._isExpRev(r, **kwargs)
-            if tDict: return tDict
+            if tDict: 
+                if debug : print(f"{self.oID}/classify ExpRev {tDict['Acct']} {r['dt']} {r['amt']}")
+                return tDict
             
         else:
             tDict = self._classifyIncome(d, **kwargs)
-            if tDict: return tDict
+            if tDict: 
+                if debug : print(f"{self.oID}/classify Income  {tDict['Acct']} {r['dt']} {r['amt']}")
+                return tDict
 
             tDict = self._isExpRev(r, **kwargs)
-            if tDict: return tDict
-
+            if tDict: 
+                if debug : print(f"{self.oID}/classify IncRev {tDict['Acct']} {r['dt']} {r['amt']}")
+                return tDict
+        
+        if debug : print(f"{self.oID}/classify Misc.    Acct.None.Error {json.dumps(r)}")
         return self.acctDict('Acct.Cash.Misc','Misc',f"Misc Income")
 
-    def _isSpecial(self, r):
+    def _isEquity(self, r):
         '''
-        Handle Special transactions: investments, assets, bank actions
+        Handle Equity transactions: investments, assets, bank actions
         Match assets against bank transactions
         '''
         clsTuple = self.llc.aObj._matchBk(r)
@@ -112,15 +124,6 @@ class ledgerClassify(object):
             return self.acctDict(*clsTuple)
         return None
 
-        if False:
-            owners = llcOwners(self.llc)
-            if r['dt']== '08/20/2025' and r.amt == 219000 :
-                oDict = owners.find(by = 'Francis X')
-                return self.acctDict(f'Acct.Cash.Investment',oDict['oID'],f"Initial Investment by member {oDict['nm']}")
-            if r['dt'] == '08/26/2025' and r.amt == -213936.95	 :
-                oDict = owners.find(by = 'Francis X')
-                return self.acctDict(f'Acct.Asset.Purchase',self.llc.objName,f"Purchase Property: 805 High Mesa")
-        
     def _classifyExpense(self, d, **kwargs):
         '''
         Classify transactions
@@ -138,7 +141,7 @@ class ledgerClassify(object):
         if tDict : return tDict
 
         # Expense, unknown/misc
-        return self.acctDict('Acct.Cash.Misc','Misc',f"Misc Expense")
+        return self.acctDict('Acct.Exp.Misc','Misc',f"Misc Expense")
 
     def _isSupplier(self, d):
         if 'purchase authorized' in d:
@@ -151,15 +154,15 @@ class ledgerClassify(object):
         # Process repeating expenses
         # Handle special matches, venmo & 251022 ==> repaire
         '''
-        expKWDict = {"comwsc": ['Acct.Cash.Util','Water','Pay Monthly Util'],
-                     "pedernales" :['Acct.Cash.Util','Elec','Pay Monthly Util'],
-                     "dispre.al" : ['Acct.Cash.Util','Waste','Pay Monthly Util'],
-                     "allstate" : ['Acct.Cash.Util','Ins_Home','Pay Monthly Util'],
-                     "check # 101" : ['Acct.Cash.Util','Water','Pay Monthly Util'],
-                     "check # 102" : ['Acct.Cash.Util','Util','Pay Electrician Repair Outlet'],
-                     "venmo&&251022" : ['Acct.Cash.Expense','Maintenance','Repair Utility Outlet,Electrician'],
-                     "promotion bonus" : ['Acct.Interest.Income','Bank','Bank Promotion for account openning'],
-                     "wfb opening deposit" : ['Acct.Cash.Investment','o20250801-1','Initial see to open account'],
+        expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
+                     "pedernales" :['Acct.Exp.Util','Elec','Pay Monthly Util'],
+                     "dispre.al" : ['Acct.Exp.Util','Waste','Pay Monthly Util'],
+                     "allstate" : ['Acct.Exp.Util','Ins_Home','Pay Monthly Util'],
+                     "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
+                     "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
+                     "venmo&&251022" : ['Acct.Exp.Maint','Maintenance','Repair Utility Outlet,Electrician'],
+                     "promotion bonus" : ['Acct.Rev.Other','Bank','Bank Promotion for account openning'],
+                     "BankOpen WF opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],
                     }
         for k,expDict in expKWDict.items():
             if '&&' in k:
@@ -177,7 +180,7 @@ class ledgerClassify(object):
         
     def _isPurchase(self, d, pList=None):
         if pList is None:
-            # Match patterns based on expense description
+            # Match patterns based on expense description : PURCHASE*. match to vendor name in bank desc
             patPurchase = r'^.*(purchase authorized|purchase return authorized).*?\s+on\s+(\S+)\s*(.*)'
             pList = [dict(pat = patPurchase, dt=2, who=3)]
             
@@ -186,7 +189,8 @@ class ledgerClassify(object):
             mList = re.split(pDict['pat'], d)
             if mList is None :
                 continue
-                
+            
+            # Matches a property purchased    
             try:
                 dt = mList[pDict['dt']]
                 who = mList[pDict['who']]
@@ -195,7 +199,7 @@ class ledgerClassify(object):
                 # Unknown pattern
                 continue            
     
-            tDict = self.acctDict('Acct.Cash.Expense',
+            tDict = self.acctDict('Acct.Exp.Misc',
                              who.split()[0],
                              f"Expense: {dt} {who}")
             #print("D122 isPurchase", tDict, d)
@@ -206,7 +210,7 @@ class ledgerClassify(object):
         
     def _isCust(self, d):
         '''
-        Verify if customer transaction
+        Match transaction if Cust Nm is in bank description, return Cust dict
         '''
         for cDict in llcCustomers(llc=self.llc, iterate=True):
             if self._isinDesc(d, cDict['nm']) : return cDict['oID']
@@ -214,7 +218,7 @@ class ledgerClassify(object):
 
     def _isOwner(self, d):
         '''
-        Verify if owner transaction
+        Match transaction if Owner Nm is in bank description, return Owner dict
         '''
         for oDict in llcOwners(llc=self.llc, iterate=True):
             if self._isinDesc(d, oDict['nm']) : 
