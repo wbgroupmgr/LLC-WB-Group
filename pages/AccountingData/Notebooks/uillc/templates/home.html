@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>🏠 Home</h2>
+    <p class="muted">Session-backed LLC management UI</p>
+</div>
+
+<div class="panel">
+    <h3>📚 Available Views</h3>
+    <ul>
+        {% for v in available_views %}
+        <li>
+            <a href="/view/{{ v.name }}">{{ v.label }}</a>
+            {% if v.under_construction %} — 🚧 under construction{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="panel">
+    <h3>🧠 eSession Objects</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Object Name</th>
+                    <th>Raw Session Key</th>
+                    <th>Working File</th>
+                    <th>Object File</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in session_views %}
+                <tr>
+                    <td>{{ item.name }}</td>
+                    <td>{{ item.raw_name }}</td>
+                    <td>{{ item.working_file }}</td>
+                    <td>{{ item.object_file }}</td>
+                </tr>
+                {% endfor %}
+                {% if not session_views %}
+                <tr>
+                    <td colspan="4">No session objects found.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

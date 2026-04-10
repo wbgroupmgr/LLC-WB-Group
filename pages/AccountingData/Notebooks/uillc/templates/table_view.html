@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const RAW_ROWS = {{ raw_rows|tojson }};
+    const COLUMNS = {{ columns|tojson }};
+    let editorMode = "edit";
+    let activeRecordId = null;
+
+    function parseValue(value) {
+        const trimmed = String(value).trim();
+        if (trimmed === "") return "";
+        if (trimmed === "true") return true;
+        if (trimmed === "false") return false;
+        if (!isNaN(trimmed) && String(Number(trimmed)) === trimmed) return Number(trimmed);
+
+        if (
+            (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+            (trimmed.startsWith("[") && trimmed.endsWith("]"))
+        ) {
+            try { return JSON.parse(trimmed); } catch (e) {}
+        }
+        return value;
+    }
+
+    function rowIdFor(row, index) {
+        return String((row && (row.id ?? row.oID)) ?? index);
+    }
+
+    function findRow(recordId) {
+        for (let i = 0; i < RAW_ROWS.length; i++) {
+            if (rowIdFor(RAW_ROWS[i], i) === String(recordId)) {
+                return { row: RAW_ROWS[i], index: i };
+            }
+        }
+        return { row: null, index: -1 };
+    }
+
+    async function postCmd(params) {
+        const form = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+            form.append(k, typeof v === "string" ? v : JSON.stringify(v));
+        }
+
+        const res = await fetch(`/api/${OBJ_TYPE}/cmd`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: form.toString()
+        });
+
+        return await res.json();
+    }
+
+    function openBackdrop(id) {
+        document.getElementById(id).style.display = "flex";
+    }
+
+    function closeBackdrop(id) {
+        document.getElementById(id).style.display = "none";
+    }
+
+    function renderFieldEditor(title, payload) {
+        document.getElementById("recordEditorTitle").textContent = title;
+        const host = document.getElementById("recordEditorFields");
+        host.innerHTML = "";
+
+        COLUMNS.forEach(col => {
+            const wrap = document.createElement("div");
+            wrap.className = "field";
+
+            const label = document.createElement("label");
+            label.textContent = col;
+
+            const input = document.createElement("input");
+            input.type = "text";
+            input.id = `edit-field-${col}`;
+            input.value = payload[col] === undefined || payload[col] === null
+                ? ""
+                : (typeof payload[col] === "object" ? JSON.stringify(payload[col]) : String(payload[col]));
+
+            wrap.appendChild(label);
+            wrap.appendChild(input);
+            host.appendChild(wrap);
+        });
+
+        openBackdrop("recordEditorBackdrop");
+    }
+
+    function renderJsonEditor(title, payload) {
+        document.getElementById("jsonEditorTitle").textContent = title;
+        document.getElementById("jsonEditorText").value = JSON.stringify(payload, null, 2);
+        openBackdrop("jsonEditorBackdrop");
+    }
+
+    function openAddEditor() {
+        editorMode = "add";
+        activeRecordId = null;
+        const payload = {};
+        COLUMNS.forEach(col => payload[col] = "");
+        renderFieldEditor("Add Record", payload);
+    }
+
+    function openEditEditor(recordId) {
+        const match = findRow(recordId);
+        if (!match.row) {
+            alert("Record not found");
+            return;
+        }
+        editorMode = "edit";
+        activeRecordId = recordId;
+        renderFieldEditor(`Edit Record: ${recordId}`, match.row);
+    }
+
+    function openAddJsonEditor() {
+        editorMode = "add_json";
+        activeRecordId = null;
+        renderJsonEditor("Add Record JSON", {});
+    }
+
+    function openEditJsonEditor(recordId) {
+        const match = findRow(recordId);
+        if (!match.row) {
+            alert("Record not found");
+            return;
+        }
+        editorMode = "edit_json";
+        activeRecordId = recordId;
+        renderJsonEditor(`Json: ${recordId}`, match.row);
+    }
+
+    async function doneFieldEditor() {
+        const payload = {};
+        for (const col of COLUMNS) {
+            const el = document.getElementById(`edit-field-${col}`);
+            if (!el) continue;
+            payload[col] = parseValue(el.value);
+        }
+
+        let result;
+        if (editorMode === "add") {
+            result = await postCmd({ cmd: "add", payload: payload });
+        } else {
+            result = await postCmd({ cmd: "update", id: activeRecordId, payload: payload });
+        }
+
+        if (!result.ok) {
+            alert(result.error || "Save failed");
+            return;
+        }
+
+        closeBackdrop("recordEditorBackdrop");
+        location.reload();
+    }
+
+    async function doneJsonEditor() {
+        let payload;
+        try {
+            payload = JSON.parse(document.getElementById("jsonEditorText").value);
+        } catch (err) {
+            alert("Invalid JSON");
+            return;
+        }
+
+        let result;
+        if (editorMode === "add_json") {
+            result = await postCmd({ cmd: "add", payload: payload });
+        } else {
+            result = await postCmd({ cmd: "update", id: activeRecordId, payload: payload });
+        }
+
+        if (!result.ok) {
+            alert(result.error || "Save failed");
+            return;
+        }
+
+        closeBackdrop("jsonEditorBackdrop");
+        location.reload();
+    }
+
+    async function deleteRow(recordId) {
+        if (!confirm("Delete this record?")) return;
+        const result = await postCmd({ cmd: "delete", id: recordId });
+        if (!result.ok) {
+            alert(result.error || "Delete failed");
+            return;
+        }
+        location.reload();
+    }
+
+    async function saveObject() {
+        const result = await postCmd({ cmd: "save_object" });
+        if (!result.ok) {
+            alert(result.error || "Publish failed");
+            return;
+        }
+        alert("Working data published to object file.");
+        location.reload();
+    }
+
+    async function resetFromObject() {
+        if (!confirm("Reset working file from object file?")) return;
+        const result = await postCmd({ cmd: "reset_from_object" });
+        if (!result.ok) {
+            alert(result.error || "Reset failed");
+            return;
+        }
+        alert("Working file reset from object file.");
+        location.reload();
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+    <div class="panel">
+        <h2>📋 {{ obj_type }}</h2>
+        <p class="muted">Records are committed to the wk object when you click Done.</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in stats_rows %}
+                    <tr>
+                        <td><strong>{{ row.key }}</strong></td>
+                        <td><pre style="margin:0; white-space:pre-wrap;">{{ row.value }}</pre></td>
+                    </tr>
+                    {% endfor %}
+                    {% if not stats_rows %}
+                    <tr>
+                        <td colspan="2">No stats available.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>🗂️ File Metadata</h3>
+        <pre>{{ meta | tojson(indent=2) }}</pre>
+        <div class="toolbar">
+            <button class="btn btn-success" onclick="openAddEditor()">Add Record</button>
+            <button class="btn btn-warning" onclick="openAddJsonEditor()">Json</button>
+            <button class="btn btn-secondary" onclick="resetFromObject()">Reset Working ← Object</button>
+            <button class="btn btn-primary" onclick="saveObject()">Publish Working → Object</button>
+            <button class="btn btn-secondary" onclick="location.reload()">Refresh</button>
+        </div>
+    </div>
+</div>
+
+{% if show_view_options %}
+<div class="panel">
+    <h3>👁️ View Options</h3>
+    <div class="toolbar">
+        <a class="btn {% if view_mode == 'account' %}btn-primary{% else %}btn-secondary{% endif %}" href="/view/{{ obj_type }}?viewMode=account">By Account</a>
+        <a class="btn {% if view_mode == 'property' %}btn-primary{% else %}btn-secondary{% endif %}" href="/view/{{ obj_type }}?viewMode=property">By Property</a>
+        <a class="btn {% if view_mode == 'all' %}btn-primary{% else %}btn-secondary{% endif %}" href="/view/{{ obj_type }}?viewMode=all">By ALL</a>
+    </div>
+    <p class="muted">Visible fields follow the selected ordered view definition.</p>
+</div>
+{% endif %}
+
+<div class="panel">
+    <h3>🧾 Records</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th class="nowrap">Actions</th>
+                    {% for col in columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="nowrap">
+                        <button class="btn btn-primary" title="Edit" onclick='openEditEditor({{ row._record_id|tojson }})'>✏️</button>
+                        <button class="btn btn-warning" title="Json" onclick='openEditJsonEditor({{ row._record_id|tojson }})'>🧾</button>
+                        <button class="btn btn-danger" title="Delete" onclick='deleteRow({{ row._record_id|tojson }})'>🗑️</button>
+                    </td>
+                    {% for col in columns %}
+                    <td>{{ display_scalar(row.data.get(col, "")) }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                {% if not rows %}
+                <tr>
+                    <td colspan="{{ columns|length + 1 }}">No records found.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="recordEditorBackdrop" class="modal-backdrop" onclick="if(event.target===this) closeBackdrop('recordEditorBackdrop')">
+    <div class="modal">
+        <h3 id="recordEditorTitle">Edit Record</h3>
+        <div id="recordEditorFields" class="form-grid"></div>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="closeBackdrop('recordEditorBackdrop')">Cancel</button>
+            <button class="btn btn-primary" onclick="doneFieldEditor()">Done</button>
+        </div>
+    </div>
+</div>
+
+<div id="jsonEditorBackdrop" class="modal-backdrop" onclick="if(event.target===this) closeBackdrop('jsonEditorBackdrop')">
+    <div class="modal">
+        <h3 id="jsonEditorTitle">Json</h3>
+        <div class="field">
+            <label for="jsonEditorText">Record JSON</label>
+            <textarea id="jsonEditorText" style="min-height: 420px;"></textarea>
+        </div>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="closeBackdrop('jsonEditorBackdrop')">Cancel</button>
+            <button class="btn btn-primary" onclick="doneJsonEditor()">Done</button>
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>💾 Raw Working JSON Snapshot</h3>
+    <pre>{{ raw_rows | tojson(indent=2) }}</pre>
+</div>
+{% endblock %}

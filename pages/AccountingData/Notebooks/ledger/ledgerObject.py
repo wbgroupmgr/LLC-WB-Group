@@ -63,7 +63,7 @@ class ledgerObject(object):
 
     def load(self):
         '''
-        Load ledger objects as dicts
+        Load ledger objects:  dicts of transaction records
         return list of dicts representing a ledger object
         '''
         try:
@@ -71,6 +71,18 @@ class ledgerObject(object):
                 return json.load(fio)
         except Exception as err:
             print(f"{self.oID}: FAIL load: {self.FN()}, {err}")
+            return []
+
+    def save(self, oDict):
+        '''
+        Load ledger objects dict of transaction records
+        return list of dicts representing a ledger object
+        '''
+        try:
+            with open(self.FN(),'w') as fio:
+                return json.dump(oDict, fio, indent=4)
+        except Exception as err:
+            print(f"{self.oID}: FAIL save: {self.FN()}, {err}")
             return []
 
     def find(self, **kwargs):

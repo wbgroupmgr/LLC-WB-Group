@@ -7,6 +7,27 @@ import re
 from ledger.llcCustomers import llcCustomers
 from ledger.llcOwners import llcOwners
 
+# ---- patterns within transaction.desc to map to acct, acct 
+expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
+             "pedernales" :['Acct.Exp.Util','Elec','Pay Monthly Util'],
+             "dispre.al" : ['Acct.Exp.Util','Waste','Pay Monthly Util'],
+             "allstate" : ['Acct.Exp.Util','Ins_Home','Pay Monthly Util'],
+             "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
+             "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
+             "venmo&&251022" : ['Acct.Exp.Repair','Maintenance','Repair Utility Outlet,Electrician'],
+             "promotion bonus" : ['Acct.Cash.Bank._Other.Promotion','Bank','Bank Promotion for account openning'],
+             "bankOpen wf opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],    
+             "purchase authorized" : ['Acct.Exp.Other',np.nan,'Approved Purchase'],
+             "acctverify" : ['Acct.Cash.Bank._Other',np.nan,'Customer payment setup'],
+             "nicola" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "alejandro" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "zelle from" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "purchase return" : ['Acct.Exp.Other',np.nan,'Return of materials'],
+             "fed#02m03" : ['Acct.Cash.Bank',np.nan,'Owner investment'],
+             "withdrawal" : ['Acct.Fixed.Tangible.InService',np.nan,'Property Purchase'],
+             "deposit" : ['Acct.Cash.Bank',np.nan,'Owner Investment'],
+            }
+
 class ledgerClassify(object):
     '''
     Accounting Practices / Statements
@@ -141,7 +162,7 @@ class ledgerClassify(object):
         if tDict : return tDict
 
         # Expense, unknown/misc
-        return self.acctDict('Acct.Exp.Misc','Misc',f"Misc Expense")
+        return self.acctDict('Acct.Exp.Other','Misc',f"Misc Expense")
 
     def _isSupplier(self, d):
         if 'purchase authorized' in d:
@@ -149,22 +170,16 @@ class ledgerClassify(object):
         elif 'purchase return authorized' in d:
             supplier = d.split('on')[1].strip()
 
-    def _isMatch(self, d):
+    def _isMatch(self, d, **kwargs):
         '''
         # Process repeating expenses
         # Handle special matches, venmo & 251022 ==> repaire
         '''
-        expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
-                     "pedernales" :['Acct.Exp.Util','Elec','Pay Monthly Util'],
-                     "dispre.al" : ['Acct.Exp.Util','Waste','Pay Monthly Util'],
-                     "allstate" : ['Acct.Exp.Util','Ins_Home','Pay Monthly Util'],
-                     "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
-                     "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
-                     "venmo&&251022" : ['Acct.Exp.Maint','Maintenance','Repair Utility Outlet,Electrician'],
-                     "promotion bonus" : ['Acct.Rev.Other','Bank','Bank Promotion for account openning'],
-                     "BankOpen WF opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],
-                    }
-        for k,expDict in expKWDict.items():
+
+        kwDict = kwargs.get('kwDict', expKWDict)
+
+        for k,expDict in kwDict.items():
+            ## Special case of venmo payment
             if '&&' in k:
                 kList = k.split('&&')
                 k = kList[0]
@@ -199,7 +214,7 @@ class ledgerClassify(object):
                 # Unknown pattern
                 continue            
     
-            tDict = self.acctDict('Acct.Exp.Misc',
+            tDict = self.acctDict('Acct.Exp.Other',
                              who.split()[0],
                              f"Expense: {dt} {who}")
             #print("D122 isPurchase", tDict, d)

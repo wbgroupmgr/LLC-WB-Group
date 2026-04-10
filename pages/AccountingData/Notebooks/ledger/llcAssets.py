@@ -66,10 +66,11 @@ Asset accounts determine how much a member is owed if they leave, sell their sha
 
 '''
 import os
-from ledger.ledgerObject import ledgerObject
 import pandas as pd
 import numpy as np
 import datetime
+
+from ledger.ledgerDB import ledgerDB
 
 # Get balances from most ledgers, debit:+ , credit:-
 getBal = lambda df : df.apply(lambda r: abs(r.amt) if r.aType == 'Debit' else -abs(r.amt), axis=1)
@@ -79,7 +80,7 @@ getBalSh = lambda df : df.apply(lambda r: -abs(r.amt) if r.aType == 'Debit' else
     
 
 
-class balanceSheet(ledgerObject):
+class balanceSheet(ledgerDB):
     # Display Balance Sheet
     '''
     - Cash (investment, +amt)   : Acct.Equity.Cash     : Assets.Liability.Cash
@@ -91,7 +92,8 @@ class balanceSheet(ledgerObject):
     '''
     
     ##--- llcAsset DB defines dual accounts per transactions : GenLeder <=> AssetLedger
-    
+
+
     #---  Classify Account
     def _clsAL(self, c):
         if 'Equity' in c : return 'Equity'
@@ -134,7 +136,9 @@ class balanceSheet(ledgerObject):
         df['bal'] = getBalSh(df)
         
         # Reduct view 
-        col = ['dt','aType', 'acct','amt', 'Ledger', 'bal', 'desc','AL', 'propNm', 'propRef', 'aID']
+        ## FIXME - what columns should be used i assetsAccts
+        #col = ['dt','aType', 'acct','amt', 'Ledger', 'bal', 'desc','AL', 'propNm', 'propRef', 'aID']
+        col = df.columns
         return df[col].copy()
     
     def getBalanceSheet(self):
@@ -184,6 +188,7 @@ class balanceSheet(ledgerObject):
 
 # class llcAssets
 class llcAssets(balanceSheet):
+    
     def __init__(self, llc, **kwargs):
         super().__init__(llc, **kwargs)
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
@@ -193,6 +198,12 @@ class llcAssets(balanceSheet):
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
 
+    def toDF(self):
+        return super().toDF()
+    
+    def toGL(self, gl, **kwargs):
+        return super().toGL(gl, **kwargs)
+        
     def _BegBal(self):
         '''
         Return annual Beginning Balance
@@ -204,7 +215,7 @@ class llcAssets(balanceSheet):
             if aDict['acct'] == 'Acct.Cash.Balance' and  kDesc in aDict['desc'] : 
                 return aList[0]['amt']
 
-        print(f"WARNING: No {k} in llcAsset DB,acct = Acct.Cash.Balance. -- default to 0.0")
+        print(f"WARNING: No {kDesc} in llcAsset DB,acct = Acct.Cash.Balance. -- default to 0.0")
         return 0.0
 
     def investments(self):

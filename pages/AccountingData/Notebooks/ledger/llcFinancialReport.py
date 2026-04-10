@@ -18,14 +18,15 @@ class llcFinancialReport(ledgerObject):
         self.md = mdIRS
 
         # Load Balance Sheet form llcAsset DB
-        self.bsDF = self.llc.assets().getBalanceSheet()
+        _ = self.llc.assets()
+        self.bsDF = self.llc.aObj.getBalanceSheet()
 
         # ---------------------------------------
         #    Accounting LLC global States
         self.begBal = self.llc._assets()._BegBal()
         self.yeBal = round(self.llc.bk.df.amt.sum(),2)
         self.yeEquity = round(self.bsDF.loc['Total'].Equity,2)
-        self.bsDepr = self.bsDF.loc['Asset.Asset.Depreciation.Accumulation'].Asset
+        self.bsDepr = 0 # FIXME depre account name?? self.bsDF.loc['Asset.Asset.Depreciation.Accumulation'].Asset
         self.dtReport = datetime.datetime.now().strftime('%Y.%m.%d')
 
     def displayProfile(self):

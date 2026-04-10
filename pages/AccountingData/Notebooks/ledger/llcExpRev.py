@@ -1,21 +1,22 @@
 '''
-manage expenses
+manage Expenses and Revenues
 
 
 
 
 '''
 import os
-from ledger.ledgerObject import ledgerObject
 import pandas as pd
 import datetime
 
+from ledger.ledgerDB import ledgerDB
+
 
 # class llcAssets
-class llcExpenses(ledgerObject):
+class llcExpRev(ledgerDB):
     def __init__(self, llc, **kwargs):
         super().__init__(llc, **kwargs)
-        self.md = mdIRS. # Display Tios/Guidelines
+        self.md = mdIRS # Display Tios/Guidelines
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
             
     def FN(self): 
@@ -27,14 +28,12 @@ class llcExpenses(ledgerObject):
         '''
         Import Bk DF and produce a set of new expense entries
           - assign unique ID to each Expense:  dt_amt_Acct_Acct_Sub
-          - Expense Recored
-                Date: The date the expense was paid.
-                Description: A clear description of the item or service (e.g., "HVAC repair," "Monthly Landscaping").
-                Amount: The total cost.
-                Category: The IRS Schedule E category.
-                Vendor/Payee: Who was paid.
-                Payment Method: Check #, Credit Card, or Bank Transfer.
-                Supporting Documentation: Receipt or invoice number. 
+                
+                
+                
+
+                ['tID', 'propNm', 'dt', 'amt', 'aType', 'desc', 'addr', 'propRef',
+       'Acct', 'stakeholderPct', 'kwList', 'bal', 'acctType']
         '''
 
         df == df[df.TransType == 'Exp'].copy()

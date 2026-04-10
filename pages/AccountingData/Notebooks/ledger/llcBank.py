@@ -6,15 +6,55 @@ this version is based on WellsFargo business bank account
 import os
 from pathlib import Path
 import pandas as pd
+import numpy as np
 import json
 import datetime
 
 from ledger.ledgerObject import ledgerObject
 from ledger.ledgerClassify import ledgerClassify
+from ledger.llcCOA import ChartOfAccounts as llcCOA
+
+# -------- Heuristic pattern matching : derive info from patterns in desc field
+#           infer best acct, acctSub and other info
+#           This will need to be updated over time
+
+# ---- patterns within transaction.desc to map to acct, acct 
+expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
+             "pedernales" :['Acct.Exp.Util','Elec','Pay Monthly Util'],
+             "dispre.al" : ['Acct.Exp.Util','Waste','Pay Monthly Util'],
+             "allstate" : ['Acct.Exp.Util','Ins_Home','Pay Monthly Util'],
+             "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
+             "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
+             "venmo&&251022" : ['Acct.Exp.Repair','Maintenance','Repair Utility Outlet,Electrician'],
+             "promotion bonus" : ['Acct.Cash.Bank._Other.Promotion','Bank','Bank Promotion for account openning'],
+             "bankOpen wf opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],    
+             "purchase authorized" : ['Acct.Exp.Other',np.nan,'Approved Purchase'],
+             "acctverify" : ['Acct.Cash.Bank._Other',np.nan,'Customer payment setup'],
+             "nicola" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "alejandro" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "zelle from" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "purchase return" : ['Acct.Exp.Other',np.nan,'Return of materials'],
+             "fed#02m03" : ['Acct.Cash.Bank',np.nan,'Owner investment'],
+             "withdrawal" : ['Acct.Cash.Bank._withdrawal',np.nan,'Property Purchase'],
+             "deposit" : ['Acct.Cash.Bank',np.nan,'Owner Investment'],
+            }
+
+# Map acct -> Ledger via Bk Stmt acct
+lDict = {'Acct.Exp.Util': 'Acct.Cash.Bank', 
+         'Acct.Exp.Other': 'Acct.Cash.Bank', 
+         'Acct.Exp.Repair': 'Acct.Cash.Bank',
+         'Acct.Cash.Bank': 'Acct.Equity.Owner.Cash', 
+         'Acct.Cash.Bank._Rent' : 'Acct.Rev.OwnerRent',
+         'Acct.Cash.Bank._Other':'Acct.Rev.Other',
+         'Acct.Cash.Bank._Other.Promotion' : 'Acct.Rev.Other',
+         'Acct.Cash.Bank._withdrawal' : 'Acct.Fixed.Tangible.InService' # Bk Stmt is Credit, so reverse
+        }
+
 
 # class llcBank
 class llcBank(ledgerObject):
     '''
+    Manage bank csv files downloaded from WF (or other bank)
     - import LLC bank (Wells Fargo) csv transactions period
     - Merge csv with ledger - remove duplicates
     - classify all transactions into expense type
@@ -23,6 +63,8 @@ class llcBank(ledgerObject):
     def __init__(self, llc, **kwargs):
         self.xx = "llcBank"
         super().__init__(llc, **kwargs)
+        self.coa = llcCOA(llc)
+        self.lc = ledgerClassify(llc)
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
 
     def csvDIR(self):
@@ -60,9 +102,120 @@ class llcBank(ledgerObject):
         BN = f"{self.llcName}-BankStmt.csv"
         return os.path.join(DIR, BN)
 
+    def fetch(self, **kwargs):
+        self.importBankCSV(**kwargs)
+        self.df = self.wrangleLedger()
+        return
+
     def saveBk(self):
         self.df.to_csv(os.bkFN(), index=False)
+
+    def _loadRawDF(self):
+        '''
+        IMport bk CSV - raw form
+        '''
         
+        self.importBankCSV()
+        df = self.df.sort_values(by='dt', ascending=True).reset_index(drop=True).copy()
+
+        df.amt = abs(df.amt)
+        df['aType'] = df.apply(lambda r : 'Debit' if r.TransType == 'Rev' else 'Credit', axis=1)
+        
+        df.drop(columns = ['TransType', 'CheckNo', 'C2'], inplace=True)
+        return df
+
+   
+    def _loadRawList(self, rawDF):
+        '''
+        Load list of transaction Raw Bk Stmt csv -> COA std rec dict (empty)
+        - fields dt, abs(amt), aType, desc + 
+        ''' 
+
+        # ---- Step 2 : extend transaction with empty COA RecDict fields
+
+        # map each transaction into std coa.toRecDict fields - many will be empty
+        rawList = [self.coa.toRecDict(**d) for d in rawDF.to_dict(orient='records')]
+
+        return rawList
+
+    def _loadDescList(self, descRawList):
+        # ---- Step 3 :  descList : table of dict with best definition of  acct, acctSub, TDesc - using pattern matching
+        #      If None, then no pattern found - review and re-iterate
+        #.     acct is used to derive Ledger account (dual accounting)
+        #.     use Nodes._Extra to identify Ledger, ie. Extra --> Unique Ledger
+        descList = [self.lc._isMatch(desc.lower(), kwDict=expKWDict) for desc in descRawList]
+
+        # ---- Step 3a : check if new transaction have no account
+        mList = [desc for desc,d in zip(descRawList, descList) if d is None]
+        if len(mList) > 0 :
+            print("llcBank.loadRawList: ERROR - No acct for some new transaction")
+            print(mList)
+            ## Stop workflow until resolvedx
+            return None
+            
+        return descList
+
+    def _loadWorkList(self, rawList, acctList):
+        '''
+        Fill in transaction dict within rawList with account inference from acctList (derived from descList)
+        '''
+        # Merge 2 lists into the std RecDict
+        wList = []
+        for tDict,d in zip(rawList, acctList):
+            # Update heuristic matching info
+            a = d['Acct']
+            tDict['acct'] = a.split('._')[0]
+            tDict['Ledger'] = lDict[a]
+            
+            tDict['acctSub'] = d['AcctSub']
+            
+            bkDesc = tDict['desc']
+            erDesc = d['TDesc']
+            
+            tDict['refDoc'] = bkDesc
+            tDict['desc'] = erDesc
+        
+            # Property info
+            tDict['propNm'] = 'H_805HighMesa'
+        
+            # bank Transaction Info
+            tDict['tID'] = f"{tDict['dt']}_{tDict['amt']}"
+            tDict['tDB'] = 'llcBank'
+        
+            # ---- reference the original source : bamk
+            tDict['refDB'] = 'llcBank'
+
+            wDict = tDict.copy()
+            #del wDict['_unknown']
+            
+            wList.append(wDict)
+        return wList
+
+
+
+        
+
+
+
+    def toDF(self):
+        '''
+        Load Bk Stmt CSV (downloaded from Bk)
+        '''
+
+        # ----- step 1 : import rawDF :: load csv into raw CSV, raw columns
+        rawDF = self._loadRawDF()
+
+        # ----- Step 2 : load rawList
+        rawList = self._loadRawList(rawDF)
+
+        # ----- Step 3 : load descList 
+        descList = self._loadDescList(rawDF.desc.lower())
+        if descList is None : return None # Workflow is halted until all accounts are determined.
+
+        # ----- Step 4 : load workList (final transaction list for feed llcExpRev
+        workList = self._loadWorkList(rawList, descList)
+        return pd.DataFrame(workList)
+
 
     def wrangleLedger(self):
         '''
@@ -100,7 +253,3 @@ class llcBank(ledgerObject):
         # Return General Ledger - all Transactions
         return glDF
 
-    def fetch(self, **kwargs):
-        self.importBankCSV(**kwargs)
-        self.df = self.wrangleLedger()
-        return
