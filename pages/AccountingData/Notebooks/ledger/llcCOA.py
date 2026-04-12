@@ -7,6 +7,7 @@ Chart Of Accounts DB
 
 import pandas as pd
 import numpy as np
+from typing import Any, Dict, List
 from ledger.ledgerDB import ledgerDB
 
 
@@ -24,8 +25,14 @@ class ChartOfAccounts(ledgerDB):
                          llcCustomers = 'cs',
                          llcOwners = 'ur',
                          llcBank = 'bk')
-        
 
+    def load(self):
+        # Return list of COA accounts details
+        return self.loadAll()['coaDict']
+
+    def loadAll(self):
+        # Return list of COA accounts details
+        return super().load()
 
     def get(self, acct):
 
@@ -63,10 +70,14 @@ class ChartOfAccounts(ledgerDB):
             return '0000'
 
     def _Type(self, acct):
-        aType = ['na', 'Assets', 'Liabilities', 'Equities', 'Income', 'Expense']
+        '''
+        Map acct form ('Acct.x.y.c') -> Accountint type
+        '''
+        aType = ['na', 'Asset', 'Liability', 'Equity', 'Income', 'Expense', 'Appreciation']
 
         aDict = self.get(acct)
-        if aDict is None : return f"Bad_{acct}"
+        if aDict is None : 
+            return f"Bad_{acct}"
         try: 
             aID = self._ID(acct)
             i = int(aID[0])
@@ -74,6 +85,32 @@ class ChartOfAccounts(ledgerDB):
         except:
             return f"Bad_{acct}"
 
+    def toAcctType(self, recDict: Dict[str, Any], fromField=None) -> List[Dict[str, Any]]:
+        '''
+        Add field acctType to transaction record (dict)
+        determine acctType based on 
+        Debit :: Ledger
+        Credit :: acct
+
+        Input : transaction Dict that constins atype(Debit/Credit) and acct/Ledger (account URL)
+        '''
+        tDict = dict(recDict)
+        if fromField is None:
+            # determine account type based on Debit/Credit
+            aType = tDict.get('aType')
+            if aType == 'Debit' :
+                acct = tDict.get('Ledger')
+            else:
+                acct = tDict.get('acct')
+        else:                
+            # Force account type
+            acct = tDict.get(fromField)
+            
+        acct_type = self._Type(acct)
+        tDict['acctType'] = acct_type
+        return tDict
+        
+        
     def toDF(self):
         coaDF = pd.DataFrame(self.load()).transpose()
         coaDF['acctType'] = coaDF.apply(lambda r : self._Type(r.name),axis=1)

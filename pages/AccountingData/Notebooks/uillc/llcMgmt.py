@@ -1,7 +1,11 @@
+'''
+Timestampe of last change : ModTime>
+'''
+
 import json
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from flask import Flask, jsonify, render_template, request
 
@@ -22,16 +26,15 @@ class llcMgmt:
 
     RECORD_VIEW_OPTIONS = {
         "account": [
-            "dt", "amt", "aType", "acct", "Ledger", "acctMajor",
-            "acctMinor", "acctSub", "desc",
+            "dt", "amt", "aType", "acct", "acctType", "Ledger", "acctSub", "desc",
         ],
         "property": [
             "dt", "amt", "aType", "acct", "Ledger",
             "propNm", "propID", "propAddr", "propOwners",
         ],
         "all": [
-            "dt", "desc", "amt", "aType", "acct", "Ledger", "acctMajor",
-            "acctMinor", "acctSub", "propNm", "propID", "propAddr", "propOwners",
+            "dt", "amt", "aType", "acct", "acctType", "Ledger", "desc",
+            "acctSub", "propNm", "propID", "propAddr", "propOwners",
             "tID", "tDB", "refDB", "refDoc", "_unknown",
         ],
     }
@@ -107,7 +110,7 @@ class llcMgmt:
     def _default_columns(self, obj_type: str) -> List[str]:
         defaults = {
             "llcAssets": ["acctType", "oID", "name", "desc", "category", "amount", "date", "notes"],
-            "llcExpRev": ["acctType", "oID", "date", "desc", "type", "amount", "notes"],
+            "llcExpRev": ["acctType", "oID", "date", "type", "amount", "desc", "notes"],
         }
         return defaults.get(obj_type, ["oID", "name"])
 
@@ -121,6 +124,7 @@ class llcMgmt:
             "account": "account",
             "acct": "account",
             "by property": "property",
+            "byproperty": "property",
             "property": "property",
             "prop": "property",
             "by all": "all",
@@ -157,20 +161,29 @@ class llcMgmt:
         return s if len(s) <= 64 else s[:61] + "..."
 
     def _format_stat_value(self, value: Any) -> str:
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False, indent=2)
+        if isinstance(value, bool):
+            return "true" if value else "false"
         if value is None:
             return ""
         return str(value)
 
-    def _stats_rows(self, stats: Dict[str, Any]) -> List[Dict[str, str]]:
-        rows = []
+    def _stats_labels(self, stats: Dict[str, Any]) -> List[Dict[str, str]]:
+        labels: List[Dict[str, str]] = []
         for key, value in (stats or {}).items():
-            rows.append({
-                "key": str(key),
-                "value": self._format_stat_value(value),
-            })
-        return rows
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    labels.append({
+                        "value": self._format_stat_value(sub_value),
+                        "text": str(sub_key),
+                        "group": str(key),
+                    })
+            else:
+                labels.append({
+                    "value": self._format_stat_value(value),
+                    "text": str(key),
+                    "group": "",
+                })
+        return labels
 
     def _parse_payload(self, payload, default):
         if payload is None or payload == "":
@@ -182,12 +195,21 @@ class llcMgmt:
     def _row_id(self, row: Dict[str, Any], index: int) -> str:
         return str(row.get("id", row.get("oID", index)))
 
-    def _view_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _parse_changed_ids(self) -> Set[str]:
+        raw = request.args.get("chg", "")
+        if not raw:
+            return set()
+        return {x.strip() for x in raw.split(",") if x.strip()}
+
+    def _view_rows(self, rows: List[Dict[str, Any]], changed_ids: Set[str] = None) -> List[Dict[str, Any]]:
+        changed_ids = changed_ids or set()
         result = []
         for idx, row in enumerate(rows):
+            record_id = self._row_id(row, idx)
             result.append({
                 "_row_index": idx,
-                "_record_id": self._row_id(row, idx),
+                "_record_id": record_id,
+                "_changed": record_id in changed_ids,
                 "data": row,
             })
         return result
@@ -227,12 +249,13 @@ class llcMgmt:
                 meta = manager.meta() if manager else {"objectName": obj_type}
                 return render_template(
                     "construction.html",
-                    title=obj_type,
+                    title=self.title,
                     obj_type=obj_type,
                     meta=meta
                 )
 
             view_mode = self._normalize_view_mode(request.args.get("viewMode", "all"))
+            changed_ids = self._parse_changed_ids()
             rows = manager.load()
             columns = self._get_columns(rows, obj_type, view_mode=view_mode)
             stats = manager.stats()
@@ -241,11 +264,11 @@ class llcMgmt:
                 "table_view.html",
                 title=self.title,
                 obj_type=obj_type,
-                rows=self._view_rows(rows),
+                rows=self._view_rows(rows, changed_ids),
                 raw_rows=rows,
                 columns=columns,
                 stats=stats,
-                stats_rows=self._stats_rows(stats),
+                stats_labels=self._stats_labels(stats),
                 meta=manager.meta(),
                 display_scalar=self._display_scalar,
                 view_mode=view_mode,
@@ -294,7 +317,8 @@ class llcMgmt:
                 rows = manager.load()
                 rows.append(payload)
                 saved = manager.save(rows)
-                return jsonify({"ok": True, "data": saved})
+                new_id = self._row_id(saved[-1], len(saved) - 1) if saved else ""
+                return jsonify({"ok": True, "data": saved, "changedRecordId": new_id})
 
             if cmd == "update":
                 record_id = request.values.get("id")
@@ -312,7 +336,7 @@ class llcMgmt:
                     return jsonify({"ok": False, "error": "Record not found"}), 404
 
                 saved = manager.save(rows)
-                return jsonify({"ok": True, "data": saved})
+                return jsonify({"ok": True, "data": saved, "changedRecordId": str(record_id)})
 
             if cmd == "delete":
                 record_id = request.values.get("id")

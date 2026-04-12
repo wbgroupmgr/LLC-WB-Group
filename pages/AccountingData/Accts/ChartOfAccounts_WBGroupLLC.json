@@ -1,182 +1,222 @@
-{
-    "Acct.Cash.Bank": {
-        "acctCat": "Acct.Cash",
-        "acctSub": "Bank",
-        "acctID": "1010",
-        "aacctDesc": "Cash in Bank (Operating Account)"
+{"coaDict" : {
+        "Acct.Cash.Bank": {
+            "acctID": "1010",
+            "acctDesc": "(Operating Bank Account: Cash )"
+        },
+        "Acct.Cash.Security": {
+            "acctID": "1020",
+            "acctDesc": "Security Deposit Trust Account (Funds held for tenants; must be kept separate)"
+        },
+        "Acct.Fixed.Tangible.InConstruction": {
+            "acctID": "1310",
+            "acctDesc": "Asset: Debit Buildings Not InService - purchase prices + construction Expenses"
+        },
+        "Acct.Fixed.Land": {
+            "acctID": "1410",
+            "acctDesc": "Land : value of land"
+        },
+        "Acct.Fixed.Tangible": {
+            "acctID": "1420",
+            "acctDesc": "Buildings (The purchase price of the physical structure)"
+        },
+        "Acct.Fixed.Tangible.InService": {
+            "acctID": "1430",
+            "acctDesc": "Building: Inservice value of building "
+        },
+        "Acct.Fixed.Depreciation.Accum": {
+            "acctID": "1460",
+            "acctDesc": "Accumulated Depreciation (A \"contra-asset\" account tracking the building's value loss over time)"
+        },
+        "Acct.Fixed.Tangible.Improvements": {
+            "acctID": "1470",
+            "acctDesc": "Buildings, Improvements (Major: new flooring, central A/C, complete remodels)"
+        },
+        "Acct.Liab.Payable": {
+            "acctID": "2010",
+            "acctDesc": "Accounts Payable (Unpaid bills to vendors)"
+        },
+        "Acct.Liab.Morgage": {
+            "acctID": "2100",
+            "acctDesc": "Mortgage Payable (The principal balance on your property loan)"
+        },
+        "Acct.Liab.Customer.Security": {
+            "acctID": "2200",
+            "acctDesc": "Tenant Security Deposits Held (This offsets the cash in your trust account)"
+        },
+        "Acct.Liab.Customer.Rent.Prepai": {
+            "acctID": "2300",
+            "acctDesc": "Prepaid Rent (Rent paid by tenants before it is due, first, last)"
+        },
+        "Acct.Equity.Owner.Capital.Funds": {
+            "acctID": "3010",
+            "acctDesc": "Owner Contribution, Personal funds, taxable, increase Outside Basis)"
+        },
+        "Acct.Equity.Owner.Capital.Dist": {
+            "acctID": "3020",
+            "acctDesc": "Owner Distribution, K1 Income, no change to outside basis."
+        },
+        "Acct.Equity.Owner.Capital.Reinvestment": {
+            "acctID": "3025",
+            "acctDesc": "Owner Contribution, tax-paid; increase Outside Basis"
+        },
+        "Acct.Equity.Earnings.PnL": {
+            "acctID": "3100",
+            "acctDesc": "Retained Earnings (Cumulative profit or loss from previous years)"
+        },
+        "Acct.Rev.Rent": {
+            "acctID": "4010",
+            "acctDesc": "Rental Income"
+        },
+        "Acct.Rev.Fees.Late": {
+            "acctID": "4020",
+            "acctDesc": "Late Fee Income"
+        },
+        "Acct.Rev.Fee.Other": {
+            "acctID": "4040",
+            "acctDesc": "Non-Refundable Fees (Pets, deposits)/Parking Fees"
+        },
+        "Acct.Rev.Services": {
+            "acctID": "4030",
+            "acctDesc": "Laundry/Vending Income"
+        },
+        "Acct.Rev.Util": {
+            "acctID": "4050",
+            "acctDesc": "Utility Reimbursement (If tenants pay you back for shared utilities)"
+        },
+        "Acct.Exp.Adv": {
+            "acctID": "5010",
+            "acctDesc": "Advertising"
+        },
+        "Acct.Exp.Maint": {
+            "acctID": "5020",
+            "acctDesc": "Cleaning and Maintenance"
+        },
+        "Acct.Exp.Ins": {
+            "acctID": "5030",
+            "acctDesc": "Insurance"
+        },
+        "Acct.Exp.Fees.Legal": {
+            "acctID": "5040",
+            "acctDesc": "Legal & Professional Fees (Accountants, lawyers)"
+        },
+        "Acct.Exp.Fees.Mgmt": {
+            "acctID": "5050",
+            "acctDesc": "Management Fees (If using a third-party manager)"
+        },
+        "Acct.Exp.Operating": {
+            "acctID": "5051",
+            "acctDesc": "Operating Exp, Subcriptions, HOA, etc."
+        },
+        "Acct.Exp.Int.Morg": {
+            "acctID": "5060",
+            "acctDesc": "Mortgage Interest (Interest only; principal goes to Liability 2100)"
+        },
+        "Acct.Exp.Repair": {
+            "acctID": "5070",
+            "acctDesc": "Repairs (Routine fixes like leaky faucets)"
+        },
+        "Acct.Exp.Depreciation": {
+            "acctID": "5075",
+            "acctDesc": "Depreciation Expense per period"
+        },
+        "Acct.Exp.Tax.Prop": {
+            "acctID": "5080",
+            "acctDesc": "Taxes (Property taxes)"
+        },
+        "Acct.Exp.Util": {
+            "acctID": "5090",
+            "acctDesc": "Utilities (Water, trash, common area electric)"
+        },
+        "Acct.Exp.Other": {
+            "acctID": "5099",
+            "acctDesc": "Misc - fallback if unknown)"
+        },
+        "Acct.Unrealized.Appreciation": {
+            "acctID": "6010",
+            "acctDesc": "Unrealized Gains - appreciation"
+        }
     },
-    "Acct.Cash.Security": {
-        "acctCat": "Acct.Cash",
-        "acctSub": "Security",
-        "acctID": "1020",
-        "aacctDesc": "1 Security Deposit Trust Account (Funds held for tenants; must be kept separate)"
+"nmDict":   {
+  "title": "COA Names Chart",
+  "Desc": "FIXME: Under Construction - map acct ID to Financial Report name",
+  "accounts": [
+    {
+      "names": [
+        {
+          "name": "Assets",
+          "language": "en"
+        }
+      ],
+      "code": "1000",
+      "category": true,
+      "debit": true
     },
-    "Acct.Fixed.Tangible.InConstuction": {
-        "acctCat": "Acct.Fixed",
-        "acctSub": "Tangible.InConstruction",
-        "acctID": "1310",
-        "aacctDesc": "Asset: Debit Buildings Not InService - purchase prices + construction Expenses"
+    {
+      "names": [
+        {
+          "name": "Current Assets",
+          "language": "en"
+        }
+      ],
+      "code": "1100",
+      "parent": {
+        "code": "1000"
+      },
+      "category": true,
+      "debit": true
     },
-    "Acct.Fixed.Land": {
-        "acctCat": "Acct.Fixed",
-        "acctSub": "Land",
-        "acctID": "1410",
-        "aacctDesc": "Land"
+    {
+      "names": [
+        {
+          "name": "Liabilities",
+          "language": "en"
+        }
+      ],
+      "code": "2000",
+      "category": true,
+      "credit": true
     },
-    "Acct.Fixed.Tangible": {
-        "acctCat": "Acct.Fixed",
-        "acctSub": "Tangible",
-        "acctID": "1420",
-        "aacctDesc": "Buildings (The purchase price of the physical structure)"
+    {
+      "names": [
+        {
+          "name": "Current Liabilities",
+          "language": "en"
+        }
+      ],
+      "code": "2100",
+      "parent": {
+        "code": "2000"
+      },
+      "category": true,
+      "credit": true
     },
-    "Acct.Fixed.Tangible.InService": {
-        "acctCat": "Acct.Fixed",
-        "acctSub": "Tangible.InService",
-        "acctID": "1430",
-        "aacctDesc": "Buildings InService (The purchase price of the physical structure)"
-    },
-    "Acct.Fixed.Depreciation.Accum": {
-        "acctCat": "Acct.Fixed",
-        "acctSub": "Depreciation.Accum",
-        "acctID": "1460",
-        "aacctDesc": "Accumulated Depreciation (A \"contra-asset\" account tracking the building's value loss over time)"
-    },
-    "Acct.Liab.Payable": {
-        "acctCat": "Acct.Liab",
-        "acctSub": "Payable",
-        "acctID": "2010",
-        "aacctDesc": "Accounts Payable (Unpaid bills to vendors)"
-    },
-    "Acct.Liab.Morgage": {
-        "acctCat": "Acct.Liab",
-        "acctSub": "Morgage",
-        "acctID": "2100",
-        "aacctDesc": "Mortgage Payable (The principal balance on your property loan)"
-    },
-    "Acct.Liab.Customer.Security": {
-        "acctCat": "Acct.Liab",
-        "acctSub": "Customer.Security",
-        "acctID": "2200",
-        "aacctDesc": "Tenant Security Deposits Held (This offsets the cash in your trust account)"
-    },
-    "Acct.Liab.Customer.Rent.Prepai": {
-        "acctCat": "Acct.Liab",
-        "acctSub": "Customer.Rent.Prepai",
-        "acctID": "2300",
-        "aacctDesc": "Prepaid Rent (Rent paid by tenants before it is due, first, last)"
-    },
-    "Acct.Equity.Owner.Cash": {
-        "acctCat": "Acct.Equity",
-        "acctSub": "Owner.Cash",
-        "acctID": "3010",
-        "aacctDesc": "Owner\u2019s Contribution (Personal funds you put into the business)"
-    },
-    "Acct.Equity.Owner.Dist": {
-        "acctCat": "Acct.Equity",
-        "acctSub": "Owner.Dist",
-        "acctID": "3020",
-        "aacctDesc": "Owner\u2019s Distribution (Money you take out of the business)"
-    },
-    "Acct.Equity.Owner.Draw": {
-        "acctCat": "Acct.Equity",
-        "acctSub": "Owner.Draw",
-        "acctID": "3025",
-        "aacctDesc": "Owner\u2019s Draw (Money you take out of the business)"
-    },
-    "Acct.Equity.Earnings.PnL": {
-        "acctCat": "Acct.Equity",
-        "acctSub": "Earnings.PnL",
-        "acctID": "3100",
-        "aacctDesc": "Retained Earnings (Cumulative profit or loss from previous years)"
-    },
-    "Acct.Rev.OwnerRent": {
-        "acctCat": "Acct.Rev",
-        "acctSub": "OwnerRent",
-        "acctID": "4010",
-        "aacctDesc": "Rental Income"
-    },
-    "Acct.Rev.OwnerFees": {
-        "acctCat": "Acct.Rev",
-        "acctSub": "OwnerFees",
-        "acctID": "4020",
-        "aacctDesc": "Late Fee Income"
-    },
-    "Acct.Rev.Services": {
-        "acctCat": "Acct.Rev",
-        "acctSub": "Services",
-        "acctID": "4030",
-        "aacctDesc": "Laundry/Vending Income"
-    },
-    "Acct.Rev.Other": {
-        "acctCat": "Acct.Rev",
-        "acctSub": "Other",
-        "acctID": "4040",
-        "aacctDesc": "Pet Fees/Parking Fees"
-    },
-    "Acct.Rev.Util": {
-        "acctCat": "Acct.Rev",
-        "acctSub": "Util",
-        "acctID": "4050",
-        "aacctDesc": "Utility Reimbursement (If tenants pay you back for shared utilities)"
-    },
-    "Acct.Exp.Adv": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Adv",
-        "acctID": "5010",
-        "aacctDesc": "Advertising"
-    },
-    "Acct.Exp.Maint": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Maint",
-        "acctID": "5020",
-        "aacctDesc": "Cleaning and Maintenance"
-    },
-    "Acct.Exp.Ins": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Ins",
-        "acctID": "5030",
-        "aacctDesc": "Insurance"
-    },
-    "Acct.Exp.Fees.Legal": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Fees.Legal",
-        "acctID": "5040",
-        "aacctDesc": "Legal & Professional Fees (Accountants, lawyers)"
-    },
-    "Acct.Exp.Fees.Mgmt": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Fees.Mgmt",
-        "acctID": "5050",
-        "aacctDesc": "Management Fees (If using a third-party manager)"
-    },
-    "Acct.Exp.Int.Morg": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Int.Morg",
-        "acctID": "5060",
-        "aacctDesc": "Mortgage Interest (Interest only; principal goes to Liability 2100)"
-    },
-    "Acct.Exp.Repair": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Repair",
-        "acctID": "5070",
-        "aacctDesc": "Repairs (Routine fixes like leaky faucets)"
-    },
-    "Acct.Exp.Tax.Prop": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Tax.Prop",
-        "acctID": "5080",
-        "aacctDesc": "Taxes (Property taxes)"
-    },
-    "Acct.Exp.Util": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Util",
-        "acctID": "5090",
-        "aacctDesc": "Utilities (Water, trash, common area electric)"
-    },
-    "Acct.Exp.Misc": {
-        "acctCat": "Acct.Exp",
-        "acctSub": "Other",
-        "acctID": "5099",
-        "aacctDesc": "Misc - fallback if unknown)"
+    {
+      "names": [
+        {
+          "name": "Notes payable",
+          "language": "en"
+        }
+      ],
+      "code": "2110",
+      "parent": {
+        "code": "2100"
+      },
+      "credit": true
     }
+  ],
+  "sections": [
+    {
+      "name": "Current Assets",
+      "codes": ["1100"]
+    },
+    {
+      "name": "Current Liabilities",
+      "credit": true,
+      "codes": ["2100"]
+    }
+  ]
+}
+
+
+
 }
