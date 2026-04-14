@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 
+{% block topbar %}{% endblock %}
+
 {% block head_extra %}
 <script>
     const OBJ_TYPE = {{ obj_type|tojson }};
     const RAW_ROWS = {{ raw_rows|tojson }};
     const COLUMNS = {{ columns|tojson }};
     const CURRENT_VIEW_MODE = {{ view_mode|tojson }};
+    const CURRENT_VIEW_BY = {{ view_by|tojson }};
     let editorMode = "edit";
     let activeRecordId = null;
 
@@ -43,11 +46,27 @@
         if (CURRENT_VIEW_MODE) {
             params.set("viewMode", CURRENT_VIEW_MODE);
         }
+        if (CURRENT_VIEW_BY && CURRENT_VIEW_BY !== "All") {
+            params.set("viewBy", CURRENT_VIEW_BY);
+        }
         if (changedId) {
             params.set("chg", changedId);
         }
         const query = params.toString();
         return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+    }
+
+    function applyViewBy(selectEl) {
+        const params = new URLSearchParams();
+        if (CURRENT_VIEW_MODE) {
+            params.set("viewMode", CURRENT_VIEW_MODE);
+        }
+        const vb = selectEl.value;
+        if (vb && vb !== "All") {
+            params.set("viewBy", vb);
+        }
+        const query = params.toString();
+        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     async function postCmd(params) {
@@ -82,8 +101,12 @@
     }
 
     function applyViewMode(selectEl) {
-        const mode = selectEl.value;
-        window.location.href = `/view/${OBJ_TYPE}?viewMode=${encodeURIComponent(mode)}`;
+        const params = new URLSearchParams();
+        params.set("viewMode", selectEl.value);
+        if (CURRENT_VIEW_BY && CURRENT_VIEW_BY !== "All") {
+            params.set("viewBy", CURRENT_VIEW_BY);
+        }
+        window.location.href = `/view/${OBJ_TYPE}?${params.toString()}`;
     }
 
     async function saveWorking() {
@@ -241,43 +264,99 @@
             alert(result.error || "Reset failed");
             return;
         }
-        alert("Working file reset from object file.");
         window.location.href = buildViewUrl();
     }
 </script>
 
 <style>
+    /* ── combined sticky title bar ── */
+    .title-panel {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        margin-bottom: 18px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
     .title-toolbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-        flex-wrap: wrap;
+        gap: 12px;
+        flex-wrap: nowrap;
     }
-    .title-block h2 {
-        margin: 0 0 4px 0;
+    /* stats row — second row inside the sticky panel */
+    .stats-sub {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 8px;
     }
-    .title-block .muted {
-        margin: 0;
+    /* meta row — third row inside the sticky panel */
+    .meta-row {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 6px;
     }
+    /* left cluster: hamburger + name + subtitle */
+    .title-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-left .menu .dropdown {
+        position: absolute; top: 36px; left: 0;
+        background: white; color: black; min-width: 220px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        z-index: 100; border-radius: 6px; overflow: hidden;
+    }
+    .title-left .menu .dropdown a {
+        display: block; padding: 9px 12px; text-decoration: none; color: black;
+        border-bottom: 1px solid #eee; font-size: 14px;
+    }
+    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
+    .title-name {
+        font-size: 16px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .title-sep {
+        color: #9ca3af;
+        font-size: 15px;
+    }
+    .title-sub {
+        font-size: 13px;
+        color: #6b7280;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    /* right cluster: select + buttons — pushed all the way right */
     .toolbar-row {
         display: flex;
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
         margin-left: auto;
+        flex-shrink: 0;
     }
     .toolbar-row select {
-        padding: 8px 10px;
+        padding: 7px 10px;
         border-radius: 6px;
         border: 1px solid #cbd5e1;
         background: white;
+        font-size: 13px;
     }
     .stats-window {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 12px;
+        gap: 8px;
     }
     .stat-chip {
         display: inline-flex;
@@ -317,56 +396,93 @@
         font-size: 12px;
         line-height: 1;
     }
+    .dup-cell {
+        color: #dc2626;
+        font-weight: 700;
+        text-align: center;
+        white-space: nowrap;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="panel">
+<div class="panel title-panel">
     <div class="title-toolbar">
-        <div class="title-block">
-            <h2>📋 {{ obj_type }}</h2>
-            <p class="muted">Records are committed to the wk object when you click Done.</p>
+
+        <!-- left: hamburger · LLC name · separator · view name -->
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    <div class="dropdown">
+                        {% for v in available_views %}
+                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
+                        {% endfor %}
+                        <a href="/">Home</a>
+                    </div>
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">📋 {{ obj_type }} — edits commit to wk on Save</span>
         </div>
 
+        <!-- right: view selector + action buttons -->
         <div class="toolbar-row">
             {% if show_view_options %}
-            <label for="viewModeSelect" title="Filter Transaction Fields "><strong>ViewBy</strong></label>
+            <label for="viewModeSelect" title="Filter Transaction Fields"><strong>Fields</strong></label>
             <select id="viewModeSelect" onchange="applyViewMode(this)" title="Change record view mode">
-                <option value="account" {% if view_mode == 'account' %}selected{% endif %}>By Account</option>
-                <option value="property" {% if view_mode == 'property' %}selected{% endif %}>ByProperty</option>
-                <option value="all" {% if view_mode == 'all' %}selected{% endif %}>ALL</option>
+                <option value="account"  {% if view_mode == 'account'  %}selected{% endif %}>By Account</option>
+                <option value="property" {% if view_mode == 'property' %}selected{% endif %}>By Property</option>
+                <option value="all"      {% if view_mode == 'all'      %}selected{% endif %}>All</option>
+            </select>
+            {% endif %}
+            {% if view_by_options %}
+            <label for="viewBySelect" title="Filter by Account Type"><strong>ViewBy</strong></label>
+            <select id="viewBySelect" onchange="applyViewBy(this)" title="Filter rows by account type">
+                {% for opt in view_by_options %}
+                <option value="{{ opt }}" {% if view_by == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
             </select>
             {% endif %}
 
-            <button class="btn btn-success" title="Add a new record" onclick="openAddEditor()">Add</button>
-            <button class="btn btn-primary" title="Save view -> wkObj" onclick="saveWorking()">Save</button>
-            <button class="btn btn-secondary" title="Reload: wkObj -> view, lose changes!" onclick="window.location.href=buildViewUrl()">Refresh</button>
-            <button class="btn btn-secondary" title="Reset: DB -> Wk" onclick="resetFromObject()">Reset</button>
-            <button class="btn btn-primary" title="Publish Wk - DB" onclick="saveObject()">Publish</button>
-            <button class="btn btn-warning" title="Import Transaction in JSON pane" onclick="toggleJsonPane()">Json</button>
+            {% if not read_only %}
+            <button class="btn btn-success"   title="Add a new record"                       onclick="openAddEditor()">Add</button>
+            <button class="btn btn-primary"   title="Save view → wk object"                  onclick="saveWorking()">Save</button>
+            <button class="btn btn-secondary" title="Reload wk object, discard view changes"  onclick="window.location.href=buildViewUrl()">Refresh View</button>
+            <button class="btn btn-secondary" title="Reset wk from DB"                        onclick="resetFromObject()">Refresh DB</button>
+            <button class="btn btn-primary"   title="Publish wk → DB"                         onclick="saveObject()">Publish</button>
+            {% else %}
+            <button class="btn btn-secondary" title="Reload view"                             onclick="window.location.href=buildViewUrl()">Refresh</button>
+            {% endif %}
+            <button class="btn btn-warning"   title="Toggle raw JSON pane"                    onclick="toggleJsonPane()">JSON</button>
+        </div>
+
+    </div>
+
+    <!-- Row 2: stat chips -->
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">No stats available.</span>
+            {% endif %}
         </div>
     </div>
-</div>
 
-<div class="panel">
-    <h3>📊 Stats</h3>
-
-    <div class="stats-window">
-        {% for item in stats_labels %}
-        <span class="stat-chip" title="{{ item.group }}">
-            <span class="value">{{ item.value }}</span>
-            <span class="text">{{ item.text }}</span>
-        </span>
-        {% endfor %}
-        {% if not stats_labels %}
-        <span class="muted">No stats available.</span>
-        {% endif %}
+    <!-- Row 3: metadata -->
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary title="Show or hide metadata details">🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
     </div>
 
-    <details class="meta-pane">
-        <summary title="Show or hide metadata details">🗂️ Metadata</summary>
-        <pre>{{ meta | tojson(indent=2) }}</pre>
-    </details>
 </div>
 
 <div class="panel">
@@ -375,8 +491,8 @@
         <table class="records-table">
             <thead>
                 <tr>
-                    <th class="nowrap">Actions</th>
-                    <th title="Shows a checkmark only for records changed in this session view">Chg</th>
+                    {% if not read_only %}<th class="nowrap">Actions</th>
+                    <th title="Shows a checkmark only for records changed in this session view">Chg</th>{% endif %}
                     {% for col in columns %}
                     <th class="{% if col == 'desc' %}col-desc{% endif %}" title="Field: {{ col }}">{{ col }}</th>
                     {% endfor %}
@@ -385,20 +501,27 @@
             <tbody>
                 {% for row in rows %}
                 <tr>
+                    {% if not read_only %}
                     <td class="nowrap">
                         <button class="btn btn-primary icon-btn" title="Edit this record" onclick='openEditEditor({{ row._record_id|tojson }})'>✎</button>
                         <button class="btn btn-warning icon-btn" title="Edit this record as raw JSON" onclick='openEditJsonEditor({{ row._record_id|tojson }})'>{}</button>
                         <button class="btn btn-danger icon-btn" title="Delete this record" onclick='deleteRow({{ row._record_id|tojson }})'>✕</button>
                     </td>
                     <td class="changed-cell" title="{% if row._changed %}This record has been changed{% else %}No change{% endif %}">{% if row._changed %}✓{% endif %}</td>
+                    {% endif %}
                     {% for col in columns %}
-                    <td class="{% if col == 'desc' %}col-desc{% endif %}" title="{{ row.data.get(col, '') }}">{{ display_scalar(row.data.get(col, "")) }}</td>
+                    {% set value = row.data.get(col, "") %}
+                    {% if col == 'Status' and value == '⚠ Dup' %}
+                    <td class="dup-cell" title="Duplicate transaction found in multiple source DBs">⚠ Dup</td>
+                    {% else %}
+                    <td class="{% if col == 'desc' %}col-desc{% endif %}" title="{{ value }}">{{ display_scalar(value) }}</td>
+                    {% endif %}
                     {% endfor %}
                 </tr>
                 {% endfor %}
                 {% if not rows %}
                 <tr>
-                    <td colspan="{{ columns|length + 2 }}">No records found.</td>
+                    <td colspan="{{ columns|length + (0 if read_only else 2) }}">No records found.</td>
                 </tr>
                 {% endif %}
             </tbody>

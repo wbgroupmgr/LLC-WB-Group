@@ -5,6 +5,8 @@ import datetime
 import shutil
 import pandas as pd
 import json
+from typing import Any, Dict, List
+
 
 
 from ledger.ledgerDB import ledgerDB
@@ -42,6 +44,7 @@ class utilWorkingDB(ledgerDB):
         self.bind() # bind 
         self.crTime = datetime.datetime.now().timestamp()
 
+
     #
     # Mimic ledgerDB object for working file
 
@@ -50,7 +53,8 @@ class utilWorkingDB(ledgerDB):
 
     def load(self):
         if Path(self.FN()).exists():
-            return super().load()
+            tList = super().load()
+            return self.llc.coa.getAcctType(tList)
             
         return []
 
@@ -101,7 +105,7 @@ class utilWorkingDB(ledgerDB):
             return True
             
         # Validate file paths
-        print(f"⚠️  Warning Loan Failed: {self.oID} working file not found. Correct and restart, {self.FN()}")
+        print(f"⚠️  Warning Loan Failed: {self.oID} working file not found. Correct and restart, {self.FN()}, loadOpt:{self.es.loadOpt}")
 
         return False
 

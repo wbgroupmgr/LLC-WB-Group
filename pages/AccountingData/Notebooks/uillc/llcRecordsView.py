@@ -2,8 +2,9 @@
 Timestampe of last change : 2026.04.11.09.28
 '''
 
+import math
 from typing import Any, Dict, List
-from ledger.llcCOA import ChartOfAccounts as llcCOA    
+from ledger.llcCOA import ChartOfAccounts as llcCOA
 
 
 
@@ -48,50 +49,6 @@ class llcRecordsView:
             result.append(coa.toAcctType(tDict))
         return result
 
-    def toAcctTypeOLD(self, content: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        result = []
-        for row in content:
-            item = dict(row)
-            acct_type = item.get("acctType")
-
-            if acct_type:
-                result.append(item)
-                continue
-
-            text = " ".join(
-                str(item.get(k, ""))
-                for k in [
-                    "acct", "account", "type", "desc", "name",
-                    "category", "notes", "Ledger",
-                    "acctMajor", "acctMinor", "acctSub"
-                ]
-            ).lower()
-
-            if any(k in text for k in ["rent", "lease"]):
-                acct_type = "Rental Income"
-            elif any(k in text for k in ["repair", "maintenance", "fix"]):
-                acct_type = "Repairs & Maintenance"
-            elif any(k in text for k in ["tax", "property tax"]):
-                acct_type = "Taxes"
-            elif any(k in text for k in ["insurance"]):
-                acct_type = "Insurance"
-            elif any(k in text for k in ["mortgage", "loan", "interest"]):
-                acct_type = "Financing"
-            elif any(k in text for k in ["utility", "electric", "water", "gas"]):
-                acct_type = "Utilities"
-            elif any(k in text for k in ["asset", "equipment", "vehicle", "building"]):
-                acct_type = "Asset"
-            elif any(k in text for k in ["income", "revenue", "sale"]):
-                acct_type = "Income"
-            elif any(k in text for k in ["expense", "cost", "fee"]):
-                acct_type = "Expense"
-            else:
-                acct_type = "Other"
-
-            item["acctType"] = acct_type
-            result.append(item)
-
-        return result
 
     def load(self) -> List[Dict[str, Any]]:
         return self.toAcctType(self._as_list(self.wk.load()))
@@ -105,17 +62,33 @@ class llcRecordsView:
                 del tDict[f]
         return tDict
 
+    @staticmethod
+    def _clean_value(v: Any) -> Any:
+        '''Replace float NaN/Inf (from COA pandas lookups) with None so JSON stays valid.'''
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
     def savePayload(self, payload):
-        # Delete derived fields from DB store
-        colDel = ['acctType', 'acctMajor', 'acctMinor']
+        # acctType is computed by toAcctType() before every save and is now persisted.
+        # acctMajor / acctMinor remain transient (COA lookup artefacts) and are stripped.
+        colDel = ['acctMajor', 'acctMinor']
         for tDict in payload:
             self._delFld(tDict, colDel)
-            
+            # Sanitise NaN / Inf that COA pandas lookups can inject (e.g. acctSub)
+            for k in list(tDict.keys()):
+                tDict[k] = self._clean_value(tDict[k])
+
         self.wk.save(payload)
         return
         
     def save(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        payload = self.toAcctType(self._as_list(data))
+        # Strip acctType from every record so toAcctType() always runs a fresh
+        # COA lookup for all rows — never preserves a potentially stale value.
+        raw = self._as_list(data)
+        for row in raw:
+            row.pop('acctType', None)
+        payload = self.toAcctType(raw)
         self.savePayload(payload)
         return payload
 

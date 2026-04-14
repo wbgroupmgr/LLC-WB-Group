@@ -71,7 +71,7 @@
             "acctID": "4020",
             "acctDesc": "Late Fee Income"
         },
-        "Acct.Rev.Fee.Other": {
+        "Acct.Rev.Fees.Other": {
             "acctID": "4040",
             "acctDesc": "Non-Refundable Fees (Pets, deposits)/Parking Fees"
         },

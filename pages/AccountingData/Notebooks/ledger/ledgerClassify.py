@@ -8,26 +8,6 @@ from ledger.llcCustomers import llcCustomers
 from ledger.llcOwners import llcOwners
 
 # ---- patterns within transaction.desc to map to acct, acct 
-expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
-             "pedernales" :['Acct.Exp.Util','Elec','Pay Monthly Util'],
-             "dispre.al" : ['Acct.Exp.Util','Waste','Pay Monthly Util'],
-             "allstate" : ['Acct.Exp.Util','Ins_Home','Pay Monthly Util'],
-             "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
-             "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
-             "venmo&&251022" : ['Acct.Exp.Repair','Maintenance','Repair Utility Outlet,Electrician'],
-             "promotion bonus" : ['Acct.Cash.Bank._Other.Promotion','Bank','Bank Promotion for account openning'],
-             "bankOpen wf opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],    
-             "purchase authorized" : ['Acct.Exp.Other',np.nan,'Approved Purchase'],
-             "acctverify" : ['Acct.Cash.Bank._Other',np.nan,'Customer payment setup'],
-             "nicola" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
-             "alejandro" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
-             "zelle from" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
-             "purchase return" : ['Acct.Exp.Other',np.nan,'Return of materials'],
-             "fed#02m03" : ['Acct.Cash.Bank',np.nan,'Owner investment'],
-             "withdrawal" : ['Acct.Fixed.Tangible.InService',np.nan,'Property Purchase'],
-             "deposit" : ['Acct.Cash.Bank',np.nan,'Owner Investment'],
-            }
-
 class ledgerClassify(object):
     '''
     Accounting Practices / Statements
@@ -50,6 +30,7 @@ class ledgerClassify(object):
     def __init__(self, llcObj, **kwargs):
         self.oID = self.__class__.__name__
         self.debug = kwargs.get('debug', False)
+        self.expKWDict = kwargs['patterns']
         if llcObj is None: raise Exception(f"{self.oID}: bad llcObj on init")
         self.llc = llcObj        
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
@@ -145,6 +126,24 @@ class ledgerClassify(object):
             return self.acctDict(*clsTuple)
         return None
 
+        
+
+    def _wrangleBkDesc(self, s : str):
+        '''
+        wrangle bank (Wells Fargo) expense descriptions 
+        - PURCHASE AUTHORIZED ON ...
+        - PURCHASE RETURN AUTHORIZED ON 1
+        '''
+        if pd.isna(s) : return s
+            
+        pat = r'ON \S* (.*)'
+        m = re.search(pat, s)
+        if m : 
+            return('Approved Purchse ' + ' '.join(m.group(1).split()[0:4]))
+        else:
+            return s
+
+
     def _classifyExpense(self, d, **kwargs):
         '''
         Classify transactions
@@ -161,8 +160,10 @@ class ledgerClassify(object):
         tDict = self._isMatch(d)
         if tDict : return tDict
 
+        
+
         # Expense, unknown/misc
-        return self.acctDict('Acct.Exp.Other','Misc',f"Misc Expense")
+        return self.acctDict('Acct.Exp.Other',"Unknown", self._wrangleBkDesc(d))
 
     def _isSupplier(self, d):
         if 'purchase authorized' in d:
@@ -176,7 +177,7 @@ class ledgerClassify(object):
         # Handle special matches, venmo & 251022 ==> repaire
         '''
 
-        kwDict = kwargs.get('kwDict', expKWDict)
+        kwDict = kwargs.get('kwDict', self.expKWDict)
 
         for k,expDict in kwDict.items():
             ## Special case of venmo payment

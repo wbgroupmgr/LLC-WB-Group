@@ -5,12 +5,14 @@ import datetime
 import json
 
 from ledger.ledgerObject import ledgerObject
+from ledger.llcCOA import ChartOfAccounts as llccoa
 
 from ledger.llcOwners import llcOwners
 from ledger.llcCustomers import llcCustomers
 from ledger.llcAssets import llcAssets
 
 from ledger.llcBank import llcBank
+from ledger import setup_paths
 
 class LLC(object):
     '''
@@ -42,6 +44,8 @@ class LLC(object):
             # Use current year
             self.yr = datetime.datetime.now().year
 
+        self.coa = llccoa(self)
+
         self.debug = kwargs.get('debug', self.debug)
 
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
@@ -56,7 +60,7 @@ class LLC(object):
         ProfileDir = ../<objName>.json
         '''
         BN = f"llcProfile_{self.objName}.json"
-        dirTOP = kwargs.get('top', os.path.join(Path.cwd().parent))
+        dirTOP = kwargs.get('top', setup_paths.TOP)
         FN = kwargs.get('FN_profile', os.path.join(dirTOP, BN))
                         
 

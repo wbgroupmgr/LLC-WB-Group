@@ -1,51 +1,208 @@
 {% extends "base.html" %}
 
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    async function confirmNewSession() {
+        document.getElementById("newSessionBackdrop").style.display = "flex";
+    }
+
+    function cancelNewSession() {
+        document.getElementById("newSessionBackdrop").style.display = "none";
+    }
+
+    async function doNewSession() {
+        const btn = document.getElementById("newSessionConfirmBtn");
+        btn.disabled = true;
+        btn.textContent = "Resetting…";
+
+        try {
+            const res = await fetch("/api/session/new", { method: "POST" });
+            const data = await res.json();
+            if (data.ok) {
+                cancelNewSession();
+                window.location.href = "/";
+            } else {
+                alert("New Session failed: " + (data.error || "unknown error"));
+                btn.disabled = false;
+                btn.textContent = "Confirm Reset";
+            }
+        } catch (err) {
+            alert("New Session error: " + err);
+            btn.disabled = false;
+            btn.textContent = "Confirm Reset";
+        }
+    }
+</script>
+
+<style>
+    .title-panel {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        margin-bottom: 18px;
+        border-radius: 10px;
+    }
+    .title-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: nowrap;
+    }
+    .title-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-left .menu .dropdown {
+        position: absolute; top: 36px; left: 0;
+        background: white; color: black; min-width: 220px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        z-index: 100; border-radius: 6px; overflow: hidden;
+    }
+    .title-left .menu .dropdown a {
+        display: block; padding: 9px 12px; text-decoration: none; color: black;
+        border-bottom: 1px solid #eee; font-size: 14px;
+    }
+    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .title-sep  { color: #9ca3af; font-size: 15px; }
+    .title-sub  { font-size: 13px; color: #6b7280; white-space: nowrap; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
+    }
+    .view-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+        margin-top: 4px;
+    }
+    .view-card {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px 16px;
+        text-decoration: none;
+        color: #111827;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: background 0.15s;
+    }
+    .view-card:hover { background: #eef2ff; border-color: #c7d2fe; }
+    .view-card .vc-icon { font-size: 20px; }
+    .view-card .vc-label { font-weight: 600; font-size: 14px; }
+    .view-card.wip { opacity: 0.55; cursor: default; pointer-events: none; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="card">
-    <h2>🏠 Home</h2>
-    <p class="muted">Session-backed LLC management UI</p>
+<!-- ── Sticky title panel ──────────────────────────────────────────── -->
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    <div class="dropdown">
+                        {% for v in available_views %}
+                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
+                        {% endfor %}
+                        <a href="/">Home</a>
+                    </div>
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">🏠 Home</span>
+        </div>
+        <div class="toolbar-row">
+            <button class="btn btn-danger"
+                    title="Snapshot current working data, then reset all working files from the DB"
+                    onclick="confirmNewSession()">New Session</button>
+        </div>
+    </div>
 </div>
 
+<!-- ── Available Views ────────────────────────────────────────────── -->
 <div class="panel">
     <h3>📚 Available Views</h3>
-    <ul>
+    <div class="view-grid">
+        {% set icons = {
+            "llcAssets":        "🏦",
+            "llcExpRev":        "💸",
+            "llcGeneralLedger": "📒",
+            "llcBalanceSheet":  "⚖️",
+            "llcIncomeStmt":    "📈",
+            "llcBank":          "🏧"
+        } %}
         {% for v in available_views %}
-        <li>
-            <a href="/view/{{ v.name }}">{{ v.label }}</a>
-            {% if v.under_construction %} — 🚧 under construction{% endif %}
-        </li>
+        <a href="/view/{{ v.name }}"
+           class="view-card {% if v.under_construction %}wip{% endif %}"
+           title="{{ v.label }}{% if v.under_construction %} — under construction{% endif %}">
+            <span class="vc-icon">{{ icons.get(v.name, "📋") }}</span>
+            <span class="vc-label">{{ v.label }}{% if v.under_construction %} 🚧{% endif %}</span>
+        </a>
         {% endfor %}
-    </ul>
+    </div>
 </div>
 
+<!-- ── eSession Objects ───────────────────────────────────────────── -->
 <div class="panel">
-    <h3>🧠 eSession Objects</h3>
+    <h3>🧠 Session Objects</h3>
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
                     <th>Object Name</th>
-                    <th>Raw Session Key</th>
                     <th>Working File</th>
-                    <th>Object File</th>
+                    <th>Object (DB) File</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in session_views %}
                 <tr>
-                    <td>{{ item.name }}</td>
-                    <td>{{ item.raw_name }}</td>
-                    <td>{{ item.working_file }}</td>
-                    <td>{{ item.object_file }}</td>
+                    <td><strong>{{ item.name }}</strong></td>
+                    <td class="muted" style="font-size:12px;font-family:monospace">{{ item.working_file }}</td>
+                    <td class="muted" style="font-size:12px;font-family:monospace">{{ item.object_file }}</td>
                 </tr>
                 {% endfor %}
                 {% if not session_views %}
-                <tr>
-                    <td colspan="4">No session objects found.</td>
-                </tr>
+                <tr><td colspan="3" class="muted">No session objects found.</td></tr>
                 {% endif %}
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- ── New Session confirmation modal ─────────────────────────────── -->
+<div id="newSessionBackdrop" class="modal-backdrop"
+     onclick="if(event.target===this) cancelNewSession()">
+    <div class="modal" style="max-width:480px">
+        <h3>⚠️ Start New Session?</h3>
+        <p>This will:</p>
+        <ol>
+            <li>Snapshot all current working data to timestamped backup files</li>
+            <li>Reset all working files back to the last published DB state</li>
+        </ol>
+        <p class="muted" style="font-size:13px">
+            Any unsaved changes in the working files will be captured in the backup
+            before being discarded. Published (DB object) data is not affected.
+        </p>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="cancelNewSession()">Cancel</button>
+            <button id="newSessionConfirmBtn" class="btn btn-danger" onclick="doNewSession()">Confirm Reset</button>
+        </div>
     </div>
 </div>
 {% endblock %}

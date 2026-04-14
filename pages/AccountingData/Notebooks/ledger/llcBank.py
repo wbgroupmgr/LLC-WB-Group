@@ -12,6 +12,7 @@ import datetime
 
 from ledger.ledgerObject import ledgerObject
 from ledger.ledgerClassify import ledgerClassify
+from ledger.llcExpRev import llcExpRev
 from ledger.llcCOA import ChartOfAccounts as llcCOA
 
 # -------- Heuristic pattern matching : derive info from patterns in desc field
@@ -26,21 +27,22 @@ expKWDict = {"comwsc": ['Acct.Exp.Util','Water','Pay Monthly Util'],
              "check # 101" : ['Acct.Exp.Util','Water','Pay Monthly Util'],
              "check # 102" : ['Acct.Exp.Util','Util','Pay Electrician Repair Outlet'],
              "venmo&&251022" : ['Acct.Exp.Repair','Maintenance','Repair Utility Outlet,Electrician'],
-             "promotion bonus" : ['Acct.Cash.Bank._Other.Promotion','Bank','Bank Promotion for account openning'],
+             "promotion bonus" : ['Acct.Cash.Bank','Bank','Bank Promotion for account openning'],
              "bankOpen wf opening deposit" : ['Acct.Equity.Owner.Cash','o20250801-1','Initial seed to open account'],    
              "purchase authorized" : ['Acct.Exp.Other',np.nan,'Approved Purchase'],
-             "acctverify" : ['Acct.Cash.Bank._Other',np.nan,'Customer payment setup'],
-             "nicola" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
-             "alejandro" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
-             "zelle from" : ['Acct.Cash.Bank._Rent','Income.Rent',''],
+             "acctverify" : ['Acct.Rev.Fees.Other',np.nan,'Customer payment setup'],
+             "nicola" : ['Acct.Rev.Rent','Income.Rent',''],
+             "alejandro" : ['Acct.Rev.Rent','Income.Rent',''],
+             "zelle from" : ['Acct.Rev.Rent','Income.Rent',''],
              "purchase return" : ['Acct.Exp.Other',np.nan,'Return of materials'],
              "fed#02m03" : ['Acct.Cash.Bank',np.nan,'Owner investment'],
-             "withdrawal" : ['Acct.Cash.Bank._withdrawal',np.nan,'Property Purchase'],
+             "withdrawal" : ['Acct.Fixed.Tangible.InService',np.nan,'Property Purchase'],
              "deposit" : ['Acct.Cash.Bank',np.nan,'Owner Investment'],
             }
 
+
 # Map acct -> Ledger via Bk Stmt acct
-lDict = {'Acct.Exp.Util': 'Acct.Cash.Bank', 
+mapLedgerDict = {'Acct.Exp.Util': 'Acct.Cash.Bank', 
          'Acct.Exp.Other': 'Acct.Cash.Bank', 
          'Acct.Exp.Repair': 'Acct.Cash.Bank',
          'Acct.Cash.Bank': 'Acct.Equity.Owner.Cash', 
@@ -64,7 +66,7 @@ class llcBank(ledgerObject):
         self.xx = "llcBank"
         super().__init__(llc, **kwargs)
         self.coa = llcCOA(llc)
-        self.lc = ledgerClassify(llc)
+        self.lc = ledgerClassify(llc, patterns=expKWDict)
         if self.debug: print(f"{self.oID} {type(self).__name__} Init Done")
 
     def csvDIR(self):
@@ -155,6 +157,14 @@ class llcBank(ledgerObject):
             
         return descList
 
+    def _mapLedger(self, acct):
+        try:
+            return mapLedgerDict[acct]
+        except:
+            print(f"{self.oID} : _mapLedger Failed mapping  acct:{acct} in mapLedgerDict, default")
+            return 'Acct.Ledger.Unknown'
+        
+
     def _loadWorkList(self, rawList, acctList):
         '''
         Fill in transaction dict within rawList with account inference from acctList (derived from descList)
@@ -164,8 +174,9 @@ class llcBank(ledgerObject):
         for tDict,d in zip(rawList, acctList):
             # Update heuristic matching info
             a = d['Acct']
-            tDict['acct'] = a.split('._')[0]
-            tDict['Ledger'] = lDict[a]
+            aMajor = a.split('._')[0]
+            tDict['acct'] = aMajor
+            tDict['Ledger'] = self._mapLedger(aMajor),
             
             tDict['acctSub'] = d['AcctSub']
             
@@ -190,18 +201,13 @@ class llcBank(ledgerObject):
             
             wList.append(wDict)
         return wList
-
-
-
         
-
-
-
-    def toDF(self):
+    def load(self):
         '''
-        Load Bk Stmt CSV (downloaded from Bk)
+        Custom load : convert raw csv into llcExpRev format 
+        Input: csv list of transactions
+        Output: llcExpRev list of transaction
         '''
-
         # ----- step 1 : import rawDF :: load csv into raw CSV, raw columns
         rawDF = self._loadRawDF()
 
@@ -209,12 +215,11 @@ class llcBank(ledgerObject):
         rawList = self._loadRawList(rawDF)
 
         # ----- Step 3 : load descList 
-        descList = self._loadDescList(rawDF.desc.lower())
+        descList = self._loadDescList(rawDF.desc.str.lower())
         if descList is None : return None # Workflow is halted until all accounts are determined.
 
         # ----- Step 4 : load workList (final transaction list for feed llcExpRev
-        workList = self._loadWorkList(rawList, descList)
-        return pd.DataFrame(workList)
+        return self._loadWorkList(rawList, descList)
 
 
     def wrangleLedger(self):
@@ -227,12 +232,13 @@ class llcBank(ledgerObject):
             print(f"{self.oID}.wrangleLedger: llc assets:{len(self.llc.assets().load())}")
             print(f"{self.oID}.wrangleLedger: llc owners:{len(self.llc.aObj.df)}")
             print(f"{self.oID}.wrangleLedger: llc customers:{len(self.llc.customers())}")
-        lc = ledgerClassify(self.llc, debug=self.debug)
+        lc = self.lc #ledgerClassify(self.llc, debug=self.debug)
         #lList = self.df.apply(lambda r: lc.classifyTransaction(r), axis=1)
 
         ## Classify each entry, some transactions may have N accts to 1 bank item
         transList = []
         for i,r in self.df.iterrows():
+            #--- classify bank transaction based on predefined patterns
             tList = lc.classifyTransaction(r)
             if not isinstance(tList,list) : 
                 # Older versions return tDict, convert to list
@@ -240,6 +246,8 @@ class llcBank(ledgerObject):
             for tDict in tList:
                 # FIX: 2026.04 -handle 1 to N, record Multi acct per row
                 tDict =  {**r , **tDict}
+
+                # wrangle bank expenses to provide more details
                 transList.append(tDict)
 
         # Create general ledger
@@ -247,8 +255,8 @@ class llcBank(ledgerObject):
         
         if self.debug: 
             print(f"{self.oID}.wrangleLedger: transList:{len(transList)}")
-            miscNum = glDF.groupby('Acct').Acct.count().loc['Acct.Cash.Misc'] 
-            print(f"{self.oID}.wrangleLedger: {'*'*10} Misc:{miscNum} Potential New, unClassified Ttansactions{'*'*5}")
+            #miscNum = glDF.groupby('Acct').Acct.count().loc['Acct.Cash.Misc'] 
+            #print(f"{self.oID}.wrangleLedger: {'*'*10} Misc:{miscNum} Potential New, unClassified Ttansactions{'*'*5}")
 
         # Return General Ledger - all Transactions
         return glDF

@@ -94,6 +94,7 @@
     {% block head_extra %}{% endblock %}
 </head>
 <body>
+    {% block topbar %}
     <div class="topbar">
         <div class="menu">
             <details>
@@ -108,6 +109,7 @@
         </div>
         <div><strong>{{ title or app_title }}</strong></div>
     </div>
+    {% endblock %}
 
     <div class="page">
         {% block content %}{% endblock %}

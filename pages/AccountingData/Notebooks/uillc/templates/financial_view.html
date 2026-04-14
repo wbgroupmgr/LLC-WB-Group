@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const CURRENT_VIEW_MODE = {{ view_mode|tojson }};
+    const CURRENT_VIEW_BY = {{ view_by|tojson }};
+
+    function buildViewUrl() {
+        const params = new URLSearchParams();
+        if (CURRENT_VIEW_BY && CURRENT_VIEW_BY !== "All") {
+            params.set("viewBy", CURRENT_VIEW_BY);
+        }
+        const query = params.toString();
+        return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+    }
+
+    function applyViewBy(selectEl) {
+        const vb = selectEl.value;
+        const params = new URLSearchParams();
+        if (vb && vb !== "All") {
+            params.set("viewBy", vb);
+        }
+        const query = params.toString();
+        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+    }
+
+    function toggleJsonPane() {
+        const pane = document.getElementById("jsonPane");
+        pane.open = !pane.open;
+        if (pane.open) {
+            pane.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }
+</script>
+
+<style>
+    /* ── sticky title bar ── */
+    .title-panel {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        margin-bottom: 18px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+    .title-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: nowrap;
+    }
+    .stats-sub {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 8px;
+    }
+    .meta-row {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 6px;
+    }
+    .title-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-left .menu .dropdown {
+        position: absolute; top: 36px; left: 0;
+        background: white; color: black; min-width: 220px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        z-index: 100; border-radius: 6px; overflow: hidden;
+    }
+    .title-left .menu .dropdown a {
+        display: block; padding: 9px 12px; text-decoration: none; color: black;
+        border-bottom: 1px solid #eee; font-size: 14px;
+    }
+    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .title-sep { color: #9ca3af; font-size: 15px; }
+    .title-sub { font-size: 13px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
+    }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    .json-pane summary, .meta-pane summary {
+        cursor: pointer; font-weight: 600; margin-bottom: 12px;
+    }
+
+    /* ── Financial Statement Table ── */
+    .fin-table { border-collapse: collapse; width: 100%; }
+    .fin-table th {
+        background: #1f2937; color: white;
+        padding: 10px 12px; text-align: left; font-size: 13px;
+    }
+    .fin-table th.num { text-align: right; }
+    .fin-table td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .fin-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .fin-table tr:hover td { background: #f9fafb; }
+    /* Section header row */
+    .fin-table tr.section-header td {
+        background: #f3f4f6; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        font-size: 12px; color: #374151;
+        border-top: 2px solid #9ca3af;
+        padding-top: 12px;
+    }
+    /* Subtotal row */
+    .fin-table tr.subtotal td {
+        background: #eff6ff; font-weight: 600;
+        border-top: 1px solid #bfdbfe;
+        color: #1e40af;
+    }
+    /* Total row */
+    .fin-table tr.grand-total td {
+        background: #1f2937; color: white;
+        font-weight: 700; font-size: 14px;
+        border-top: 3px solid #374151;
+    }
+    /* Amount cell coloring */
+    .amt-pos { color: #166534; }
+    .amt-neg { color: #991b1b; }
+    .acct-name { font-family: monospace; font-size: 12px; color: #4b5563; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    <div class="dropdown">
+                        {% for v in available_views %}
+                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
+                        {% endfor %}
+                        <a href="/">Home</a>
+                    </div>
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">📊 {{ view_title }}</span>
+        </div>
+        <div class="toolbar-row">
+            {% if view_by_options %}
+            <label for="viewBySelect" title="Filter by Account Type"><strong>ViewBy</strong></label>
+            <select id="viewBySelect" onchange="applyViewBy(this)" title="Filter rows by account type">
+                {% for opt in view_by_options %}
+                <option value="{{ opt }}" {% if view_by == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <button class="btn btn-secondary" title="Reload view" onclick="window.location.href=buildViewUrl()">Refresh</button>
+            <button class="btn btn-warning"   title="Toggle raw JSON pane" onclick="toggleJsonPane()">JSON</button>
+        </div>
+    </div>
+
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">No stats available.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary title="Show or hide metadata details">🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>{{ view_title }}</h3>
+    <div class="table-wrap">
+        <table class="fin-table">
+            <thead>
+                <tr>
+                    <th style="width:120px">Type</th>
+                    <th>Account</th>
+                    <th class="num" style="width:130px">Debit</th>
+                    <th class="num" style="width:130px">Credit</th>
+                    <th class="num" style="width:130px">Balance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set ns = namespace(current_type="", section_debit=0, section_credit=0, section_balance=0) %}
+                {% for row in rows %}
+                    {% set at = row.data.get("acctType", "") %}
+                    {% set acct = row.data.get("acct", "") %}
+                    {% set debit = row.data.get("Debit", 0) | float %}
+                    {% set credit = row.data.get("Credit", 0) | float %}
+                    {% set bal = row.data.get("Balance", 0) | float %}
+
+                    {% if at == "TOTAL" %}
+                        {# Grand total row — close last section first #}
+                        {% if ns.current_type %}
+                        <tr class="subtotal">
+                            <td colspan="2" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                            <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr class="grand-total">
+                            <td colspan="2">TOTAL</td>
+                            <td class="num">{{ "%.2f"|format(debit) }}</td>
+                            <td class="num">{{ "%.2f"|format(credit) }}</td>
+                            <td class="num">{{ "%.2f"|format(bal) }}</td>
+                        </tr>
+                    {% else %}
+                        {% if at != ns.current_type %}
+                            {# Emit subtotal for previous section #}
+                            {% if ns.current_type %}
+                            <tr class="subtotal">
+                                <td colspan="2" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                                <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
+                            </tr>
+                            {% endif %}
+                            {# Section header #}
+                            <tr class="section-header">
+                                <td colspan="5">{{ at }}</td>
+                            </tr>
+                            {% set ns.current_type = at %}
+                            {% set ns.section_debit = 0 %}
+                            {% set ns.section_credit = 0 %}
+                            {% set ns.section_balance = 0 %}
+                        {% endif %}
+
+                        {# Accumulate section totals #}
+                        {% set ns.section_debit = ns.section_debit + debit %}
+                        {% set ns.section_credit = ns.section_credit + credit %}
+                        {% set ns.section_balance = ns.section_balance + bal %}
+
+                        <tr>
+                            <td></td>
+                            <td class="acct-name">{{ acct }}</td>
+                            <td class="num {% if debit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(debit) if debit else "" }}</td>
+                            <td class="num {% if credit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(credit) if credit else "" }}</td>
+                            <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">{{ "%.2f"|format(bal) }}</td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+                {% if not rows %}
+                <tr><td colspan="5" class="muted">No data available.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary title="Show or hide raw data">💾 Raw Data</summary>
+        <pre>{{ raw_rows | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

@@ -6,9 +6,7 @@
         "aType": "Debit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Equity.Earnings.PnL",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "Cash_LLC",
         "propID": "a20250820-Cash1",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -18,8 +16,7 @@
         "tID": "a20250820-Cash1",
         "tDB": "llcAssets",
         "refDB": "llcBank",
-        "refDoc": "Cash_LLC:llcBank Stmt",
-        "_unknown": {}
+        "refDoc": "Cash_LLC:llcBank Stmt"
     },
     {
         "dt": "2025.08.20",
@@ -27,10 +24,8 @@
         "amt": 219000.0,
         "aType": "Debit",
         "acct": "Acct.Cash.Bank",
-        "Ledger": "Acct.Equity.Owner.Cash",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -40,8 +35,7 @@
         "tID": "a20250826-Cash1",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.20",
@@ -49,10 +43,8 @@
         "amt": 50.0,
         "aType": "Debit",
         "acct": "Acct.Cash.Bank",
-        "Ledger": "Acct.Equity.Owner.Cash",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -62,8 +54,7 @@
         "tID": "a20250826-Cash2",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -72,9 +63,7 @@
         "aType": "Credit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Fixed.Tangible.InService",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "805 High Mesa Dr, Wimberley, 78676",
@@ -84,8 +73,7 @@
         "tID": "a20250826-805HMD",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -94,9 +82,7 @@
         "aType": "Credit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Fixed.Tangible.InService",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -106,19 +92,16 @@
         "tID": "a20250826-Cash4",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
         "desc": "Closing: PrePaid Prop Tax, seller paid - assign to value of Property",
         "amt": 1660.64,
         "aType": "Debit",
-        "acct": "Acct.Equity.Owner.Cash",
+        "acct": "Acct.Equity.Owner.Capital.Funds",
         "Ledger": "Acct.Fixed.Tangible.InService",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -128,8 +111,7 @@
         "tID": "a20250826-Cash5",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -138,9 +120,7 @@
         "aType": "Debit",
         "acct": "Acct.Exp.Depreciation",
         "Ledger": "Acct.Fixed.Depreciation.Accum",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -150,8 +130,7 @@
         "tID": "d20250826-Dep1",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -160,9 +139,7 @@
         "aType": "Credit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Fixed.Tangible.InService",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -172,8 +149,7 @@
         "tID": "a20250826-Cash7",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -181,10 +157,8 @@
         "amt": 5300.0,
         "aType": "Debit",
         "acct": "Acct.Cash.Bank",
-        "Ledger": "Acct.Equity.Owner.Cash",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -194,8 +168,7 @@
         "tID": "a20250826-Escrow",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.08.26",
@@ -204,9 +177,7 @@
         "aType": "Credit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Fixed.Tangible.InService",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -216,8 +187,7 @@
         "tID": "a20250826-Escrow",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     },
     {
         "dt": "2025.12.29",
@@ -225,10 +195,8 @@
         "amt": 177.0,
         "aType": "Debit",
         "acct": "Acct.Cash.Bank",
-        "Ledger": "Acct.Equity.Owner.Cash",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "acctSub": null,
         "propNm": "RV_RV1",
         "propID": "e20251229-RV1",
         "propAddr": "Mobile",
@@ -238,19 +206,16 @@
         "tID": "e20251229-RV1",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "RV_RV1: Bill of Sales",
-        "_unknown": {}
+        "refDoc": "RV_RV1: Bill of Sales"
     },
     {
         "dt": "2025.12.29",
         "desc": "Rental RV1 - Investment",
         "amt": 177.0,
         "aType": "Credit",
-        "acct": "Acct.Equity.Owner.Cash",
+        "acct": "Acct.Equity.Owner.Capital.Funds",
         "Ledger": "Acct.Fixed.Tangible.InConstruction",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "RV_RV1",
         "propID": "e20251229-RV1",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -260,8 +225,7 @@
         "tID": "a20251229-Cash1",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "RV_RV1: Bill of Sales",
-        "_unknown": {}
+        "refDoc": "RV_RV1: Bill of Sales"
     },
     {
         "dt": "2025.08.26",
@@ -270,9 +234,7 @@
         "aType": "Credit",
         "acct": "Acct.Cash.Bank",
         "Ledger": "Acct.Exp.Operating",
-        "acctMajor": NaN,
-        "acctMinor": NaN,
-        "acctSub": NaN,
+        "acctSub": null,
         "propNm": "H_805HighMesa",
         "propID": "e20250826-805HMD",
         "propAddr": "177 Kingsway Dr, Wimberley, 786767",
@@ -282,7 +244,6 @@
         "tID": "e20250826-Cash8",
         "tDB": "llcAssets",
         "refDB": "llcAssets",
-        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26",
-        "_unknown": {}
+        "refDoc": "H_805HighMesa: Closing Docs 2025.08.26"
     }
 ]

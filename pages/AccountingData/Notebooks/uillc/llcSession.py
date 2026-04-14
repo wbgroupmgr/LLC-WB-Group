@@ -106,6 +106,29 @@ class EditSession:
         return result
 
 
+    def push(self, label: str = None) -> str:
+        '''
+        Snapshot current working files to timestamped .bak.json files.
+        Call before reset() so the previous session state can be recovered.
+        Returns the timestamp label used.
+        '''
+        from datetime import datetime
+        stamp = label or datetime.now().strftime('%Y%m%d_%H%M%S')
+        for wk in self.unique_views().values():
+            data = wk.load()
+            bak_path = Path(wk.FN()).with_suffix(f'.{stamp}.bak.json')
+            write_json_data(bak_path, data)
+        return stamp
+
+    def reset(self) -> None:
+        '''
+        Reset all working files from their DB object files (wk.o.load()).
+        This discards any unsaved working edits and restores the last published state.
+        '''
+        for wk in self.unique_views().values():
+            wk.save(wk.o.load())
+
+
 def build_default_session(base_dir: str = ".") -> EditSession:
     base_path = Path(base_dir).resolve()
     working_dir = base_path / "working"

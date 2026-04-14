@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = "llcBank";
+
+    function buildViewUrl() {
+        return `/view/llcBank`;
+    }
+
+    function toggleJsonPane() {
+        const pane = document.getElementById("jsonPane");
+        pane.open = !pane.open;
+        if (pane.open) {
+            pane.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }
+
+    async function uploadCSV() {
+        const fileInput = document.getElementById("csvFileInput");
+        if (!fileInput.files.length) {
+            alert("Please select a CSV file first.");
+            return;
+        }
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append("csv_file", file);
+
+        const btn = document.getElementById("uploadBtn");
+        btn.disabled = true;
+        btn.textContent = "Uploading…";
+
+        try {
+            const res = await fetch("/api/llcBank/upload_csv", {
+                method: "POST",
+                body: formData,
+            });
+            const result = await res.json();
+            if (!result.ok) {
+                alert(result.error || "Upload failed");
+            } else {
+                window.location.href = buildViewUrl();
+            }
+        } catch (err) {
+            alert("Upload error: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Upload & Diff";
+        }
+    }
+</script>
+
+<style>
+    .title-panel {
+        position: sticky; top: 0; z-index: 20; margin-bottom: 18px;
+        border-radius: 10px; display: flex; flex-direction: column; gap: 0;
+    }
+    .title-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
+    .stats-sub { border-top: 1px solid #e5e7eb; padding-top: 8px; }
+    .meta-row { border-top: 1px solid #e5e7eb; padding-top: 6px; }
+    .title-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-left .menu .dropdown {
+        position: absolute; top: 36px; left: 0;
+        background: white; color: black; min-width: 220px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        z-index: 100; border-radius: 6px; overflow: hidden;
+    }
+    .title-left .menu .dropdown a {
+        display: block; padding: 9px 12px; text-decoration: none; color: black;
+        border-bottom: 1px solid #eee; font-size: 14px;
+    }
+    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .title-sep { color: #9ca3af; font-size: 15px; }
+    .title-sub { font-size: 13px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; flex-shrink: 0; }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    .json-pane summary, .meta-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+
+    /* Upload panel */
+    .upload-panel {
+        background: #f0fdf4; border: 1px solid #bbf7d0;
+        border-radius: 10px; padding: 16px; margin-bottom: 18px;
+    }
+    .upload-panel h4 { margin: 0 0 10px; color: #166534; }
+    .upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .upload-info { font-size: 13px; color: #6b7280; margin-top: 6px; }
+
+    /* Bank table */
+    .bank-table { border-collapse: collapse; width: 100%; }
+    .bank-table th {
+        background: #0f172a; color: white; padding: 10px 12px; text-align: left; font-size: 13px;
+    }
+    .bank-table th.num { text-align: right; }
+    .bank-table td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .bank-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bank-table tr:hover td { background: #f9fafb; }
+    .bank-table tr.new-row td { background: #fefce8; }
+    .tag-new {
+        display: inline-block; padding: 2px 8px; border-radius: 999px;
+        background: #fef08a; color: #713f12; font-size: 11px; font-weight: 700;
+    }
+    .tag-exp { color: #991b1b; font-weight: 600; }
+    .tag-rev { color: #166534; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    <div class="dropdown">
+                        {% for v in available_views %}
+                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
+                        {% endfor %}
+                        <a href="/">Home</a>
+                    </div>
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">🏦 Bank Reconciliation — New Transactions</span>
+        </div>
+        <div class="toolbar-row">
+            <button class="btn btn-secondary" title="Reload view" onclick="window.location.href=buildViewUrl()">Refresh</button>
+            <button class="btn btn-warning" title="Toggle raw JSON pane" onclick="toggleJsonPane()">JSON</button>
+        </div>
+    </div>
+
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">Load a bank CSV to see new transactions.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary title="Show metadata">🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+<!-- CSV Upload -->
+<div class="upload-panel">
+    <h4>📂 Upload Bank CSV (Wells Fargo format)</h4>
+    <div class="upload-row">
+        <input type="file" id="csvFileInput" accept=".csv" style="font-size:14px;">
+        <button id="uploadBtn" class="btn btn-success" onclick="uploadCSV()">Upload &amp; Diff</button>
+    </div>
+    <div class="upload-info">
+        Columns expected: <code>Date, Amount, -, CheckNo, Description</code> (no header row).
+        {% if bank_dir %}
+        Current bank CSV directory: <code>{{ bank_dir }}</code>
+        {% endif %}
+        {% if csv_files %}
+        Loaded from: <strong>{{ csv_files[-1] }}</strong>
+        {% endif %}
+    </div>
+</div>
+
+<!-- New Transactions Table -->
+<div class="panel">
+    <h3>🆕 New Bank Transactions (not in llcExpRev)</h3>
+    {% if rows %}
+    <p class="muted" style="margin-top:0; font-size:13px;">{{ rows|length }} transaction(s) found in bank CSV that are not yet recorded in llcExpRev.</p>
+    {% endif %}
+    <div class="table-wrap">
+        <table class="bank-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="num">Amount</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Acct (inferred)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr class="new-row">
+                    <td>{{ row.data.get("dt", "") }}</td>
+                    <td class="num">{{ "%.2f"|format(row.data.get("amt", 0)|float) }}</td>
+                    <td>
+                        {% set atype = row.data.get("aType", "") %}
+                        <span class="{% if atype == 'Credit' %}tag-exp{% else %}tag-rev{% endif %}">
+                            {{ atype }}
+                        </span>
+                    </td>
+                    <td>{{ row.data.get("desc", row.data.get("refDoc", "")) }}</td>
+                    <td style="font-family:monospace; font-size:12px;">{{ row.data.get("acct", "") }}</td>
+                </tr>
+                {% endfor %}
+                {% if not rows %}
+                <tr>
+                    <td colspan="5" class="muted" style="text-align:center; padding:24px;">
+                        {% if csv_loaded %}
+                        ✅ All bank transactions are already in llcExpRev — nothing new.
+                        {% else %}
+                        Upload a bank CSV above to see new transactions.
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary title="Show or hide raw data">💾 Raw Data</summary>
+        <pre>{{ raw_rows | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

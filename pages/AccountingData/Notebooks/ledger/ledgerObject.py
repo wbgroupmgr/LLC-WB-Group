@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 import datetime
 
+from deepdiff import DeepDiff # Used in __eq__
+
+
 
 class ledgerObject(object):
     '''
@@ -73,14 +76,14 @@ class ledgerObject(object):
             print(f"{self.oID}: FAIL load: {self.FN()}, {err}")
             return []
 
-    def save(self, oDict):
+    def save(self, tList):
         '''
         Load ledger objects dict of transaction records
         return list of dicts representing a ledger object
         '''
         try:
             with open(self.FN(),'w') as fio:
-                return json.dump(oDict, fio, indent=4)
+                return json.dump(tList, fio, indent=4)
         except Exception as err:
             print(f"{self.oID}: FAIL save: {self.FN()}, {err}")
             return []
@@ -108,6 +111,36 @@ class ledgerObject(object):
         # No match found                  
         if self.debug : print(f"{self.oID}: WARNING FAIL find on {by} ")
         return None
+
+    def __eq__(self, tObj):
+        '''
+        Test if records are equal to another tObj's records
+        Returns:
+        False : len of objects is different
+        True : transaction records are equal
+        difDict : Difference found withihn some transaction records, details provided
+        '''
+        sList = self.load()
+        oList = tObj.load()
+        n = len(sList)
+        if n != len(oList): 
+            return False
+
+        from ledger.llcCOA import ChartOfAccounts
+        coa = ChartOfAccounts(self.llc)
+    
+        difDict = {}
+        for i in range(n):
+            sDict = sList[i]
+            oDict = oList[i]
+            oDict['acctType'] = coa._Type(oDict['acct'])
+            if sDict == oDict : continue
+            difDict[i] = DeepDiff(sDict, oDict)
+    
+        if len(difDict) == 0:
+            return True
+        return difDict
+
 
     def iterator(self):
         self.oList = self.load()

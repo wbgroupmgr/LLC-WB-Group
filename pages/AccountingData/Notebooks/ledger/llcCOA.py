@@ -109,7 +109,13 @@ class ChartOfAccounts(ledgerDB):
         acct_type = self._Type(acct)
         tDict['acctType'] = acct_type
         return tDict
-        
+
+    def getAcctType(self, transList: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        # Use add acctType to all transactions transList
+        result = []
+        for tDict in transList:
+            result.append(self.toAcctType(tDict))
+        return result
         
     def toDF(self):
         coaDF = pd.DataFrame(self.load()).transpose()
@@ -139,8 +145,9 @@ class ChartOfAccounts(ledgerDB):
                                           # Nodes beyond the approved set are application specific
                                           # Used in reconciling, ignored by financial bookkeeping pipeline
             Ledger = kwargs.get('Ledger',  np.nan), # dual acct'ing :  acct <-> ledger
-            acctMajor  = kwargs.get('acctMajor', np.nan), # COA major categories via COA services 
-            acctMinor  = kwargs.get('acctMinor', np.nan), # : Key reference per transaction - varies by account
+            #acctType                     # Is derived from acct
+            #acctMajor  = kwargs.get('acctMajor', np.nan), # derived COA._Cat()[0] - major category via COA services 
+            #acctMinor  = kwargs.get('acctMinor', np.nan), # derived COA._Cat()[1] - minot category - varies by account
                                           # Acct.Exp : supplier, purchaseOrder[Opt], 
                                           # Acct.Fixed : Owner
                                           # Acct.Rev : Customer or Org (e.g. Bank)
@@ -172,9 +179,11 @@ class ChartOfAccounts(ledgerDB):
         recDict['_unknown'] = {k:v for k,v in kwargs.items() if k in uList}
         return recDict
 
-    def recCols(self):
+    def recCols(self, delList = None):
+        cols = ['_unknown'] 
+        cols = cols if delList is None else  cols+delList
         # Transaction standard columns
-        return [c for c in self.toRecDict().keys() if c not in ['_unknown']]
+        return [c for c in self.toRecDict().keys() if c not in cols]
 
     def __repr__(self):
         coaDF = self.toDF()
