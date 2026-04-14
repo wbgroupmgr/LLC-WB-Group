@@ -119,6 +119,34 @@
         window.location.href = buildViewUrl();
     }
 
+    // ── COA validation ─────────────────────────────────────────────────────
+    const COA_FIELDS = new Set(["acct", "Ledger"]);
+
+    async function validateCoaField(input, col) {
+        const val = input.value.trim();
+        const badge = document.getElementById(`coa-badge-${col}`);
+        if (!badge) return;
+        if (!val) { badge.textContent = ""; badge.className = "coa-badge"; return; }
+        badge.textContent = "…";
+        badge.className = "coa-badge coa-checking";
+        try {
+            const res = await fetch(`/api/coa/get?acct=${encodeURIComponent(val)}`);
+            const data = await res.json();
+            if (data.found) {
+                badge.textContent = `✓ ${data.entry.acctType}`;
+                badge.className = "coa-badge coa-ok";
+                badge.title = `${data.entry.acctID} — ${data.entry.acctDesc}`;
+            } else {
+                badge.textContent = "✗ not in COA";
+                badge.className = "coa-badge coa-err";
+                badge.title = "Account not found in Chart of Accounts";
+            }
+        } catch (e) {
+            badge.textContent = "";
+            badge.className = "coa-badge";
+        }
+    }
+
     function renderFieldEditor(title, payload) {
         document.getElementById("recordEditorTitle").textContent = title;
         const host = document.getElementById("recordEditorFields");
@@ -140,6 +168,18 @@
 
             wrap.appendChild(label);
             wrap.appendChild(input);
+
+            // COA validation badge for acct / Ledger fields
+            if (COA_FIELDS.has(col)) {
+                const badge = document.createElement("span");
+                badge.id = `coa-badge-${col}`;
+                badge.className = "coa-badge";
+                wrap.appendChild(badge);
+                // Validate existing value immediately
+                if (input.value) validateCoaField(input, col);
+                input.addEventListener("blur", () => validateCoaField(input, col));
+            }
+
             host.appendChild(wrap);
         });
 
@@ -396,6 +436,19 @@
         font-size: 12px;
         line-height: 1;
     }
+    /* ── COA validation badge ── */
+    .coa-badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 6px;
+        vertical-align: middle;
+        font-weight: 600;
+    }
+    .coa-checking { background: #fef3c7; color: #92400e; }
+    .coa-ok  { background: #d1fae5; color: #065f46; }
+    .coa-err { background: #fee2e2; color: #991b1b; }
     .dup-cell {
         color: #dc2626;
         font-weight: 700;

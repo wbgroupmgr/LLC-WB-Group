@@ -29,6 +29,57 @@ class llcFinancialReport(ledgerObject):
         self.bsDepr = 0 # FIXME depre account name?? self.bsDF.loc['Asset.Asset.Depreciation.Accumulation'].Asset
         self.dtReport = datetime.datetime.now().strftime('%Y.%m.%d')
 
+    #
+    # ----------------- ledgerObject overlay
+
+    def _loadGL(self):
+        from ledger.ledgerGeneral import ledgerGeneral
+        return ledgerGeneral(self.llc)
+
+    def load(self, **kwargs):
+        '''
+        Return glLIst - derived from llcAssets/llcExpRev
+        '''
+        
+        from ledger.ledgerGeneral import ledgerGeneral
+        from ledger.llcExpRev import llcExpRev
+        from ledger.llcAssets import llcAssets
+        
+        
+        aObj = llcAssets(self.llc)
+        erObj = llcExpRev(self.llc)
+        gl = self._loadGL()
+        #_aList = aObj.load()
+        
+        erList = erObj.load()
+        aList = aObj.load()
+        
+        # display transaction with Acct.Rev 
+        acctKey = 'Acct.Rev'
+        revList = [tDict for tDict in erList if  acctKey in tDict['acct'] or acctKey in tDict['Ledger']]
+        print (f"Acct.Rev List: {len(aList)}, revList:{len(revList)}")
+        
+        # Expand to double-entry GL pairs (drops Ledger, recomputes tID + acctType)
+        erList_gl = gl.toDoubleEntry(erList)
+        aList_gl = gl.toDoubleEntry(aList)
+        
+        # Merge: resolve_dups=False → keep all, flag cross-source dups
+        glList = gl.mergeGL([erList_gl, aList_gl], resolve_dups=kwargs.get('resolve_dups', True))
+
+        return glList
+
+    def toDF(self):
+        # Generate a 
+        glList = self.load()
+        glDF = pd.DataFrame(glList)
+        glDF['acctType'] = glDF.acct.apply(lambda v : self.llc.coa._Type(v))
+        return glDF
+
+
+
+    #
+    # ----------------- notebook services
+
     def displayProfile(self):
         
         # -----------------------------------------
@@ -40,33 +91,63 @@ class llcFinancialReport(ledgerObject):
         s += f"- Loaded: GenLedger Loaded (items:{len(self.llc.bk.df)}), BalSheet Loaded(items:{len(bsDF)})"
         display(Markdown(s))
 
-    def _buildBS(self, dList, **kwargs):
+    def _buildBS(self, **kwargs):
         '''
         Build Balance Sheet DF
         '''
-        # Builf DF of BS
-        oDF = pd.DataFrame(dList)
+        glDF = self.toDF()
+        cIncSt = ['Asset', 'Equity', 'Liability']
+        bshDF = glDF[ ~ glDF.acctType.apply(lambda v : v in cIncSt)]
+        return bshDF.groupby(['acctType', 'acct', 'acctSub', 'aType']).amt.sum().unstack()
 
-        t = list(oDF.sum(axis=0))[1:]
-        col = list(oDF.columns)[1:]
-        oDF['Beginning of Year (A)'] = oDF.begYr.apply( lambda n : strAmt(n))
-        oDF['End of Year (D)'] = oDF.yeYr.apply( lambda n : strAmt(n))
-        oDF.drop(columns = col, inplace=True)
-        oDF.set_index('Acct', drop=True, inplace=True)
-        oDF.loc[kwargs.get('Total','Totals')] = [strAmt(n) for n in t]
-        return dict(begAmt=t[0], yeAmt=t[1]), oDF
+        if False:
+            # OLD 
+            # Builf DF of BS
+            oDF = pd.DataFrame(dList)
     
-    def _buildGL(self, glList, **kwargs):
-        
-        df = pd.DataFrame(glList)
-        df.set_index('Acct', drop=True, inplace=True)
-        tAmt = df.amt.sum()
-        
-        t = [strAmt(tAmt) if c == 'amt' else '' for c in df.columns]
-        df.loc[kwargs.get('Total','Totals')] = t
+            t = list(oDF.sum(axis=0))[1:]
+            col = list(oDF.columns)[1:]
+            oDF['Beginning of Year (A)'] = oDF.begYr.apply( lambda n : strAmt(n))
+            oDF['End of Year (D)'] = oDF.yeYr.apply( lambda n : strAmt(n))
+            oDF.drop(columns = col, inplace=True)
+            oDF.set_index('Acct', drop=True, inplace=True)
+            oDF.loc[kwargs.get('Total','Totals')] = [strAmt(n) for n in t]
+            return dict(begAmt=t[0], yeAmt=t[1]), oDF
 
-       
-        return tAmt,df
+
+    def _BuildIncStmt(self):
+        
+        glDF = self.toDF()
+        cIncSt = ['Asset', 'Equity', 'Liability']
+        x = glDF[glDF.acctType.apply(lambda v : v in cIncSt)]
+        return x.groupby(['acctType', 'acct', 'aType']).amt.sum().unstack()
+
+        
+
+        if False:
+            # OLD Original method
+
+            rAmt,rDF = self.Revenue()
+            cogsAmt, cogsDF = self.COGS()
+            
+    
+            # Profit(Loss) Statement (Income Statement)
+            s = f"<h2>{self.llc.objName}: Income Statement<br>"
+            display(Markdown(s))
+            s = f"As of Dec 31, {self.llc.yr}<br>"
+            display(Markdown(s))
+            
+            display(Markdown('<h2>Revenue'))
+            display(rDF)
+                    
+            display(Markdown('<h2>Cost of Goods Sold (COGS)'))
+            display(cogsDF)
+    
+            display(Markdown('<h2>Expense'))
+            
+            display(Markdown(f'<h2>Gross Profits: {strAmt(rAmt - cogsAmt)}'))
+
+            
     def ReaEstateIncome(self):
         '''
         Real Estate Income
@@ -97,7 +178,6 @@ class llcFinancialReport(ledgerObject):
         df.rename(columns=dict(amt='Revenue'), inplace=True)
         return t, df
 
-    
     def Revenue(self):
     
         # Summary of all Acct in GL
@@ -134,28 +214,6 @@ class llcFinancialReport(ledgerObject):
         df.rename(columns=dict(amt='COGS'), inplace=True)
         return t, df
 
-
-    def displayIncomeStatement(self):
-
-        rAmt,rDF = self.Revenue()
-        cogsAmt, cogsDF = self.COGS()
-        
-
-        # Profit(Loss) Statement (Income Statement)
-        s = f"<h2>{self.llc.objName}: Income Statement<br>"
-        display(Markdown(s))
-        s = f"As of Dec 31, {self.llc.yr}<br>"
-        display(Markdown(s))
-        
-        display(Markdown('<h2>Revenue'))
-        display(rDF)
-                
-        display(Markdown('<h2>Cost of Goods Sold (COGS)'))
-        display(cogsDF)
-
-        display(Markdown('<h2>Expense'))
-        
-        display(Markdown(f'<h2>Gross Profits: {strAmt(rAmt - cogsAmt)}'))
 
     def Assets(self):
         

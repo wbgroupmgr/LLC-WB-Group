@@ -7,18 +7,15 @@
     async function confirmNewSession() {
         document.getElementById("newSessionBackdrop").style.display = "flex";
     }
-
     function cancelNewSession() {
         document.getElementById("newSessionBackdrop").style.display = "none";
     }
-
     async function doNewSession() {
         const btn = document.getElementById("newSessionConfirmBtn");
         btn.disabled = true;
         btn.textContent = "Resetting…";
-
         try {
-            const res = await fetch("/api/session/new", { method: "POST" });
+            const res  = await fetch("/api/session/new", { method: "POST" });
             const data = await res.json();
             if (data.ok) {
                 cancelNewSession();
@@ -37,11 +34,12 @@
 </script>
 
 <style>
+    /* ── Sticky title bar ── */
     .title-panel {
         position: sticky;
         top: 0;
         z-index: 20;
-        margin-bottom: 18px;
+        margin-bottom: 24px;
         border-radius: 10px;
     }
     .title-toolbar {
@@ -74,35 +72,89 @@
         border-bottom: 1px solid #eee; font-size: 14px;
     }
     .title-left .menu .dropdown a:hover { background: #f3f4f6; }
-    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .title-name { font-size: 18px; font-weight: 700; white-space: nowrap; }
     .title-sep  { color: #9ca3af; font-size: 15px; }
     .title-sub  { font-size: 13px; color: #6b7280; white-space: nowrap; }
     .toolbar-row {
         display: flex; align-items: center; gap: 8px;
         flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
     }
-    .view-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 12px;
-        margin-top: 4px;
-    }
-    .view-card {
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: 14px 16px;
-        text-decoration: none;
-        color: #111827;
+
+    /* ── Financial Report section ── */
+    .report-section { margin-bottom: 28px; }
+    .section-header {
         display: flex;
         align-items: center;
         gap: 10px;
-        transition: background 0.15s;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e5e7eb;
     }
-    .view-card:hover { background: #eef2ff; border-color: #c7d2fe; }
-    .view-card .vc-icon { font-size: 20px; }
-    .view-card .vc-label { font-weight: 600; font-size: 14px; }
-    .view-card.wip { opacity: 0.55; cursor: default; pointer-events: none; }
+    .section-header .sec-icon { font-size: 20px; }
+    .section-header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        color: #111827;
+        letter-spacing: 0.01em;
+    }
+    .section-header .sec-count {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-left: auto;
+    }
+
+    /* ── View card grid ── */
+    .view-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 10px;
+    }
+    .view-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 14px 16px;
+        text-decoration: none;
+        color: #111827;
+        transition: all 0.15s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    .view-card:hover {
+        background: #f0f5ff;
+        border-color: #a5b4fc;
+        box-shadow: 0 4px 10px rgba(99,102,241,.15);
+        transform: translateY(-1px);
+    }
+    .view-card.wip {
+        opacity: 0.45;
+        cursor: default;
+        pointer-events: none;
+    }
+    .vc-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+        width: 36px;
+        text-align: center;
+    }
+    .vc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .vc-label { font-weight: 600; font-size: 14px; line-height: 1.2; }
+    .vc-sub   { font-size: 11px; color: #9ca3af; }
+
+    /* Group colour accents — matches group.label | lower | replace(' ', '-') */
+    .group-transactions       .view-card:hover { background: #f0fdf4; border-color: #86efac; box-shadow: 0 4px 10px rgba(34,197,94,.12); }
+    .group-financial-statements .view-card:hover { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 4px 10px rgba(59,130,246,.12); }
+    .group-irs-tax-aids       .view-card:hover { background: #fefce8; border-color: #fde047; box-shadow: 0 4px 10px rgba(234,179,8,.12); }
+
+    /* ── Session table ── */
+    .session-panel { margin-top: 8px; }
+    .session-panel table { width: 100%; }
+
+    /* ── Divider between sections inside a panel ── */
+    .section-divider { border: none; border-top: 1px solid #f3f4f6; margin: 20px 0; }
 </style>
 {% endblock %}
 
@@ -124,65 +176,95 @@
             </div>
             <span class="title-name">{{ app_title }}</span>
             <span class="title-sep">·</span>
-            <span class="title-sub">🏠 Home</span>
+            <span class="title-sub">📋 Financial Report</span>
         </div>
         <div class="toolbar-row">
             <button class="btn btn-danger"
                     title="Snapshot current working data, then reset all working files from the DB"
-                    onclick="confirmNewSession()">New Session</button>
+                    onclick="confirmNewSession()">⟳ New Session</button>
         </div>
     </div>
 </div>
 
-<!-- ── Available Views ────────────────────────────────────────────── -->
+<!-- ── Financial Report ───────────────────────────────────────────── -->
 <div class="panel">
-    <h3>📚 Available Views</h3>
-    <div class="view-grid">
-        {% set icons = {
-            "llcAssets":        "🏦",
-            "llcExpRev":        "💸",
-            "llcGeneralLedger": "📒",
-            "llcBalanceSheet":  "⚖️",
-            "llcIncomeStmt":    "📈",
-            "llcBank":          "🏧"
-        } %}
-        {% for v in available_views %}
-        <a href="/view/{{ v.name }}"
-           class="view-card {% if v.under_construction %}wip{% endif %}"
-           title="{{ v.label }}{% if v.under_construction %} — under construction{% endif %}">
-            <span class="vc-icon">{{ icons.get(v.name, "📋") }}</span>
-            <span class="vc-label">{{ v.label }}{% if v.under_construction %} 🚧{% endif %}</span>
-        </a>
-        {% endfor %}
+
+    {% set icons = {
+        "llcAssets":        ("🏦", "Asset transactions"),
+        "llcExpRev":        ("💸", "Expenses & Revenue"),
+        "llcGeneralLedger": ("📒", "Double-entry ledger"),
+        "llcBank":          ("🏧", "Bank reconciliation"),
+        "llcBalanceSheet":  ("⚖️",  "Assets = Liab + Equity"),
+        "llcIncomeStmt":    ("📈", "Income & Expenses"),
+        "llcOwnerEquity":   ("👥", "Member capital & P&L"),
+        "llcForm1065":      ("🇺🇸", "Partnership return"),
+        "llcFormK1":        ("📋", "Per-partner K-1"),
+        "llcFormSchedL":    ("🗂️",  "Books balance sheet"),
+        "llcFormSchedM1":   ("🔄", "Books ↔ return recon."),
+        "llcFormSchedM2":   ("📑", "Partners' capital accts"),
+    } %}
+
+    {% for group in view_groups %}
+    <div class="report-section group-{{ group.label | lower | replace(' ', '-') }}">
+        <div class="section-header">
+            <span class="sec-icon">{{ group.icon }}</span>
+            <h3>{{ group.label }}</h3>
+            <span class="sec-count">{{ group.views | length }} views</span>
+        </div>
+
+        <div class="view-grid">
+            {% for vname in group.views %}
+                {% set vlabel = view_labels.get(vname, vname) %}
+                {% set vicon_sub = icons.get(vname, ("📋", "")) %}
+                <a href="/view/{{ vname }}"
+                   class="view-card"
+                   title="{{ vlabel }}">
+                    <span class="vc-icon">{{ vicon_sub[0] }}</span>
+                    <div class="vc-text">
+                        <span class="vc-label">{{ vlabel }}</span>
+                        {% if vicon_sub[1] %}
+                        <span class="vc-sub">{{ vicon_sub[1] }}</span>
+                        {% endif %}
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
     </div>
+    {% if not loop.last %}<hr class="section-divider">{% endif %}
+    {% endfor %}
+
 </div>
 
-<!-- ── eSession Objects ───────────────────────────────────────────── -->
-<div class="panel">
-    <h3>🧠 Session Objects</h3>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Object Name</th>
-                    <th>Working File</th>
-                    <th>Object (DB) File</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in session_views %}
-                <tr>
-                    <td><strong>{{ item.name }}</strong></td>
-                    <td class="muted" style="font-size:12px;font-family:monospace">{{ item.working_file }}</td>
-                    <td class="muted" style="font-size:12px;font-family:monospace">{{ item.object_file }}</td>
-                </tr>
-                {% endfor %}
-                {% if not session_views %}
-                <tr><td colspan="3" class="muted">No session objects found.</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
-    </div>
+<!-- ── Session Objects ────────────────────────────────────────────── -->
+<div class="panel session-panel">
+    <details>
+        <summary style="cursor:pointer; font-weight:600; font-size:14px; padding:4px 0;">
+            🧠 Session Objects ({{ session_views | length }})
+        </summary>
+        <div class="table-wrap" style="margin-top:12px">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Object Name</th>
+                        <th>Working File</th>
+                        <th>Object (DB) File</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in session_views %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="muted" style="font-size:12px;font-family:monospace">{{ item.working_file }}</td>
+                        <td class="muted" style="font-size:12px;font-family:monospace">{{ item.object_file }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not session_views %}
+                    <tr><td colspan="3" class="muted">No session objects found.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </details>
 </div>
 
 <!-- ── New Session confirmation modal ─────────────────────────────── -->

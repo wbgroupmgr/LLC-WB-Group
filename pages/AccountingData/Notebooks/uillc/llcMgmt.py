@@ -2,14 +2,25 @@
 llcMgmt — Flask app wiring all LLC editor views.
 
 Views:
-  llcAssets       — Asset records (editable, table_view.html)
-  llcExpRev       — Expense/Revenue records (editable, table_view.html)
-  llcGeneralLedger— Merged GL computed view (read-only, table_view.html)
-  llcBalanceSheet — Balance Sheet computed view (read-only, financial_view.html)
-  llcIncomeStmt   — Income Statement computed view (read-only, financial_view.html)
-  llcBank         — Bank CSV reconciliation (read-only, bank_view.html)
+  Transactions:
+    llcAssets       — Asset records (editable, table_view.html)
+    llcExpRev       — Expense/Revenue records (editable, table_view.html)
+    llcGeneralLedger— Merged GL computed view (read-only, table_view.html)
+    llcBank         — Bank CSV reconciliation (read-only, bank_view.html)
 
-Timestamp of last change: 2026.04.13
+  Financial Statements:
+    llcBalanceSheet — Balance Sheet (read-only, financial_view.html)
+    llcIncomeStmt   — Income Statement (read-only, financial_view.html)
+    llcOwnerEquity  — Owner / Member Equity (read-only, financial_view.html)
+
+  IRS Tax Aids:
+    llcForm1065     — Form 1065 summary (read-only, tax_view.html)
+    llcFormK1       — Schedule K-1 per partner (read-only, tax_view.html)
+    llcFormSchedL   — Schedule L Balance Sheet per books (read-only, tax_view.html)
+    llcFormSchedM1  — Schedule M-1 income reconciliation (read-only, tax_view.html)
+    llcFormSchedM2  — Schedule M-2 partners' capital (read-only, tax_view.html)
+
+Timestamp of last change: 2026.04.14
 '''
 
 import json
@@ -20,42 +31,98 @@ from typing import Any, Dict, List, Set
 
 from flask import Flask, jsonify, render_template, request
 
-from uillc.llcAssets import llcAssets
-from uillc.llcExpRev import llcExpRev
+from uillc.llcAssets        import llcAssets
+from uillc.llcExpRev        import llcExpRev
 from uillc.llcGeneralLedger import llcGeneralLedger
-from uillc.llcBalanceSheet import llcBalanceSheet
-from uillc.llcIncomeStmt import llcIncomeStmt
-from uillc.llcBankView import llcBankView
+from uillc.llcBalanceSheet  import llcBalanceSheet
+from uillc.llcIncomeStmt    import llcIncomeStmt
+from uillc.llcOwnerEquity   import llcOwnerEquity
+from uillc.llcBankView      import llcBankView
+from uillc.llcForm1065      import llcForm1065
+from uillc.llcFormK1        import llcFormK1
+from uillc.llcFormSchedL    import llcFormSchedL
+from uillc.llcFormSchedM1   import llcFormSchedM1
+from uillc.llcFormSchedM2   import llcFormSchedM2
 
 
 class llcMgmt:
+
+    # ── View catalogue ────────────────────────────────────────────────────────
     VIEW_ORDER = [
+        # Transactions
         "llcAssets",
         "llcExpRev",
         "llcGeneralLedger",
+        "llcBank",
+        # Financial Statements
         "llcBalanceSheet",
         "llcIncomeStmt",
-        "llcBank",
+        "llcOwnerEquity",
+        # IRS Tax Aids
+        "llcForm1065",
+        "llcFormK1",
+        "llcFormSchedL",
+        "llcFormSchedM1",
+        "llcFormSchedM2",
     ]
+
     VIEW_LABELS = {
         "llcAssets":        "Assets",
         "llcExpRev":        "Exp / Revenue",
         "llcGeneralLedger": "General Ledger",
+        "llcBank":          "Bank Reconciliation",
         "llcBalanceSheet":  "Balance Sheet",
         "llcIncomeStmt":    "Income Statement",
-        "llcBank":          "Bank Reconciliation",
-    }
-    VIEW_TITLES = {
-        "llcBalanceSheet": "Balance Sheet",
-        "llcIncomeStmt":   "Income Statement",
+        "llcOwnerEquity":   "Owner Equity",
+        "llcForm1065":      "Form 1065",
+        "llcFormK1":        "Schedule K-1",
+        "llcFormSchedL":    "Schedule L",
+        "llcFormSchedM1":   "Schedule M-1",
+        "llcFormSchedM2":   "Schedule M-2",
     }
 
+    VIEW_TITLES = {
+        "llcBalanceSheet":  "Balance Sheet",
+        "llcIncomeStmt":    "Income Statement",
+        "llcOwnerEquity":   "Owner / Member Equity",
+        "llcForm1065":      "Form 1065 – U.S. Return of Partnership Income",
+        "llcFormK1":        "Schedule K-1 – Partner's Share of Income",
+        "llcFormSchedL":    "Schedule L – Balance Sheet per Books",
+        "llcFormSchedM1":   "Schedule M-1 – Reconciliation of Income",
+        "llcFormSchedM2":   "Schedule M-2 – Analysis of Partners' Capital Accounts",
+    }
+
+    # View groups for the home page
+    VIEW_GROUPS = [
+        {
+            "label": "Transactions",
+            "icon":  "📂",
+            "views": ["llcAssets", "llcExpRev", "llcGeneralLedger", "llcBank"],
+        },
+        {
+            "label": "Financial Statements",
+            "icon":  "📊",
+            "views": ["llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity"],
+        },
+        {
+            "label": "IRS Tax Aids",
+            "icon":  "🧾",
+            "views": ["llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2"],
+        },
+    ]
+
     # Views that use financial_view.html
-    FINANCIAL_VIEWS = {"llcBalanceSheet", "llcIncomeStmt"}
+    FINANCIAL_VIEWS = {"llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity"}
+    # Views that use tax_view.html
+    TAX_VIEWS = {"llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2"}
     # Views that use bank_view.html
     BANK_VIEWS = {"llcBank"}
     # All computed (read-only) views
-    READ_ONLY_VIEWS = {"llcGeneralLedger", "llcBalanceSheet", "llcIncomeStmt", "llcBank"}
+    READ_ONLY_VIEWS = {
+        "llcGeneralLedger", "llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity",
+        "llcBank",
+        "llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2",
+    }
 
     # Preferred column sets for computed views
     GL_COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt', 'desc', 'acctSub', 'refDB']
@@ -95,8 +162,10 @@ class llcMgmt:
         @self.app.context_processor
         def inject_globals():
             return {
-                "app_title": self.title,
+                "app_title":       self.title,
                 "available_views": self.available_views(),
+                "view_groups":     self.VIEW_GROUPS,
+                "view_labels":     self.VIEW_LABELS,
             }
 
         self._bind_routes()
@@ -109,7 +178,13 @@ class llcMgmt:
             "llcGeneralLedger":  "llcGeneralLedger",
             "llcIncomeStmt":     "llcIncomeStmt",
             "llcBalanceSheet":   "llcBalanceSheet",
+            "llcOwnerEquity":    "llcOwnerEquity",
             "llcBank":           "llcBank",
+            "llcForm1065":       "llcForm1065",
+            "llcFormK1":         "llcFormK1",
+            "llcFormSchedL":     "llcFormSchedL",
+            "llcFormSchedM1":    "llcFormSchedM1",
+            "llcFormSchedM2":    "llcFormSchedM2",
         }
         return aliases.get(name, name)
 
@@ -127,19 +202,25 @@ class llcMgmt:
                 mgr = llcAssets(wk)
             elif obj_name == "llcExpRev":
                 mgr = llcExpRev(wk)
-            # Skip old stub classes for llcIncomeStmt / llcBalanceSheet
-            # (they are now computed views built below from eSession)
 
             if mgr is not None:
                 if hasattr(mgr, "bind_session"):
                     mgr.bind_session(self.eSession)
                 objects[obj_name] = mgr
 
-        # ── computed (read-only) views: always built from eSession ────────────
+        # ── computed (read-only) views ────────────────────────────────────────
         objects["llcGeneralLedger"] = llcGeneralLedger(self.eSession)
         objects["llcBalanceSheet"]  = llcBalanceSheet(self.eSession)
         objects["llcIncomeStmt"]    = llcIncomeStmt(self.eSession)
+        objects["llcOwnerEquity"]   = llcOwnerEquity(self.eSession)
         objects["llcBank"]          = llcBankView(self.eSession)
+
+        # ── IRS tax aid views ─────────────────────────────────────────────────
+        objects["llcForm1065"]   = llcForm1065(self.eSession)
+        objects["llcFormK1"]     = llcFormK1(self.eSession)
+        objects["llcFormSchedL"] = llcFormSchedL(self.eSession)
+        objects["llcFormSchedM1"]= llcFormSchedM1(self.eSession)
+        objects["llcFormSchedM2"]= llcFormSchedM2(self.eSession)
 
         return objects
 
@@ -147,9 +228,9 @@ class llcMgmt:
         items = []
         for name in self.VIEW_ORDER:
             items.append({
-                "name": name,
-                "label": self.VIEW_LABELS.get(name, name),
-                "present": name in self.objects,
+                "name":              name,
+                "label":             self.VIEW_LABELS.get(name, name),
+                "present":           name in self.objects,
                 "under_construction": False,
             })
         return items
@@ -168,16 +249,21 @@ class llcMgmt:
         return alias_map.get(value, "all")
 
     def _get_columns(self, rows: List[Dict[str, Any]], obj_type: str, view_mode: str = "all") -> List[str]:
-        # Editable views use predefined column sets
         if self._supports_record_views(obj_type):
             mode = self._normalize_view_mode(view_mode)
             return list(self.RECORD_VIEW_OPTIONS[mode])
 
-        # GL view: use fixed preferred set
         if obj_type == "llcGeneralLedger":
             return list(self.GL_COLUMNS)
 
-        # Balance Sheet / Income Statement / Bank: columns derived from data
+        # Tax views: derive columns from data, respect source order
+        if obj_type in self.TAX_VIEWS and rows:
+            # Use key order from first non-empty row
+            for r in rows:
+                if isinstance(r, dict) and r:
+                    return list(r.keys())
+
+        # Financial views: use priority ordering
         cols: Set[str] = set()
         for row in rows:
             if isinstance(row, dict):
@@ -186,7 +272,6 @@ class llcMgmt:
         if not cols:
             return ["acctType", "acct"]
 
-        # Priority ordering for financial rows
         priority = ["acctType", "acct", "Debit", "Credit", "Balance",
                     "dt", "amt", "aType", "desc", "acctSub", "refDB"]
         ordered = [c for c in priority if c in cols]
@@ -216,13 +301,13 @@ class llcMgmt:
                 for sub_key, sub_value in value.items():
                     labels.append({
                         "value": self._format_stat_value(sub_value),
-                        "text": str(sub_key),
+                        "text":  str(sub_key),
                         "group": str(key),
                     })
             else:
                 labels.append({
                     "value": self._format_stat_value(value),
-                    "text": str(key),
+                    "text":  str(key),
                     "group": "",
                 })
         return labels
@@ -235,15 +320,11 @@ class llcMgmt:
         return json.loads(payload)
 
     def _row_id(self, row: Dict[str, Any], index: int) -> str:
-        # Must match JS rowIdFor(): (row.id ?? row.oID) ?? index
-        # Do NOT include tID — JS doesn't know about it and the mismatch
-        # causes "Record not found" for records that lack id/oID.
         return str(row.get("id", row.get("oID", index)))
 
     @staticmethod
     def _sanitize(obj: Any) -> Any:
-        '''Recursively replace float NaN/Inf with None so Flask jsonify stays valid JSON.
-        COA pandas lookups (e.g. acctSub) can inject NaN into record dicts.'''
+        '''Recursively replace float NaN/Inf with None so Flask jsonify stays valid JSON.'''
         if isinstance(obj, dict):
             return {k: llcMgmt._sanitize(v) for k, v in obj.items()}
         if isinstance(obj, list):
@@ -266,49 +347,49 @@ class llcMgmt:
             result.append({
                 "_row_index": idx,
                 "_record_id": record_id,
-                "_changed": record_id in changed_ids,
-                "data": row,
+                "_changed":   record_id in changed_ids,
+                "data":       row,
             })
         return result
 
     def _bind_routes(self):
         app = self.app
 
-        # Chrome DevTools automatically probes this path on every navigation.
-        # Return an empty JSON array so Flask doesn't log a 404 for it.
         @app.route("/.well-known/appspecific/com.chrome.devtools.json")
         def chrome_devtools_json():
             return jsonify([])
 
+        # ── Home ──────────────────────────────────────────────────────────────
         @app.route("/")
         def home():
             session_views = []
             seen = set()
             for key, wk in self.eSession.oDict.items():
                 obj_name = self._canonical_name(getattr(getattr(wk, "o", None), "oID", key))
-                fn = wk.FN() if hasattr(wk, 'FN') else ''
+                fn  = wk.FN()   if hasattr(wk, 'FN')                        else ''
                 ofn = wk.o.FN() if hasattr(wk, 'o') and hasattr(wk.o, 'FN') else ''
                 stamp = (obj_name, fn, ofn)
                 if stamp in seen:
                     continue
                 seen.add(stamp)
                 session_views.append({
-                    "name": obj_name,
-                    "raw_name": key,
+                    "name":         obj_name,
+                    "raw_name":     key,
                     "working_file": fn,
-                    "object_file": ofn,
+                    "object_file":  ofn,
                 })
 
             return render_template(
                 "home.html",
                 title=self.title,
-                session_views=session_views
+                session_views=session_views,
             )
 
+        # ── View ──────────────────────────────────────────────────────────────
         @app.route("/view/<obj_type>")
         def view_object(obj_type: str):
             obj_type = self._canonical_name(obj_type)
-            manager = self.objects.get(obj_type)
+            manager  = self.objects.get(obj_type)
 
             if manager is None:
                 meta = {"objectName": obj_type}
@@ -316,30 +397,30 @@ class llcMgmt:
                     "construction.html",
                     title=self.title,
                     obj_type=obj_type,
-                    meta=meta
+                    meta=meta,
                 )
 
-            view_mode = self._normalize_view_mode(request.args.get("viewMode", "all"))
-            view_by = request.args.get("viewBy", "All")
-            view_by_options = self.VIEW_BY_OPTIONS.get(obj_type, [])
-            changed_ids = self._parse_changed_ids()
-            # Computed views support view_by filtering via their own load()
+            view_mode        = self._normalize_view_mode(request.args.get("viewMode", "all"))
+            view_by          = request.args.get("viewBy", "All")
+            view_by_options  = self.VIEW_BY_OPTIONS.get(obj_type, [])
+            changed_ids      = self._parse_changed_ids()
+
             if obj_type in self.READ_ONLY_VIEWS and obj_type not in self.BANK_VIEWS:
                 rows = manager.load(view_by=view_by)
             else:
                 rows = manager.load()
+
             stats = manager.stats()
 
-            # Editable views: build ViewBy options from actual acctTypes in data,
-            # then apply display-only filter.  Edit/delete API calls use the full
-            # unfiltered load() so no data is lost.
+            # Editable views: dynamic ViewBy from actual acctTypes + display filter
             if self._supports_record_views(obj_type):
                 acct_types = sorted({r.get('acctType', '') for r in rows if r.get('acctType', '')})
                 view_by_options = ['All'] + [f'By{t}' for t in acct_types]
                 if view_by and view_by != 'All':
-                    acct_type_filter = view_by[2:]   # 'ByAsset' → 'Asset'
+                    acct_type_filter = view_by[2:]
                     rows = [r for r in rows if r.get('acctType', '') == acct_type_filter]
-            meta = manager.meta()
+
+            meta         = manager.meta()
             stats_labels = self._stats_labels(stats)
 
             # ── Bank view ─────────────────────────────────────────────────────
@@ -361,6 +442,11 @@ class llcMgmt:
 
             # ── Financial Statement views ─────────────────────────────────────
             if obj_type in self.FINANCIAL_VIEWS:
+                # For Balance Sheet: also pass the accounting-equation check
+                bs_check = None
+                if obj_type == "llcBalanceSheet" and hasattr(manager, "last_check"):
+                    bs_check = manager.last_check()
+
                 return render_template(
                     "financial_view.html",
                     title=self.title,
@@ -374,10 +460,27 @@ class llcMgmt:
                     view_mode=view_mode,
                     view_by=view_by,
                     view_by_options=view_by_options,
+                    bs_check=bs_check,
+                )
+
+            # ── Tax aid views ─────────────────────────────────────────────────
+            if obj_type in self.TAX_VIEWS:
+                columns = self._get_columns(rows, obj_type, view_mode=view_mode)
+                return render_template(
+                    "tax_view.html",
+                    title=self.title,
+                    obj_type=obj_type,
+                    view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                    rows=self._view_rows(rows),
+                    raw_rows=rows,
+                    columns=columns,
+                    stats=stats,
+                    stats_labels=stats_labels,
+                    meta=meta,
                 )
 
             # ── Standard table view ───────────────────────────────────────────
-            columns = self._get_columns(rows, obj_type, view_mode=view_mode)
+            columns   = self._get_columns(rows, obj_type, view_mode=view_mode)
             read_only = obj_type in self.READ_ONLY_VIEWS
 
             return render_template(
@@ -398,18 +501,44 @@ class llcMgmt:
                 read_only=read_only,
             )
 
-        # ── New Session endpoint ──────────────────────────────────────────────
+        # ── New Session ───────────────────────────────────────────────────────
         @app.route("/api/session/new", methods=["POST"])
         def new_session():
-            '''
-            Snapshot working files (push) then reset each wk back to its DB object.
-            Client should redirect to "/" after a successful response.
-            '''
             stamp = self.eSession.push()
             self.eSession.reset()
             return jsonify({"ok": True, "snapshot": stamp})
 
-        # ── Bank CSV upload endpoint ──────────────────────────────────────────
+        # ── COA lookup ────────────────────────────────────────────────────────
+        @app.route("/api/coa/get")
+        def coa_get():
+            acct = request.args.get("acct", "").strip()
+            if not acct:
+                return jsonify({"ok": False, "error": "acct param required"}), 400
+            # Find any computed view that has an engine with coa_lookup
+            engine = None
+            for obj in self.objects.values():
+                if hasattr(obj, "engine") and hasattr(obj.engine, "coa_lookup"):
+                    engine = obj.engine
+                    break
+            if engine is None:
+                return jsonify({"ok": False, "error": "COA engine not available"}), 500
+            entry = engine.coa_lookup(acct)
+            if entry is None:
+                return jsonify({"ok": False, "found": False, "acct": acct})
+            return jsonify({"ok": True, "found": True, "entry": self._sanitize(entry)})
+
+        @app.route("/api/coa/all")
+        def coa_all():
+            engine = None
+            for obj in self.objects.values():
+                if hasattr(obj, "engine") and hasattr(obj.engine, "coa_all"):
+                    engine = obj.engine
+                    break
+            if engine is None:
+                return jsonify({"ok": False, "error": "COA engine not available"}), 500
+            return jsonify({"ok": True, "data": self._sanitize(engine.coa_all())})
+
+        # ── Bank CSV upload ───────────────────────────────────────────────────
         @app.route("/api/llcBank/upload_csv", methods=["POST"])
         def upload_bank_csv():
             bank_mgr: llcBankView = self.objects.get("llcBank")
@@ -421,22 +550,20 @@ class llcMgmt:
 
             f = request.files["csv_file"]
             csv_data = f.read().decode("utf-8", errors="replace")
-
             new_rows = bank_mgr.load_from_csv_data(csv_data)
             return jsonify({"ok": True, "newTransactions": len(new_rows)})
 
-        # ── Generic API command endpoint ──────────────────────────────────────
+        # ── Generic API command ───────────────────────────────────────────────
         @app.route("/api/<obj_type>/cmd", methods=["GET", "POST"])
         def api_cmd(obj_type: str):
             obj_type = self._canonical_name(obj_type)
-            manager = self.objects.get(obj_type)
+            manager  = self.objects.get(obj_type)
 
             if manager is None:
                 return jsonify({"ok": False, "error": f"Unknown object type: {obj_type}"}), 404
 
             cmd = request.values.get("cmd", "load")
-
-            s = self._sanitize  # shorthand
+            s   = self._sanitize
 
             if cmd == "load":
                 return jsonify({"ok": True, "data": s(manager.load())})
@@ -462,7 +589,6 @@ class llcMgmt:
             if cmd == "reset_from_object":
                 return jsonify({"ok": True, "data": s(manager.reset_from_object())})
 
-            # Mutation commands — read-only views return graceful error
             if obj_type in self.READ_ONLY_VIEWS:
                 return jsonify({"ok": False, "error": f"{obj_type} is a read-only computed view"}), 400
 
@@ -470,13 +596,13 @@ class llcMgmt:
                 payload = self._parse_payload(request.values.get("payload", "{}"), {})
                 rows = manager.load()
                 rows.append(payload)
-                saved = s(manager.save(rows))
+                saved  = s(manager.save(rows))
                 new_id = self._row_id(saved[-1], len(saved) - 1) if saved else ""
                 return jsonify({"ok": True, "data": saved, "changedRecordId": new_id})
 
             if cmd == "update":
                 record_id = request.values.get("id")
-                payload = self._parse_payload(request.values.get("payload", "{}"), {})
+                payload   = self._parse_payload(request.values.get("payload", "{}"), {})
                 rows = manager.load()
                 updated = False
                 for i, row in enumerate(rows):
@@ -491,9 +617,9 @@ class llcMgmt:
 
             if cmd == "delete":
                 record_id = request.values.get("id")
-                rows = manager.load()
-                new_rows = [row for i, row in enumerate(rows) if self._row_id(row, i) != str(record_id)]
-                saved = s(manager.save(new_rows))
+                rows      = manager.load()
+                new_rows  = [row for i, row in enumerate(rows) if self._row_id(row, i) != str(record_id)]
+                saved     = s(manager.save(new_rows))
                 return jsonify({"ok": True, "data": saved})
 
             return jsonify({"ok": False, "error": f"Unknown command: {cmd}"}), 400
@@ -503,7 +629,7 @@ class llcMgmt:
             thread = threading.Thread(
                 target=self.app.run,
                 kwargs={"host": host, "port": port, "debug": debug, "use_reloader": False},
-                daemon=True
+                daemon=True,
             )
             thread.start()
             print(f"Running in notebook mode at http://{host}:{port}")

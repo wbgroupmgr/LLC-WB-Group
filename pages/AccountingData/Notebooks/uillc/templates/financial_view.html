@@ -7,6 +7,7 @@
     const OBJ_TYPE = {{ obj_type|tojson }};
     const CURRENT_VIEW_MODE = {{ view_mode|tojson }};
     const CURRENT_VIEW_BY = {{ view_by|tojson }};
+    const BS_CHECK = {{ (bs_check or {})|tojson }};
 
     function buildViewUrl() {
         const params = new URLSearchParams();
@@ -105,6 +106,20 @@
         cursor: pointer; font-weight: 600; margin-bottom: 12px;
     }
 
+    /* ── Accounting equation warning ── */
+    .eq-warning {
+        display: flex; align-items: flex-start; gap: 10px;
+        background: #fef2f2; border: 1px solid #fca5a5;
+        border-radius: 8px; padding: 12px 16px;
+        font-size: 13px; color: #7f1d1d; margin-bottom: 16px;
+    }
+    .eq-warning .icon { font-size: 18px; flex-shrink: 0; }
+    .eq-ok {
+        display: flex; align-items: center; gap: 10px;
+        background: #f0fdf4; border: 1px solid #86efac;
+        border-radius: 8px; padding: 10px 16px;
+        font-size: 13px; color: #14532d; margin-bottom: 16px;
+    }
     /* ── Financial Statement Table ── */
     .fin-table { border-collapse: collapse; width: 100%; }
     .fin-table th {
@@ -196,6 +211,27 @@
         </details>
     </div>
 </div>
+
+{% if bs_check is not none %}
+    {% if bs_check.balanced == false %}
+    <div class="eq-warning">
+        <span class="icon">⚠️</span>
+        <span>
+            <strong>Accounting equation imbalance:</strong>
+            Assets + Liabilities + Equity = {{ bs_check.equation_diff }}
+            (expected 0.00).
+            Asset balance: {{ bs_check.asset }},
+            Liability balance: {{ bs_check.liability }},
+            Equity balance: {{ bs_check.equity }}.
+            Check for missing or incorrectly classified transactions.
+        </span>
+    </div>
+    {% elif bs_check.balanced == true %}
+    <div class="eq-ok">
+        <span>✅ Accounting equation balanced — Assets = Liabilities + Equity</span>
+    </div>
+    {% endif %}
+{% endif %}
 
 <div class="panel">
     <h3>{{ view_title }}</h3>
