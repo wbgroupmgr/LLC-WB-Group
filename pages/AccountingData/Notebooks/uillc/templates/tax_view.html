@@ -24,20 +24,25 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+        padding: 0 !important;
+        overflow: hidden;
     }
     .title-toolbar {
         display: flex;
         align-items: center;
         gap: 12px;
         flex-wrap: nowrap;
+        background: #1e40af;
+        padding: 12px 16px;
+        color: white;
     }
-    .stats-sub { border-top: 1px solid #e5e7eb; padding-top: 8px; }
-    .meta-row  { border-top: 1px solid #e5e7eb; padding-top: 6px; }
+    .stats-sub { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .meta-row  { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
     .title-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
     .title-left .menu details { position: relative; }
     .title-left .menu summary {
         list-style: none; cursor: pointer; font-size: 18px;
-        background: #374151; color: white; border-radius: 4px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
         padding: 4px 10px; user-select: none;
     }
     .title-left .menu .dropdown {
@@ -51,9 +56,9 @@
         border-bottom: 1px solid #eee; font-size: 14px;
     }
     .title-left .menu .dropdown a:hover { background: #f3f4f6; }
-    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
-    .title-sep  { color: #9ca3af; font-size: 15px; }
-    .title-sub  { font-size: 13px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep  { color: #93c5fd; font-size: 15px; }
+    .title-sub  { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .toolbar-row {
         display: flex; align-items: center; gap: 8px;
         flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
@@ -78,20 +83,30 @@
     .tax-table td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
     .tax-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .tax-table tr:hover td { background: #f9fafb; }
+
+    /* Section grouping header — light gray */
     .tax-table tr.section-header td {
         background: #f3f4f6; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.05em;
         font-size: 12px; color: #374151;
-        border-top: 2px solid #9ca3af;
+        border-top: 2px solid #d1d5db;
         padding-top: 12px;
     }
+    /* Total / subtotal rows — medium gray (NOT dark) */
     .tax-table tr.total-row td {
-        background: #1f2937; color: white;
-        font-weight: 700; font-size: 14px;
-        border-top: 3px solid #374151;
+        background: #d1d5db; color: #111827;
+        font-weight: 700; font-size: 13px;
+        border-top: 2px solid #9ca3af;
     }
-    /* FIXME marker */
-    .fixme-cell { color: #d97706; font-style: italic; font-size: 12px; }
+
+    /* View title: dark black */
+    .panel h3.tax-title {
+        color: #0f172a;
+        font-size: 17px;
+        font-weight: 800;
+        margin-bottom: 14px;
+    }
+
     /* Amount styling */
     .amt-pos { color: #166534; }
     .amt-neg { color: #991b1b; }
@@ -115,10 +130,10 @@
                 <details>
                     <summary>☰</summary>
                     <div class="dropdown">
+                        <a href="/">LLC Accounts</a>
                         {% for v in available_views %}
                         <a href="/view/{{ v.name }}">{{ v.label }}</a>
                         {% endfor %}
-                        <a href="/">Home</a>
                     </div>
                 </details>
             </div>
@@ -166,7 +181,7 @@
 
 <!-- ── Tax table ──────────────────────────────────────────────────────── -->
 <div class="panel">
-    <h3>{{ view_title }}</h3>
+    <h3 class="tax-title">{{ view_title }}</h3>
     <div class="table-wrap">
         <table class="tax-table">
             <thead>

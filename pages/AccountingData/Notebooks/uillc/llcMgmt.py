@@ -31,18 +31,19 @@ from typing import Any, Dict, List, Set
 
 from flask import Flask, jsonify, render_template, request
 
-from uillc.llcAssets        import llcAssets
-from uillc.llcExpRev        import llcExpRev
-from uillc.llcGeneralLedger import llcGeneralLedger
-from uillc.llcBalanceSheet  import llcBalanceSheet
-from uillc.llcIncomeStmt    import llcIncomeStmt
-from uillc.llcOwnerEquity   import llcOwnerEquity
-from uillc.llcBankView      import llcBankView
-from uillc.llcForm1065      import llcForm1065
-from uillc.llcFormK1        import llcFormK1
-from uillc.llcFormSchedL    import llcFormSchedL
-from uillc.llcFormSchedM1   import llcFormSchedM1
-from uillc.llcFormSchedM2   import llcFormSchedM2
+from uillc.llcAssets          import llcAssets
+from uillc.llcExpRev          import llcExpRev
+from uillc.llcGeneralLedger   import llcGeneralLedger
+from uillc.llcBalanceSheet     import llcBalanceSheet
+from uillc.llcIncomeStmt       import llcIncomeStmt
+from uillc.llcOwnerEquity      import llcOwnerEquity
+from uillc.llcBankView         import llcBankView
+from uillc.llcPropertyEquity   import llcPropertyEquity
+from uillc.llcForm1065         import llcForm1065
+from uillc.llcFormK1           import llcFormK1
+from uillc.llcFormSchedL       import llcFormSchedL
+from uillc.llcFormSchedM1      import llcFormSchedM1
+from uillc.llcFormSchedM2      import llcFormSchedM2
 
 
 class llcMgmt:
@@ -58,6 +59,7 @@ class llcMgmt:
         "llcBalanceSheet",
         "llcIncomeStmt",
         "llcOwnerEquity",
+        "llcPropertyEquity",
         # IRS Tax Aids
         "llcForm1065",
         "llcFormK1",
@@ -67,29 +69,31 @@ class llcMgmt:
     ]
 
     VIEW_LABELS = {
-        "llcAssets":        "Assets",
-        "llcExpRev":        "Exp / Revenue",
-        "llcGeneralLedger": "General Ledger",
-        "llcBank":          "Bank Reconciliation",
-        "llcBalanceSheet":  "Balance Sheet",
-        "llcIncomeStmt":    "Income Statement",
-        "llcOwnerEquity":   "Owner Equity",
-        "llcForm1065":      "Form 1065",
-        "llcFormK1":        "Schedule K-1",
-        "llcFormSchedL":    "Schedule L",
-        "llcFormSchedM1":   "Schedule M-1",
-        "llcFormSchedM2":   "Schedule M-2",
+        "llcAssets":          "Assets",
+        "llcExpRev":          "Exp / Revenue",
+        "llcGeneralLedger":   "General Ledger",
+        "llcBank":            "Bank Reconciliation",
+        "llcBalanceSheet":    "Balance Sheet",
+        "llcIncomeStmt":      "Income Statement",
+        "llcOwnerEquity":     "Owner Equity",
+        "llcPropertyEquity":  "Property Equity",
+        "llcForm1065":        "Form 1065",
+        "llcFormK1":          "Schedule K-1",
+        "llcFormSchedL":      "Schedule L",
+        "llcFormSchedM1":     "Schedule M-1",
+        "llcFormSchedM2":     "Schedule M-2",
     }
 
     VIEW_TITLES = {
-        "llcBalanceSheet":  "Balance Sheet",
-        "llcIncomeStmt":    "Income Statement",
-        "llcOwnerEquity":   "Owner / Member Equity",
-        "llcForm1065":      "Form 1065 – U.S. Return of Partnership Income",
-        "llcFormK1":        "Schedule K-1 – Partner's Share of Income",
-        "llcFormSchedL":    "Schedule L – Balance Sheet per Books",
-        "llcFormSchedM1":   "Schedule M-1 – Reconciliation of Income",
-        "llcFormSchedM2":   "Schedule M-2 – Analysis of Partners' Capital Accounts",
+        "llcBalanceSheet":    "Balance Sheet",
+        "llcIncomeStmt":      "Income Statement",
+        "llcOwnerEquity":     "Owner / Member Equity",
+        "llcPropertyEquity":  "Property Equity Report",
+        "llcForm1065":        "Form 1065 – U.S. Return of Partnership Income",
+        "llcFormK1":          "Schedule K-1 – Partner's Share of Income",
+        "llcFormSchedL":      "Schedule L – Balance Sheet per Books",
+        "llcFormSchedM1":     "Schedule M-1 – Reconciliation of Income",
+        "llcFormSchedM2":     "Schedule M-2 – Analysis of Partners' Capital Accounts",
     }
 
     # View groups for the home page
@@ -102,7 +106,7 @@ class llcMgmt:
         {
             "label": "Financial Statements",
             "icon":  "📊",
-            "views": ["llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity"],
+            "views": ["llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity", "llcPropertyEquity"],
         },
         {
             "label": "IRS Tax Aids",
@@ -113,6 +117,8 @@ class llcMgmt:
 
     # Views that use financial_view.html
     FINANCIAL_VIEWS = {"llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity"}
+    # Views that use property_equity.html
+    PROPERTY_VIEWS = {"llcPropertyEquity"}
     # Views that use tax_view.html
     TAX_VIEWS = {"llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2"}
     # Views that use bank_view.html
@@ -120,7 +126,7 @@ class llcMgmt:
     # All computed (read-only) views
     READ_ONLY_VIEWS = {
         "llcGeneralLedger", "llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity",
-        "llcBank",
+        "llcBank", "llcPropertyEquity",
         "llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2",
     }
 
@@ -131,7 +137,7 @@ class llcMgmt:
     VIEW_BY_OPTIONS: Dict[str, List[str]] = {
         'llcGeneralLedger': ['All', 'By Dups', 'ByAsset', 'ByLiability', 'ByEquity', 'ByIncome', 'ByExpense'],
         'llcBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity'],
-        'llcIncomeStmt':    ['All', 'ByIncome', 'ByExpense'],
+        'llcIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'PerMember'],
     }
 
     RECORD_VIEW_OPTIONS = {
@@ -180,6 +186,7 @@ class llcMgmt:
             "llcBalanceSheet":   "llcBalanceSheet",
             "llcOwnerEquity":    "llcOwnerEquity",
             "llcBank":           "llcBank",
+            "llcPropertyEquity": "llcPropertyEquity",
             "llcForm1065":       "llcForm1065",
             "llcFormK1":         "llcFormK1",
             "llcFormSchedL":     "llcFormSchedL",
@@ -209,11 +216,12 @@ class llcMgmt:
                 objects[obj_name] = mgr
 
         # ── computed (read-only) views ────────────────────────────────────────
-        objects["llcGeneralLedger"] = llcGeneralLedger(self.eSession)
-        objects["llcBalanceSheet"]  = llcBalanceSheet(self.eSession)
-        objects["llcIncomeStmt"]    = llcIncomeStmt(self.eSession)
-        objects["llcOwnerEquity"]   = llcOwnerEquity(self.eSession)
-        objects["llcBank"]          = llcBankView(self.eSession)
+        objects["llcGeneralLedger"]  = llcGeneralLedger(self.eSession)
+        objects["llcBalanceSheet"]   = llcBalanceSheet(self.eSession)
+        objects["llcIncomeStmt"]     = llcIncomeStmt(self.eSession)
+        objects["llcOwnerEquity"]    = llcOwnerEquity(self.eSession)
+        objects["llcBank"]           = llcBankView(self.eSession)
+        objects["llcPropertyEquity"] = llcPropertyEquity(self.eSession)
 
         # ── IRS tax aid views ─────────────────────────────────────────────────
         objects["llcForm1065"]   = llcForm1065(self.eSession)
@@ -320,7 +328,53 @@ class llcMgmt:
         return json.loads(payload)
 
     def _row_id(self, row: Dict[str, Any], index: int) -> str:
-        return str(row.get("id", row.get("oID", index)))
+        # tID is the natural key for asset/expense records; fall back to id, oID, then index
+        k = row.get("tID") or row.get("id") or row.get("oID")
+        return str(k) if k is not None else str(index)
+
+    def _merge_save(self, manager, payload_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        '''
+        Merge-save: fold payload_rows into the full working dataset and save.
+
+        This prevents a filtered-view Save from deleting records that were
+        not visible in the current view.  The algorithm is:
+
+          1. Load ALL records from the working file (unfiltered).
+          2. Index them by their natural key (tID → id → oID → positional index).
+          3. For each record in payload_rows:
+               • If its key matches an existing record  → update that record.
+               • If its key is new                      → append as a new record.
+          4. Records that appear in the full set but NOT in the payload are kept
+             unchanged.
+          5. Save the merged full list via manager.save().
+
+        When the payload is the complete unfiltered set (normal Save from an
+        unfiltered view) every record matches and the behaviour is identical to
+        a plain replace-save.
+        '''
+        all_rows = manager.load()   # always loads from the working file (full, unfiltered)
+
+        def _key(row: Dict[str, Any], idx: int) -> str:
+            k = row.get('tID') or row.get('id') or row.get('oID')
+            return str(k) if k is not None else f'__idx__{idx}'
+
+        # Build key → position map for the current full dataset
+        key_to_idx: Dict[str, int] = {}
+        for i, row in enumerate(all_rows):
+            k = _key(row, i)
+            if k not in key_to_idx:
+                key_to_idx[k] = i
+
+        new_records: List[Dict[str, Any]] = []
+        for j, p_row in enumerate(payload_rows):
+            k = _key(p_row, j)
+            if k in key_to_idx:
+                all_rows[key_to_idx[k]] = p_row   # update existing
+            else:
+                new_records.append(p_row)          # genuinely new record
+
+        all_rows.extend(new_records)
+        return manager.save(all_rows)
 
     @staticmethod
     def _sanitize(obj: Any) -> Any:
@@ -403,6 +457,10 @@ class llcMgmt:
             view_mode        = self._normalize_view_mode(request.args.get("viewMode", "all"))
             view_by          = request.args.get("viewBy", "All")
             view_by_options  = self.VIEW_BY_OPTIONS.get(obj_type, [])
+
+            # Income Statement defaults to PerMember view
+            if obj_type == 'llcIncomeStmt' and view_by == 'All':
+                view_by = 'PerMember'
             changed_ids      = self._parse_changed_ids()
 
             if obj_type in self.READ_ONLY_VIEWS and obj_type not in self.BANK_VIEWS:
@@ -442,6 +500,33 @@ class llcMgmt:
 
             # ── Financial Statement views ─────────────────────────────────────
             if obj_type in self.FINANCIAL_VIEWS:
+
+                # ── IS Per-Member view: separate template ─────────────────────
+                if obj_type == "llcIncomeStmt" and view_by == "PerMember":
+                    pm_rows, owner_names, pm_summary = manager.load_per_member()
+                    pm_stats = {
+                        'Income':      pm_summary.get('income_subtotal',     0),
+                        'Expense':     pm_summary.get('expense_subtotal',    0),
+                        'Net Income':  pm_summary.get('net_income',          0),
+                        'Depreciation':pm_summary.get('depreciation',        0),
+                        'NI w/ Depr':  pm_summary.get('net_income_with_depr',0),
+                        'Members':     len(owner_names),
+                    }
+                    return render_template(
+                        "is_member_view.html",
+                        title=self.title,
+                        obj_type=obj_type,
+                        view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                        rows=self._view_rows(pm_rows),
+                        raw_rows=pm_rows,
+                        owner_names=owner_names,
+                        stats=pm_stats,
+                        stats_labels=self._stats_labels(pm_stats),
+                        meta=meta,
+                        view_by=view_by,
+                        view_by_options=view_by_options,
+                    )
+
                 # For Balance Sheet: also pass the accounting-equation check
                 bs_check = None
                 if obj_type == "llcBalanceSheet" and hasattr(manager, "last_check"):
@@ -461,6 +546,22 @@ class llcMgmt:
                     view_by=view_by,
                     view_by_options=view_by_options,
                     bs_check=bs_check,
+                )
+
+            # ── Property Equity view ──────────────────────────────────────────
+            if obj_type in self.PROPERTY_VIEWS:
+                return render_template(
+                    "property_equity.html",
+                    title=self.title,
+                    obj_type=obj_type,
+                    view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                    rows=self._view_rows(rows),
+                    raw_rows=rows,
+                    stats=stats,
+                    stats_labels=stats_labels,
+                    meta=meta,
+                    view_by=view_by,
+                    view_by_options=view_by_options,
                 )
 
             # ── Tax aid views ─────────────────────────────────────────────────
@@ -579,7 +680,9 @@ class llcMgmt:
 
             if cmd == "save":
                 payload = self._parse_payload(request.values.get("payload", "[]"), [])
-                return jsonify({"ok": True, "data": s(manager.save(payload))})
+                # Use merge-save so a filtered view never silently drops
+                # records that were not visible in that view.
+                return jsonify({"ok": True, "data": s(self._merge_save(manager, payload))})
 
             if cmd == "save_object":
                 payload = request.values.get("payload")

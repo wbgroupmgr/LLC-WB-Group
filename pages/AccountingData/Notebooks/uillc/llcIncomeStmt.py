@@ -16,7 +16,7 @@ class llcIncomeStmt:
     Rows: {acctType, acct, Debit, Credit, Balance} + TOTAL/Net-Income row.
     '''
 
-    VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense']
+    VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense', 'PerMember']
 
     def __init__(self, eSession):
         self.eSession = eSession
@@ -41,10 +41,25 @@ class llcIncomeStmt:
     # ── public interface ──────────────────────────────────────────────────────
 
     def load(self, view_by: str = 'All') -> List[Dict[str, Any]]:
-        '''Return aggregated Income Statement rows; cache the net-income summary.'''
+        '''Return aggregated Income Statement rows; cache the net-income summary.
+        When view_by == 'PerMember', returns an empty list (use load_per_member() instead).
+        '''
+        if view_by == 'PerMember':
+            self._summary = {}
+            return []
         rows, summary = self.engine.buildIS(view_by=view_by)
         self._summary = summary
         return rows
+
+    def load_per_member(self):
+        '''
+        Return IS with per-owner allocation columns.
+
+        Returns (rows, owner_names, summary) from llcReportEngine.buildISPerMember().
+        '''
+        rows, owner_names, summary = self.engine.buildISPerMember()
+        self._summary = summary
+        return rows, owner_names, summary
 
     def last_summary(self) -> Dict[str, Any]:
         '''Return IS summary from the most recent load() call.'''

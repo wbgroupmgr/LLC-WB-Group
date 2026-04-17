@@ -48,20 +48,25 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+        padding: 0 !important;
+        overflow: hidden;
     }
     .title-toolbar {
         display: flex;
         align-items: center;
         gap: 12px;
         flex-wrap: nowrap;
+        background: #1e40af;
+        padding: 12px 16px;
+        color: white;
     }
     .stats-sub {
-        border-top: 1px solid #e5e7eb;
-        padding-top: 8px;
+        border-top: 2px solid #3b82f6;
+        padding: 8px 16px;
     }
     .meta-row {
         border-top: 1px solid #e5e7eb;
-        padding-top: 6px;
+        padding: 6px 16px 10px;
     }
     .title-left {
         display: flex;
@@ -73,7 +78,7 @@
     .title-left .menu details { position: relative; }
     .title-left .menu summary {
         list-style: none; cursor: pointer; font-size: 18px;
-        background: #374151; color: white; border-radius: 4px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
         padding: 4px 10px; user-select: none;
     }
     .title-left .menu .dropdown {
@@ -87,9 +92,9 @@
         border-bottom: 1px solid #eee; font-size: 14px;
     }
     .title-left .menu .dropdown a:hover { background: #f3f4f6; }
-    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; }
-    .title-sep { color: #9ca3af; font-size: 15px; }
-    .title-sub { font-size: 13px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep { color: #93c5fd; font-size: 15px; }
+    .title-sub { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .toolbar-row {
         display: flex; align-items: center; gap: 8px;
         flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
@@ -165,10 +170,10 @@
                 <details>
                     <summary>☰</summary>
                     <div class="dropdown">
+                        <a href="/">LLC Accounts</a>
                         {% for v in available_views %}
                         <a href="/view/{{ v.name }}">{{ v.label }}</a>
                         {% endfor %}
-                        <a href="/">Home</a>
                     </div>
                 </details>
             </div>
@@ -241,9 +246,10 @@
                 <tr>
                     <th style="width:120px">Type</th>
                     <th>Account</th>
-                    <th class="num" style="width:130px">Debit</th>
-                    <th class="num" style="width:130px">Credit</th>
-                    <th class="num" style="width:130px">Balance</th>
+                    <th style="width:160px">Sub-Account</th>
+                    <th class="num" style="width:120px">Debit</th>
+                    <th class="num" style="width:120px">Credit</th>
+                    <th class="num" style="width:120px">Balance</th>
                 </tr>
             </thead>
             <tbody>
@@ -251,6 +257,7 @@
                 {% for row in rows %}
                     {% set at = row.data.get("acctType", "") %}
                     {% set acct = row.data.get("acct", "") %}
+                    {% set acct_sub = row.data.get("acctSub", "") %}
                     {% set debit = row.data.get("Debit", 0) | float %}
                     {% set credit = row.data.get("Credit", 0) | float %}
                     {% set bal = row.data.get("Balance", 0) | float %}
@@ -259,14 +266,14 @@
                         {# Grand total row — close last section first #}
                         {% if ns.current_type %}
                         <tr class="subtotal">
-                            <td colspan="2" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                            <td colspan="3" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
                             <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
                             <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
                             <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
                         </tr>
                         {% endif %}
                         <tr class="grand-total">
-                            <td colspan="2">TOTAL</td>
+                            <td colspan="3">{{ acct if acct else "TOTAL" }}</td>
                             <td class="num">{{ "%.2f"|format(debit) }}</td>
                             <td class="num">{{ "%.2f"|format(credit) }}</td>
                             <td class="num">{{ "%.2f"|format(bal) }}</td>
@@ -276,7 +283,7 @@
                             {# Emit subtotal for previous section #}
                             {% if ns.current_type %}
                             <tr class="subtotal">
-                                <td colspan="2" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                                <td colspan="3" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
@@ -284,7 +291,7 @@
                             {% endif %}
                             {# Section header #}
                             <tr class="section-header">
-                                <td colspan="5">{{ at }}</td>
+                                <td colspan="6">{{ at }}</td>
                             </tr>
                             {% set ns.current_type = at %}
                             {% set ns.section_debit = 0 %}
@@ -300,6 +307,7 @@
                         <tr>
                             <td></td>
                             <td class="acct-name">{{ acct }}</td>
+                            <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>
                             <td class="num {% if debit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(debit) if debit else "" }}</td>
                             <td class="num {% if credit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(credit) if credit else "" }}</td>
                             <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">{{ "%.2f"|format(bal) }}</td>
@@ -307,7 +315,7 @@
                     {% endif %}
                 {% endfor %}
                 {% if not rows %}
-                <tr><td colspan="5" class="muted">No data available.</td></tr>
+                <tr><td colspan="6" class="muted">No data available.</td></tr>
                 {% endif %}
             </tbody>
         </table>

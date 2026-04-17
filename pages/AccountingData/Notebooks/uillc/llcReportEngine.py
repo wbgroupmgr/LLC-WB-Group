@@ -67,18 +67,22 @@ class llcReportEngine:
         '''
         Build the full General Ledger via double-entry expansion + merge.
         Result is cached per engine instance (call with force=True to refresh).
+
+        llcAssets is passed FIRST so its records win dedup over llcExpRev
+        when the same tID appears in both sources.
         '''
         if self._gl_cache is not None and not force:
             return self._gl_cache
 
-        er_list    = self._load_source('llcExpRev')
         asset_list = self._load_source('llcAssets')
+        er_list    = self._load_source('llcExpRev')
 
-        er_expanded    = self.gl.toDoubleEntry(er_list)
         asset_expanded = self.gl.toDoubleEntry(asset_list)
+        er_expanded    = self.gl.toDoubleEntry(er_list)
 
+        # asset_expanded first → llcAssets wins on tID collision
         self._gl_cache = self.gl.mergeGL(
-            [er_expanded, asset_expanded], resolve_dups=resolve_dups
+            [asset_expanded, er_expanded], resolve_dups=resolve_dups
         )
         return self._gl_cache
 
@@ -131,8 +135,14 @@ class llcReportEngine:
         if bs.empty:
             return [], {'balanced': True, 'equation_diff': 0}
 
+        # Normalise acctSub so groupby doesn't split on NaN
+        if 'acctSub' in bs.columns:
+            bs['acctSub'] = bs['acctSub'].fillna('').astype(str)
+        else:
+            bs['acctSub'] = ''
+
         grp = (
-            bs.groupby(['acctType', 'acct', 'aType'])['amt']
+            bs.groupby(['acctType', 'acct', 'acctSub', 'aType'])['amt']
             .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -144,9 +154,9 @@ class llcReportEngine:
 
         order = {t: i for i, t in enumerate(BS_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct']).drop(columns=['_sort'])
+        grp = grp.sort_values(['_sort', 'acct', 'acctSub']).drop(columns=['_sort'])
 
-        result = grp[['acctType', 'acct', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+        result = grp[['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
         # Accounting equation check: Assets = Liabilities + Equity
         # In Debit-Credit convention: asset_bal + liab_bal + equity_bal = 0
@@ -158,7 +168,7 @@ class llcReportEngine:
         total_d = round(sum(r['Debit']   for r in result), 2)
         total_c = round(sum(r['Credit']  for r in result), 2)
         result.append({
-            'acctType': 'TOTAL', 'acct': '',
+            'acctType': 'TOTAL', 'acct': '', 'acctSub': '',
             'Debit': total_d, 'Credit': total_c, 'Balance': round(total_d - total_c, 2),
         })
 
@@ -180,24 +190,25 @@ class llcReportEngine:
                 continue
             if view_by and view_by != 'All' and at != view_by[2:]:
                 continue
-            acct = r.get('acct', '')
+            acct    = r.get('acct', '')
+            acct_sub = str(r.get('acctSub') or '')
             try:   amt = float(r.get('amt', 0) or 0)
             except: amt = 0.0
             atype = str(r.get('aType', 'Debit')).strip()
-            key = (at, acct)
+            key = (at, acct, acct_sub)
             if key not in buckets:
                 buckets[key] = {'Debit': 0.0, 'Credit': 0.0}
             buckets[key]['Debit' if atype not in ('Credit','Cr','CR','C') else 'Credit'] += amt
 
         order = {t: i for i, t in enumerate(BS_ORDER)}
         result = []
-        for (at, acct), s in sorted(buckets.items(), key=lambda x: (order.get(x[0][0], 99), x[0][1])):
+        for (at, acct, acct_sub), s in sorted(buckets.items(), key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2])):
             d = round(s['Debit'], 2); c = round(s['Credit'], 2)
-            result.append({'acctType': at, 'acct': acct, 'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
+            result.append({'acctType': at, 'acct': acct, 'acctSub': acct_sub, 'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 
         total_d = round(sum(r['Debit']  for r in result), 2)
         total_c = round(sum(r['Credit'] for r in result), 2)
-        result.append({'acctType': 'TOTAL', 'acct': '', 'Debit': total_d, 'Credit': total_c,
+        result.append({'acctType': 'TOTAL', 'acct': '', 'acctSub': '', 'Debit': total_d, 'Credit': total_c,
                        'Balance': round(total_d - total_c, 2)})
         return result
 
@@ -228,8 +239,14 @@ class llcReportEngine:
         if idf.empty:
             return [], {'net_income': 0, 'income': 0, 'expense': 0}
 
+        # Normalise acctSub so groupby doesn't split on NaN
+        if 'acctSub' in idf.columns:
+            idf['acctSub'] = idf['acctSub'].fillna('').astype(str)
+        else:
+            idf['acctSub'] = ''
+
         grp = (
-            idf.groupby(['acctType', 'acct', 'aType'])['amt']
+            idf.groupby(['acctType', 'acct', 'acctSub', 'aType'])['amt']
             .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -241,9 +258,9 @@ class llcReportEngine:
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct']).drop(columns=['_sort'])
+        grp = grp.sort_values(['_sort', 'acct', 'acctSub']).drop(columns=['_sort'])
 
-        result = grp[['acctType', 'acct', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+        result = grp[['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
         # Income balance = Credit - Debit (Credit > Debit = positive income)
         # Expense balance = Debit - Credit (Debit > Credit = positive expense)
@@ -256,6 +273,7 @@ class llcReportEngine:
         result.append({
             'acctType': 'TOTAL',
             'acct':     f'Net Income: {net_income:,.2f}',
+            'acctSub':  '',
             'Debit': total_d, 'Credit': total_c, 'Balance': net_income,
         })
 
@@ -275,27 +293,28 @@ class llcReportEngine:
                 continue
             if view_by and view_by != 'All' and at != view_by[2:]:
                 continue
-            acct = r.get('acct', '')
+            acct     = r.get('acct', '')
+            acct_sub = str(r.get('acctSub') or '')
             try:   amt = float(r.get('amt', 0) or 0)
             except: amt = 0.0
             atype = str(r.get('aType', 'Debit')).strip()
-            key = (at, acct)
+            key = (at, acct, acct_sub)
             if key not in buckets:
                 buckets[key] = {'Debit': 0.0, 'Credit': 0.0}
             buckets[key]['Debit' if atype not in ('Credit','Cr','CR','C') else 'Credit'] += amt
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
         result = []
-        for (at, acct), s in sorted(buckets.items(), key=lambda x: (order.get(x[0][0], 99), x[0][1])):
+        for (at, acct, acct_sub), s in sorted(buckets.items(), key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2])):
             d = round(s['Debit'], 2); c = round(s['Credit'], 2)
-            result.append({'acctType': at, 'acct': acct, 'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
+            result.append({'acctType': at, 'acct': acct, 'acctSub': acct_sub, 'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 
         income_net  = round(sum(-(r['Balance']) for r in result if r['acctType'] == 'Income'), 2)
         expense_net = round(sum(  r['Balance']  for r in result if r['acctType'] == 'Expense'), 2)
         net_income  = round(income_net - expense_net, 2)
         total_d = round(sum(r['Debit']  for r in result), 2)
         total_c = round(sum(r['Credit'] for r in result), 2)
-        result.append({'acctType': 'TOTAL', 'acct': f'Net Income: {net_income:,.2f}',
+        result.append({'acctType': 'TOTAL', 'acct': f'Net Income: {net_income:,.2f}', 'acctSub': '',
                        'Debit': total_d, 'Credit': total_c, 'Balance': net_income})
         return result
 
@@ -349,6 +368,220 @@ class llcReportEngine:
             return data if isinstance(data, list) else []
         except Exception:
             return []
+
+    # ── K-1 / IS-per-member helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def _owner_first_name(o: Dict[str, Any]) -> str:
+        nm = o.get('nm', '')
+        if isinstance(nm, list):
+            return nm[0] if nm else o.get('oID', '')
+        return str(nm) if nm else o.get('oID', '')
+
+    def _rent_income_total(self) -> float:
+        '''Sum Credit amounts for Acct.Rev.Rent entries in the GL.'''
+        total = 0.0
+        for r in self.getGLList(resolve_dups=True):
+            if r.get('acct') != 'Acct.Rev.Rent':
+                continue
+            atype = str(r.get('aType', '')).strip().lower()
+            if atype in ('credit', 'cr', 'c'):
+                try:
+                    total += float(r.get('amt', 0) or 0)
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    def _interest_expense_total(self) -> float:
+        '''
+        Sum Debit amounts for Acct.Exp.Other entries where
+        acctSub contains "interest" OR desc contains "interest" (case-insensitive).
+        '''
+        total = 0.0
+        for r in self.getGLList(resolve_dups=True):
+            if r.get('acct') != 'Acct.Exp.Other':
+                continue
+            acct_sub = str(r.get('acctSub') or '').lower()
+            desc     = str(r.get('desc')    or '').lower()
+            if 'interest' not in acct_sub and 'interest' not in desc:
+                continue
+            atype = str(r.get('aType', '')).strip().lower()
+            if atype in ('debit', 'dr', 'd'):
+                try:
+                    total += float(r.get('amt', 0) or 0)
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    def _contributions_by_owner(self) -> Dict[str, float]:
+        '''
+        Per-owner capital contributions: GL Credit entries to Acct.Equity.Owner.Capital.Funds
+        weighted by the record's propOwners (integer %).
+        '''
+        result: Dict[str, float] = {}
+        for r in self.getGLList(resolve_dups=True):
+            if r.get('acct') != 'Acct.Equity.Owner.Capital.Funds':
+                continue
+            atype = str(r.get('aType', '')).strip().lower()
+            if atype not in ('credit', 'cr', 'c'):
+                continue
+            prop_owners = r.get('propOwners')
+            if not isinstance(prop_owners, dict):
+                continue
+            try:
+                amt = float(r.get('amt', 0) or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            for oID, pct in prop_owners.items():
+                try:
+                    result[str(oID)] = result.get(str(oID), 0.0) + amt * float(pct) / 100.0
+                except (TypeError, ValueError):
+                    pass
+        return {k: round(v, 2) for k, v in result.items()}
+
+    def _capital_end_year_by_owner(self) -> Dict[str, float]:
+        '''
+        Capital Account End of Year: GL Debit entries to Acct.Fixed.Tangible* accounts
+        weighted by propOwners (integer %).  Represents partner book-value share of
+        tangible fixed assets.
+        '''
+        result: Dict[str, float] = {}
+        for r in self.getGLList(resolve_dups=True):
+            acct = r.get('acct', '')
+            if not acct.startswith('Acct.Fixed.Tangible'):
+                continue
+            atype = str(r.get('aType', '')).strip().lower()
+            if atype not in ('debit', 'dr', 'd'):
+                continue
+            prop_owners = r.get('propOwners')
+            if not isinstance(prop_owners, dict):
+                continue
+            try:
+                amt = float(r.get('amt', 0) or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            for oID, pct in prop_owners.items():
+                try:
+                    result[str(oID)] = result.get(str(oID), 0.0) + amt * float(pct) / 100.0
+                except (TypeError, ValueError):
+                    pass
+        return {k: round(v, 2) for k, v in result.items()}
+
+    # ── Income Statement per member ───────────────────────────────────────────
+
+    def buildISPerMember(self) -> Tuple[List[Dict], List[str], Dict]:
+        '''
+        Income Statement with per-owner allocation columns.
+
+        Layout:
+          INCOME section (acctType = Income)
+            [income data rows — Bal = Credit − Debit, positive]
+            SubTotal Income row         (row_type='income-subtotal')
+          EXPENSE section (acctType = Expense, excl. Acct.Exp.Depreciation)
+            [expense data rows — Bal = Credit − Debit, negative]
+            SubTotal Expense row        (row_type='expense-subtotal')
+          ─────────────────────────────────────────────────────
+          Net Income (before Depr)      (row_type='net-income')
+          Acct.Exp.Depreciation         (row_type='depreciation')
+          Net Income (w/ Depreciation)  (row_type='net-income-depr')
+          Member Distribution           (row_type='distribution', 0 if NI w/ Depr < 0)
+
+        Bal convention throughout: Credit − Debit
+          • Income rows:  positive
+          • Expense rows: negative
+          • Depreciation: negative (reduces income)
+
+        summary keys:
+          income_subtotal, expense_subtotal, net_income,
+          depreciation, net_income_with_depr
+        '''
+        DEPR_ACCT   = 'Acct.Exp.Depreciation'
+        is_rows, _  = self.buildIS(view_by='All')
+        owners      = self.load_owners()
+        owner_names = [self._owner_first_name(o) for o in owners]
+
+        # ── bucket rows by section ────────────────────────────────────────────
+        income_rows:  List[tuple] = []   # (row_dict, eff_bal)
+        expense_rows: List[tuple] = []
+        deprec_val    = 0.0              # positive depreciation amount
+
+        for row in is_rows:
+            if row.get('acctType') == 'TOTAL':
+                continue
+            debit  = float(row.get('Debit',  0) or 0)
+            credit = float(row.get('Credit', 0) or 0)
+            eff_bal = round(credit - debit, 2)   # positive for income, neg for expense
+
+            if row.get('acct') == DEPR_ACCT:
+                deprec_val += round(debit - credit, 2)   # keep as positive amount
+            elif row.get('acctType') == 'Income':
+                income_rows.append((row, eff_bal))
+            else:                                         # Expense (excl. depr)
+                expense_rows.append((row, eff_bal))
+
+        # ── helper: build one data or summary row ─────────────────────────────
+        def _make_row(at, acct, acct_sub, eff_bal, rtype):
+            r: Dict[str, Any] = {
+                'acctType': at, 'acct': acct, 'acctSub': acct_sub,
+                'Bal': round(eff_bal, 2), 'row_type': rtype,
+            }
+            for o, nm in zip(owners, owner_names):
+                pct = float(o.get('pct', 0))
+                r[nm] = round(eff_bal * pct, 2)
+            return r
+
+        result: List[Dict[str, Any]] = []
+
+        # ── INCOME section ────────────────────────────────────────────────────
+        for row, eff_bal in income_rows:
+            result.append(_make_row(
+                row.get('acctType', ''), row.get('acct', ''),
+                row.get('acctSub', ''), eff_bal, 'data'))
+
+        income_total = round(sum(eb for _, eb in income_rows), 2)
+        result.append(_make_row('', 'SubTotal Income', '', income_total, 'income-subtotal'))
+
+        # ── EXPENSE section (no depreciation) ────────────────────────────────
+        for row, eff_bal in expense_rows:
+            result.append(_make_row(
+                row.get('acctType', ''), row.get('acct', ''),
+                row.get('acctSub', ''), eff_bal, 'data'))
+
+        expense_total = round(sum(eb for _, eb in expense_rows), 2)   # negative
+        result.append(_make_row(
+            '', 'SubTotal Expense (excl. Depreciation)', '', expense_total, 'expense-subtotal'))
+
+        # ── Net Income (before depreciation) ─────────────────────────────────
+        ni_before = round(income_total + expense_total, 2)
+        result.append(_make_row('', 'Net Income (before Depreciation)', '', ni_before, 'net-income'))
+
+        # ── Depreciation line (after Net Income) ─────────────────────────────
+        depr_eff = round(-deprec_val, 2)     # negative: reduces income
+        result.append(_make_row('', 'Acct.Exp.Depreciation', '', depr_eff, 'depreciation'))
+
+        # ── Net Income (w/ Depreciation) ──────────────────────────────────────
+        ni_with_depr = round(ni_before + depr_eff, 2)
+        result.append(_make_row('', 'Net Income (w/ Depreciation)', '', ni_with_depr, 'net-income-depr'))
+
+        # ── Member Distribution (0 if NI w/ Depr < 0) ────────────────────────
+        dist: Dict[str, Any] = {
+            'acctType': '', 'acct': 'Member Distribution', 'acctSub': '',
+            'Bal': max(0.0, ni_with_depr), 'row_type': 'distribution',
+        }
+        for o, nm in zip(owners, owner_names):
+            pct   = float(o.get('pct', 0))
+            share = round(ni_with_depr * pct, 2)
+            dist[nm] = max(0.0, share)
+        result.append(dist)
+
+        summary = {
+            'income_subtotal':      income_total,
+            'expense_subtotal':     expense_total,       # negative
+            'net_income':           ni_before,
+            'depreciation':         round(deprec_val, 2),
+            'net_income_with_depr': ni_with_depr,
+        }
+        return result, owner_names, summary
 
     # ── Net income per owner ──────────────────────────────────────────────────
 

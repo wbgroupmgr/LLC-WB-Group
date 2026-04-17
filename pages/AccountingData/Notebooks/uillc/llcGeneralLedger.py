@@ -37,8 +37,36 @@ class llcGeneralLedger:
     def _apply_view_by(self, rows: List[Dict[str, Any]], view_by: str) -> List[Dict[str, Any]]:
         if not view_by or view_by == 'All':
             return rows
+
         if view_by == 'By Dups':
-            return [r for r in rows if r.get('Status') == '⚠ Dup']
+            # 1. Filter to flagged duplicates only
+            dups = [r for r in rows if r.get('Status') == '⚠ Dup']
+
+            # 2. Sort by dt → amt → tID  (the GL tID is the computed date_amount key)
+            def _sort_key(r):
+                try:
+                    amt = float(r.get('amt', 0) or 0)
+                except (TypeError, ValueError):
+                    amt = 0.0
+                return (str(r.get('dt', '')), amt, str(r.get('tID', '')))
+
+            dups = sorted(dups, key=_sort_key)
+
+            # 3. Assign incrementing DupN labels per unique tID (in sorted order)
+            dup_label: Dict[str, str] = {}
+            counter = 0
+            for r in dups:
+                tid = r.get('tID', '')
+                if tid not in dup_label:
+                    counter += 1
+                    dup_label[tid] = f'Dup{counter}'
+
+            # 4. Return new records with updated Status field
+            return [
+                {**r, 'Status': dup_label.get(r.get('tID', ''), '?')}
+                for r in dups
+            ]
+
         acct_type = view_by[2:]
         return [r for r in rows if r.get('acctType', '') == acct_type]
 

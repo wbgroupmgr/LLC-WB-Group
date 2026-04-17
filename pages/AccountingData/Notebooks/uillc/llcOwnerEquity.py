@@ -1,13 +1,20 @@
 '''
 llcOwnerEquity — Owner / Member Equity view.
 
-Shows per-member capital allocation and profit/loss distribution:
-  - Capital % from propOwners field of Asset/Equity transactions
-  - P&L % from llcOwners.pct
-  - YE net income share (allocated by P&L pct)
-  - YE distribution placeholder (FIXME: populate when distribution data available)
+Uses ledger.llcOwners.capitalDist() to expand raw asset transactions by
+stakeholder ownership percentage, then groups them by (member, account) so
+each member gets its own section in the financial_view.html template.
 
-Rendered by financial_view.html as a standalone section.
+Row structure (matches financial_view.html):
+  acctType  — member name  (becomes the section-header label in the template)
+  acct      — GL account code
+  acctSub   — GL sub-account
+  Debit     — owner-weighted debit balance
+  Credit    — owner-weighted credit balance
+  Balance   — Debit − Credit (owner's share)
+
+A Net Income Share row is appended at the end of each member's section.
+A grand-total TOTAL row is appended last.
 
 Timestamp of last change: 2026.04.14
 '''
@@ -15,12 +22,13 @@ Timestamp of last change: 2026.04.14
 from collections import defaultdict
 from typing import Any, Dict, List
 
+from ledger.llcOwners import llcOwners as LLCOwners
 from uillc.llcReportEngine import llcReportEngine
 
 
 class llcOwnerEquity:
 
-    VIEW_BY_OPTIONS: List[str] = []   # no ViewBy for this view
+    VIEW_BY_OPTIONS: List[str] = []
 
     def __init__(self, eSession):
         self.eSession = eSession
@@ -33,103 +41,118 @@ class llcOwnerEquity:
     def object_name(self) -> str:
         return self.__class__.__name__
 
-    # ── helpers ───────────────────────────────────────────────────────────────
-
-    def _capital_by_owner(self) -> Dict[str, float]:
-        '''
-        Sum asset/equity transaction amounts weighted by propOwners percentage.
-        propOwners is a dict like {"FXR": 0.96, "AR": 0.02, "NR": 0.02}.
-        '''
-        rows = self.engine.getGLList(resolve_dups=True)
-        capital: Dict[str, float] = defaultdict(float)
-        for row in rows:
-            at = row.get('acctType', '')
-            if at not in ('Asset', 'Equity'):
-                continue
-            prop_owners = row.get('propOwners')
-            if not isinstance(prop_owners, dict):
-                continue
-            try:
-                amt = float(row.get('amt', 0) or 0)
-            except (TypeError, ValueError):
-                amt = 0.0
-            # Debit increases assets; credit increases liabilities/equity
-            a_type = str(row.get('aType', '')).strip()
-            signed = amt if a_type.lower() in ('debit', 'dr', 'd') else -amt
-            for owner_id, pct in prop_owners.items():
-                try:
-                    capital[str(owner_id)] += signed * float(pct)
-                except (TypeError, ValueError):
-                    pass
-        return {k: round(v, 2) for k, v in capital.items()}
+    # ── public interface ──────────────────────────────────────────────────────
 
     def load(self, view_by: str = 'All') -> List[Dict[str, Any]]:
         '''
-        Return one row per member with capital contribution and P&L allocation.
-        Columns: member, status, pct_pl, capital_share, net_income_share, distribution
+        Build per-member capital distribution rows.
+
+        Steps:
+          1. Load raw llcAssets records.
+          2. Expand by propOwners via llcOwners.capitalDist() — one record per
+             (transaction × owner), amt scaled by integer ownership pct.
+          3. Group by (owner, acct, acctSub) → sum amounts.
+          4. Emit rows with member name as acctType (drives section headers).
+          5. Append a Net Income Share row per member.
+          6. Append a grand TOTAL row.
         '''
-        owners = self.engine.load_owners()
-        pl_alloc = self.engine.owner_pl_allocation()     # [{oID, name, pct, net_income_share}, ...]
-        capital_map = self._capital_by_owner()           # {oID: float}
+        # ── 1. Load raw assets and expand by owner ─────────────────────────
+        asset_list = self.engine._load_source('llcAssets')
+        owners_svc = LLCOwners(self.eSession.llc)
+        expanded   = owners_svc.capitalDist(asset_list)
 
-        # Build lookup by oID
-        pl_by_id = {r['oID']: r for r in pl_alloc}
+        if not expanded:
+            return []
 
+        # ── 2. Group by (o_oID, o_nm, acct, acctSub) → sum amt ────────────
+        owner_names: Dict[str, str] = {}          # o_oID → o_nm (insertion-ordered)
+        buckets: Dict[tuple, float] = defaultdict(float)
+
+        for rec in expanded:
+            o_oID    = rec.get('o_oID', '')
+            o_nm     = rec.get('o_nm', o_oID)
+            acct     = rec.get('acct', '')
+            acct_sub = str(rec.get('acctSub') or '')
+            try:
+                amt = float(rec.get('amt', 0) or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+
+            if o_oID not in owner_names:
+                owner_names[o_oID] = o_nm
+
+            buckets[(o_oID, acct, acct_sub)] += amt
+
+        # ── 3. Fetch net-income and owner P&L pct ──────────────────────────
+        _, is_summary  = self.engine.buildIS()
+        net_income     = float(is_summary.get('net_income', 0.0))
+        owners_data    = self.engine.load_owners()
+        owner_pct_map  = {o['oID']: float(o.get('pct', 0.0)) for o in owners_data}
+
+        # ── 4 + 5. Build rows per member ───────────────────────────────────
         rows: List[Dict[str, Any]] = []
-        for owner in owners:
-            oid  = owner.get('oID', '')
-            name = ', '.join(owner.get('nm', [])) if isinstance(owner.get('nm'), list) else str(owner.get('nm', ''))
-            status   = owner.get('status', '')
-            mem_type = owner.get('memType', '')
 
-            pl_rec  = pl_by_id.get(oid, {})
-            pct_pl  = pl_rec.get('pct', float(owner.get('pct', 0)))
-            ni_share = pl_rec.get('net_income_share', 0.0)
-            cap_share = capital_map.get(oid, 0.0)
+        for o_oID, o_nm in owner_names.items():
 
+            # Account rows for this member, sorted by acct
+            member_acct_rows = sorted(
+                ((acct, acct_sub, total_amt)
+                 for (oid, acct, acct_sub), total_amt in buckets.items()
+                 if oid == o_oID),
+                key=lambda x: (x[0], x[1])
+            )
+
+            for acct, acct_sub, total_amt in member_acct_rows:
+                bal = round(total_amt, 2)
+                rows.append({
+                    'acctType': o_nm,                       # member → section header
+                    'acct':     acct,
+                    'acctSub':  acct_sub,
+                    'Debit':    round(bal,  2) if bal >= 0 else 0.0,
+                    'Credit':   round(-bal, 2) if bal < 0  else 0.0,
+                    'Balance':  bal,
+                })
+
+            # Net income share row at the end of this member's section
+            pct_pl   = owner_pct_map.get(o_oID, 0.0)
+            ni_share = round(net_income * pct_pl, 2)
             rows.append({
-                'oID':              oid,
-                'Member':           name,
-                'Type':             mem_type,
-                'Status':           status,
-                'P&L %':            f"{pct_pl*100:.1f}%",
-                'Capital Share':    round(cap_share, 2),
-                'Net Income Share': round(ni_share,  2),
-                'YE Distribution':  'FIXME',   # placeholder — populate when dist data available
+                'acctType': o_nm,
+                'acct':     f'Net Income Share ({pct_pl * 100:.1f}%)',
+                'acctSub':  '',
+                'Debit':    0.0,
+                'Credit':   0.0,
+                'Balance':  ni_share,
             })
 
-        # Totals row
-        if rows:
-            total_cap = round(sum(r['Capital Share']    for r in rows), 2)
-            total_ni  = round(sum(r['Net Income Share'] for r in rows), 2)
-            rows.append({
-                'oID':              '',
-                'Member':           'TOTAL',
-                'Type':             '',
-                'Status':           '',
-                'P&L %':            '100%',
-                'Capital Share':    total_cap,
-                'Net Income Share': total_ni,
-                'YE Distribution':  '',
-            })
+        # ── 6. Grand TOTAL row ─────────────────────────────────────────────
+        total_d = round(sum(r['Debit']   for r in rows), 2)
+        total_c = round(sum(r['Credit']  for r in rows), 2)
+        total_b = round(sum(r['Balance'] for r in rows), 2)
+        rows.append({
+            'acctType': 'TOTAL', 'acct': '', 'acctSub': '',
+            'Debit': total_d, 'Credit': total_c, 'Balance': total_b,
+        })
 
         return rows
 
     def stats(self) -> Dict[str, Any]:
-        rows = self.load()
-        total_row = next((r for r in rows if r.get('Member') == 'TOTAL'), {})
+        rows    = self.load()
+        total   = next((r for r in rows if r.get('acctType') == 'TOTAL'), {})
+        members = len({r['acctType'] for r in rows
+                       if r.get('acctType') not in ('', 'TOTAL')})
         return {
-            'Members':         sum(1 for r in rows if r.get('Member') not in ('', 'TOTAL')),
-            'Total Capital':   total_row.get('Capital Share', 0),
-            'Total NI Share':  total_row.get('Net Income Share', 0),
+            'Members':       members,
+            'Total Balance': total.get('Balance', 0),
         }
 
     def meta(self) -> Dict[str, Any]:
         return {
             'objectName': self.object_name(),
             'note': (
-                'Read-only. Capital % from propOwners field; P&L % from llcOwners.pct. '
-                'YE Distribution is a placeholder (FIXME).'
+                'Capital distribution from llcAssets.propOwners (integer %). '
+                'Net Income Share from llcOwners.pct (decimal). '
+                'Section headers = member names.'
             ),
         }
 

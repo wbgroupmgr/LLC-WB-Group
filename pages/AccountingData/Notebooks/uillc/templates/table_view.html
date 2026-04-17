@@ -29,7 +29,8 @@
     }
 
     function rowIdFor(row, index) {
-        return String((row && (row.id ?? row.oID)) ?? index);
+        // tID is the natural key for asset/expense records; mirrors backend _row_id()
+        return String((row && (row.tID ?? row.id ?? row.oID)) ?? index);
     }
 
     function findRow(recordId) {
@@ -319,22 +320,27 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+        padding: 0 !important;
+        overflow: hidden;
     }
     .title-toolbar {
         display: flex;
         align-items: center;
         gap: 12px;
         flex-wrap: nowrap;
+        background: #1e40af;
+        padding: 12px 16px;
+        color: white;
     }
     /* stats row — second row inside the sticky panel */
     .stats-sub {
-        border-top: 1px solid #e5e7eb;
-        padding-top: 8px;
+        border-top: 2px solid #3b82f6;
+        padding: 8px 16px;
     }
     /* meta row — third row inside the sticky panel */
     .meta-row {
         border-top: 1px solid #e5e7eb;
-        padding-top: 6px;
+        padding: 6px 16px 10px;
     }
     /* left cluster: hamburger + name + subtitle */
     .title-left {
@@ -347,7 +353,7 @@
     .title-left .menu details { position: relative; }
     .title-left .menu summary {
         list-style: none; cursor: pointer; font-size: 18px;
-        background: #374151; color: white; border-radius: 4px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
         padding: 4px 10px; user-select: none;
     }
     .title-left .menu .dropdown {
@@ -365,14 +371,16 @@
         font-size: 16px;
         font-weight: 700;
         white-space: nowrap;
+        color: white;
     }
     .title-sep {
-        color: #9ca3af;
+        color: #93c5fd;
         font-size: 15px;
     }
     .title-sub {
-        font-size: 13px;
-        color: #6b7280;
+        font-size: 18px;
+        font-weight: 600;
+        color: #bfdbfe;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -389,10 +397,13 @@
     .toolbar-row select {
         padding: 7px 10px;
         border-radius: 6px;
-        border: 1px solid #cbd5e1;
-        background: white;
+        border: 1px solid #93c5fd;
+        background: rgba(255,255,255,0.15);
+        color: white;
         font-size: 13px;
     }
+    .toolbar-row label { color: white; }
+    .toolbar-row select option { background: #1e3a8a; color: white; }
     .stats-window {
         display: flex;
         flex-wrap: wrap;
@@ -468,10 +479,10 @@
                 <details>
                     <summary>☰</summary>
                     <div class="dropdown">
+                        <a href="/">LLC Accounts</a>
                         {% for v in available_views %}
                         <a href="/view/{{ v.name }}">{{ v.label }}</a>
                         {% endfor %}
-                        <a href="/">Home</a>
                     </div>
                 </details>
             </div>

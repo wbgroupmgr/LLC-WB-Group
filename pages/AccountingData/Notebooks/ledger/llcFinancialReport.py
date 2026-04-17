@@ -38,7 +38,9 @@ class llcFinancialReport(ledgerObject):
 
     def load(self, **kwargs):
         '''
-        Return glLIst - derived from llcAssets/llcExpRev
+        Return general ledger - glList - derived from mergin & removing dups in llcAssets/llcExpRev
+        - llcAssets/llcExpRev are dual account per transaction ledger
+        - ledgerGeneral is a single account per transaction ledger
         '''
         
         from ledger.ledgerGeneral import ledgerGeneral
@@ -91,9 +93,9 @@ class llcFinancialReport(ledgerObject):
         s += f"- Loaded: GenLedger Loaded (items:{len(self.llc.bk.df)}), BalSheet Loaded(items:{len(bsDF)})"
         display(Markdown(s))
 
-    def _buildBS(self, **kwargs):
+    def _buildIncStmt(self, **kwargs):
         '''
-        Build Balance Sheet DF
+        Build Income Stmt DF
         '''
         glDF = self.toDF()
         cIncSt = ['Asset', 'Equity', 'Liability']
@@ -114,8 +116,74 @@ class llcFinancialReport(ledgerObject):
             oDF.loc[kwargs.get('Total','Totals')] = [strAmt(n) for n in t]
             return dict(begAmt=t[0], yeAmt=t[1]), oDF
 
+    def _buildIncStmtPerMember(self):
+        # load LLC income statement
+        isDF = self._buildIncStmt().reset_index()
+        bsDF = self._buildBS()
+        oList = self.llc.owners()
+        oNum = len(oList)
+    
+        # get depreciation amt
+        deprec = bsDF.loc[('Asset','Acct.Fixed.Depreciation.Accum')].Credit
+        dList = [deprec]
+        
+        # Compute the per account Balance 'Bal' column
+        isDF['Bal'] = isDF.Credit.fillna(0) - isDF.Debit.fillna(0)
+        
+        # Extend a column for each member, member ammounts are prorated based on oDict['pct']
+        for oDict in oList:
+            pct = oDict['pct']
+            nm = oDict['nm'][0]
+            x = isDF['Bal']* pct
+            l = round(isDF.Bal.apply(lambda v : v * pct),2)
+            isDF[nm] = l
+    
+        # Track columns from the beginnning
+        cols = list(isDF.columns)
+    
+        # Compute the Total row (last 4 columns: Bal & num  of owners)
+        s = list(round(isDF.iloc[:,-oNum-1:].sum(),2))    
+    
+        # Compute depreciation pct per member
+        dList = [deprec]
+        for i in range(len(s)-1):  # num of owners
+            oDict = oList[i]
+            pct = oDict['pct']
+            D = deprec*pct
+            dList.append(D)
+    
+        # Compute Grand Total
+        GList = [s-d for s,d in zip(s, dList)]
 
-    def _BuildIncStmt(self):
+        distList = [0.0 if v < 0 else v for v in GList]
+    
+        def newRow(df, label, vList):
+            cols = df.columns
+            r = [''] * (len(cols)-len(vList))
+            r[-3] = label
+            #print("46--", r, vList)
+            df = pd.DataFrame(r+vList).transpose()
+            df.columns = cols
+            return df
+    
+        
+        # Wrangle to add (concat) onto IncStmt DF (isDF)
+        stDF = newRow(isDF, 'SubTotal', s)
+        dDF = newRow(isDF, '- less Depreciation', dList)
+        GDF = newRow(isDF, 'Net Income', GList)
+        distDF = newRow(isDF, 'Member Distribution', distList)
+        isDF = pd.concat([isDF, stDF, dDF, GDF, distDF])
+    
+        # Wrangle Clean up, delete Credit/Debit 
+        isDF.drop(columns=['Credit', 'Debit'],inplace=True)
+    
+        return isDF.set_index(['acctType', 'acct', 'acctSub'])
+
+
+    def _buildBS(self, **kwargs):
+        '''
+        Build Balance Sheet
+        '''
         
         glDF = self.toDF()
         cIncSt = ['Asset', 'Equity', 'Liability']
