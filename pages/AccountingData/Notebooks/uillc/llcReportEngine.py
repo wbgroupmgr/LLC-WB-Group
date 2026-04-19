@@ -68,31 +68,51 @@ class llcReportEngine:
         Build the full General Ledger via double-entry expansion + merge.
         Result is cached per engine instance (call with force=True to refresh).
 
-        llcAssets is passed FIRST so its records win dedup over llcExpRev
-        when the same tID appears in both sources.
+        Sources merged, in priority order (first source wins on tID collision):
+            llcAssets → llcExpRev → llcPayables → llcReceivables
+
+        v0.2: llcPayables and llcReceivables are converted to GL entries
+        (via the same toDoubleEntry expansion) and merged in alongside the
+        existing llcAssets / llcExpRev GL.
         '''
         if self._gl_cache is not None and not force:
             return self._gl_cache
 
         asset_list = self._load_source('llcAssets')
         er_list    = self._load_source('llcExpRev')
+        ap_list    = self._load_source('llcPayables')
+        ar_list    = self._load_source('llcReceivables')
 
         asset_expanded = self.gl.toDoubleEntry(asset_list)
         er_expanded    = self.gl.toDoubleEntry(er_list)
+        ap_expanded    = self.gl.toDoubleEntry(ap_list)
+        ar_expanded    = self.gl.toDoubleEntry(ar_list)
 
-        # asset_expanded first → llcAssets wins on tID collision
+        # Order matters on tID collisions: first source wins the dedup.
         self._gl_cache = self.gl.mergeGL(
-            [asset_expanded, er_expanded], resolve_dups=resolve_dups
+            [asset_expanded, er_expanded, ap_expanded, ar_expanded],
+            resolve_dups=resolve_dups,
         )
         return self._gl_cache
 
     def getGLListWithDups(self) -> List[Dict[str, Any]]:
-        '''GL list keeping all records and flagging cross-source dups.'''
+        '''GL list keeping all records and flagging cross-source dups.
+
+        v0.2: llcPayables and llcReceivables are also converted to GL entries
+        and folded in so that the General Ledger view reflects A/P + A/R.
+        '''
         er_list    = self._load_source('llcExpRev')
         asset_list = self._load_source('llcAssets')
+        ap_list    = self._load_source('llcPayables')
+        ar_list    = self._load_source('llcReceivables')
         er_expanded    = self.gl.toDoubleEntry(er_list)
         asset_expanded = self.gl.toDoubleEntry(asset_list)
-        return self.gl.mergeGL([er_expanded, asset_expanded], resolve_dups=False)
+        ap_expanded    = self.gl.toDoubleEntry(ap_list)
+        ar_expanded    = self.gl.toDoubleEntry(ar_list)
+        return self.gl.mergeGL(
+            [er_expanded, asset_expanded, ap_expanded, ar_expanded],
+            resolve_dups=False,
+        )
 
     def toDF(self) -> 'pd.DataFrame':
         '''Return GL as a pandas DataFrame with acctType column.'''

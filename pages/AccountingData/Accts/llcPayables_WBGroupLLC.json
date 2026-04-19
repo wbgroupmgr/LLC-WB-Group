@@ -1,0 +1,86 @@
+[
+    {
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "_unknown": "",
+        "aType": "Debit",
+        "acct": "Acct.Fixed.Tangible.InConstruction",
+        "acctSub": "Const",
+        "amt": 422.97,
+        "desc": "Payback Member from Owner's Capital Fund",
+        "dt": "2025.08.30",
+        "propAddr": "177 Kingsway Dr, Wimberley, 786767",
+        "propID": "e20251229-RV1",
+        "propNm": "RV_RV1",
+        "propOwners": {
+            "o20250801_1": 100
+        },
+        "refDB": "llcPayable",
+        "refDoc": "Receipts available upon request. ",
+        "tDB": "llcPayable",
+        "tID": "2025.08.30_422.97",
+        "acctType": "Equity"
+    },
+    {
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "_unknown": "",
+        "aType": "Debit",
+        "acct": "Acct.Fixed.Tangible.InConstruction",
+        "acctSub": "Const",
+        "amt": 290.95,
+        "desc": "Payback Member from Owner's Capital Fund - Sept",
+        "dt": "2025.09.30",
+        "propAddr": "177 Kingsway Dr, Wimberley, 786767",
+        "propID": "e20251229-RV1",
+        "propNm": "RV_RV1",
+        "propOwners": {
+            "o20250801_1": 100
+        },
+        "refDB": "llcPayable",
+        "refDoc": "Receipts available upon request. ",
+        "tDB": "llcPayable",
+        "tID": "l2025.09.30_290.95-AP1",
+        "acctType": "Equity"
+    },
+    {
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "_unknown": "",
+        "aType": "Debit",
+        "acct": "Acct.Fixed.Tangible.InConstruction",
+        "acctSub": "Const",
+        "amt": 96.21,
+        "desc": "Payback Member from Owner's Capital Fund - Oct",
+        "dt": "2025.10.30",
+        "propAddr": "177 Kingsway Dr, Wimberley Tx 78676",
+        "propID": "e20250826-805HMD",
+        "propNm": "RV_RV1",
+        "propOwners": {
+            "o20250801_1": 100
+        },
+        "refDB": "llcPayable",
+        "refDoc": "Receipts available upon request. ",
+        "tDB": "llcPayable",
+        "tID": "l2025.10.30_96.31-AP1",
+        "acctType": "Equity"
+    },
+    {
+        "Ledger": "Acct.Equity.Owner.Capital.Funds",
+        "_unknown": "",
+        "aType": "Debit",
+        "acct": "Acct.Fixed.Tangible.InConstruction",
+        "acctSub": "Misc",
+        "amt": 462.15,
+        "desc": "Payback Member from Owner's Capital Fund - Oct",
+        "dt": "2025.10.30",
+        "propAddr": "177 Kingsway Dr, Wimberley, 786767",
+        "propID": "e20250826-805HMD",
+        "propNm": "H_805HighMesa",
+        "propOwners": {
+            "o20250801_1": 100
+        },
+        "refDB": "llcPayable",
+        "refDoc": "Receipts available upon request. ",
+        "tDB": "llcPayable",
+        "tID": "l2025.10.30_462.15-AP2",
+        "acctType": "Equity"
+    }
+]

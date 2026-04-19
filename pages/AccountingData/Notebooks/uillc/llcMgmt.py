@@ -33,6 +33,8 @@ from flask import Flask, jsonify, render_template, request
 
 from uillc.llcAssets          import llcAssets
 from uillc.llcExpRev          import llcExpRev
+from uillc.llcPayables        import llcPayables
+from uillc.llcReceivables     import llcReceivables
 from uillc.llcGeneralLedger   import llcGeneralLedger
 from uillc.llcBalanceSheet     import llcBalanceSheet
 from uillc.llcIncomeStmt       import llcIncomeStmt
@@ -44,6 +46,11 @@ from uillc.llcFormK1           import llcFormK1
 from uillc.llcFormSchedL       import llcFormSchedL
 from uillc.llcFormSchedM1      import llcFormSchedM1
 from uillc.llcFormSchedM2      import llcFormSchedM2
+from uillc.llcForm1065SchBPg2  import llcForm1065SchBPg2
+from uillc.llcForm1065SchBPg3  import llcForm1065SchBPg3
+from uillc.llcForm1065SchBPg4  import llcForm1065SchBPg4
+from uillc.llcForm1065SchKPg5  import llcForm1065SchKPg5
+from uillc.llcForm1065Pg6      import llcForm1065Pg6
 
 
 class llcMgmt:
@@ -53,6 +60,8 @@ class llcMgmt:
         # Transactions
         "llcAssets",
         "llcExpRev",
+        "llcPayables",
+        "llcReceivables",
         "llcGeneralLedger",
         "llcBank",
         # Financial Statements
@@ -66,11 +75,18 @@ class llcMgmt:
         "llcFormSchedL",
         "llcFormSchedM1",
         "llcFormSchedM2",
+        "llcForm1065SchBPg2",
+        "llcForm1065SchBPg3",
+        "llcForm1065SchBPg4",
+        "llcForm1065SchKPg5",
+        "llcForm1065Pg6",
     ]
 
     VIEW_LABELS = {
         "llcAssets":          "Assets",
         "llcExpRev":          "Exp / Revenue",
+        "llcPayables":        "Payables (A/P)",
+        "llcReceivables":     "Receivables (A/R)",
         "llcGeneralLedger":   "General Ledger",
         "llcBank":            "Bank Reconciliation",
         "llcBalanceSheet":    "Balance Sheet",
@@ -82,6 +98,11 @@ class llcMgmt:
         "llcFormSchedL":      "Schedule L",
         "llcFormSchedM1":     "Schedule M-1",
         "llcFormSchedM2":     "Schedule M-2",
+        "llcForm1065SchBPg2": "Sch B — Pg 2",
+        "llcForm1065SchBPg3": "Sch B — Pg 3",
+        "llcForm1065SchBPg4": "Sch B — Pg 4",
+        "llcForm1065SchKPg5": "Sch K — Pg 5",
+        "llcForm1065Pg6":     "Form 1065 — Pg 6",
     }
 
     VIEW_TITLES = {
@@ -94,6 +115,11 @@ class llcMgmt:
         "llcFormSchedL":      "Schedule L – Balance Sheet per Books",
         "llcFormSchedM1":     "Schedule M-1 – Reconciliation of Income",
         "llcFormSchedM2":     "Schedule M-2 – Analysis of Partners' Capital Accounts",
+        "llcForm1065SchBPg2": "Form 1065 Schedule B (Page 2) – Partnership Info & Elections Q1–12",
+        "llcForm1065SchBPg3": "Form 1065 Schedule B (Page 3) – Compliance & Audit Regime Q13–25",
+        "llcForm1065SchBPg4": "Form 1065 Schedule B (Page 4) – Partner Rep & Analysis of Net Income",
+        "llcForm1065SchKPg5": "Form 1065 Schedule K (Page 5) – Partners' Distributive Share Items",
+        "llcForm1065Pg6":     "Form 1065 Page 6 – Schedule L, M-1 & M-2",
     }
 
     # View groups for the home page
@@ -101,7 +127,8 @@ class llcMgmt:
         {
             "label": "Transactions",
             "icon":  "📂",
-            "views": ["llcAssets", "llcExpRev", "llcGeneralLedger", "llcBank"],
+            "views": ["llcAssets", "llcExpRev", "llcPayables", "llcReceivables",
+                      "llcGeneralLedger", "llcBank"],
         },
         {
             "label": "Financial Statements",
@@ -113,6 +140,17 @@ class llcMgmt:
             "icon":  "🧾",
             "views": ["llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2"],
         },
+        {
+            "label": "Form 1065 — Detail Pages",
+            "icon":  "📄",
+            "views": [
+                "llcForm1065SchBPg2",
+                "llcForm1065SchBPg3",
+                "llcForm1065SchBPg4",
+                "llcForm1065SchKPg5",
+                "llcForm1065Pg6",
+            ],
+        },
     ]
 
     # Views that use financial_view.html
@@ -120,7 +158,11 @@ class llcMgmt:
     # Views that use property_equity.html
     PROPERTY_VIEWS = {"llcPropertyEquity"}
     # Views that use tax_view.html
-    TAX_VIEWS = {"llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2"}
+    TAX_VIEWS = {
+        "llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2",
+        "llcForm1065SchBPg2", "llcForm1065SchBPg3", "llcForm1065SchBPg4",
+        "llcForm1065SchKPg5", "llcForm1065Pg6",
+    }
     # Views that use bank_view.html
     BANK_VIEWS = {"llcBank"}
     # All computed (read-only) views
@@ -128,6 +170,8 @@ class llcMgmt:
         "llcGeneralLedger", "llcBalanceSheet", "llcIncomeStmt", "llcOwnerEquity",
         "llcBank", "llcPropertyEquity",
         "llcForm1065", "llcFormK1", "llcFormSchedL", "llcFormSchedM1", "llcFormSchedM2",
+        "llcForm1065SchBPg2", "llcForm1065SchBPg3", "llcForm1065SchBPg4",
+        "llcForm1065SchKPg5", "llcForm1065Pg6",
     }
 
     # Preferred column sets for computed views
@@ -158,7 +202,15 @@ class llcMgmt:
     def __init__(self, eSession, title: str = None):
         self.eSession = eSession
         session_title = getattr(getattr(eSession, "llc", None), "objName", None)
-        self.title = title or session_title or "LLC Management App"
+        base_title = title or session_title or "LLC Management App"
+        # v0.2: surface the package version in the app title so the running
+        # editor is self-identifying in the browser tab and home header.
+        try:
+            from uillc import __version__ as _uillc_version
+        except Exception:
+            _uillc_version = None
+        self.version = _uillc_version
+        self.title = f"{base_title} (uillc {_uillc_version})" if _uillc_version else base_title
 
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
@@ -181,19 +233,75 @@ class llcMgmt:
             "llcAsset":          "llcAssets",
             "llcAssets":         "llcAssets",
             "llcExpRev":         "llcExpRev",
+            # v0.2: A/P and A/R
+            "llcPayable":        "llcPayables",
+            "llcPayables":       "llcPayables",
+            "llcAP":             "llcPayables",
+            "llcReceivable":     "llcReceivables",
+            "llcReceivables":    "llcReceivables",
+            "llcAR":             "llcReceivables",
             "llcGeneralLedger":  "llcGeneralLedger",
             "llcIncomeStmt":     "llcIncomeStmt",
             "llcBalanceSheet":   "llcBalanceSheet",
             "llcOwnerEquity":    "llcOwnerEquity",
             "llcBank":           "llcBank",
             "llcPropertyEquity": "llcPropertyEquity",
-            "llcForm1065":       "llcForm1065",
-            "llcFormK1":         "llcFormK1",
-            "llcFormSchedL":     "llcFormSchedL",
-            "llcFormSchedM1":    "llcFormSchedM1",
-            "llcFormSchedM2":    "llcFormSchedM2",
+            "llcForm1065":          "llcForm1065",
+            "llcFormK1":            "llcFormK1",
+            "llcFormSchedL":        "llcFormSchedL",
+            "llcFormSchedM1":       "llcFormSchedM1",
+            "llcFormSchedM2":       "llcFormSchedM2",
+            "llcForm1065SchBPg2":   "llcForm1065SchBPg2",
+            "llcForm1065SchBPg3":   "llcForm1065SchBPg3",
+            "llcForm1065SchBPg4":   "llcForm1065SchBPg4",
+            "llcForm1065SchKPg5":   "llcForm1065SchKPg5",
+            "llcForm1065Pg6":       "llcForm1065Pg6",
         }
         return aliases.get(name, name)
+
+    def _auto_wknode(self, oid: str, default_filename: str):
+        '''
+        v0.2 helper: build a WkNode for an editable view when the caller's
+        eSession doesn't already include one.
+
+          1. Try to find a sibling WkNode already in eSession and place the
+             new DB alongside it in the same Accts folder.
+          2. Fall back to the current working directory if no sibling exists.
+          3. Create the JSON file as an empty list [] if missing, so load()
+             returns [] instead of raising.
+        '''
+        try:
+            from uillc.llcSession import ObjNode, WkNode
+        except Exception:
+            return None
+
+        accts_dir = None
+        working_dir = None
+        for existing_wk in self.eSession.oDict.values():
+            try:
+                accts_dir = Path(existing_wk.o.FN()).parent
+                working_dir = Path(existing_wk.FN()).parent
+                break
+            except Exception:
+                continue
+
+        if accts_dir is None:
+            accts_dir   = Path.cwd()
+            working_dir = accts_dir / "working"
+
+        obj_path = accts_dir / default_filename
+        wk_path  = working_dir / default_filename
+
+        if not obj_path.exists():
+            try:
+                obj_path.parent.mkdir(parents=True, exist_ok=True)
+                obj_path.write_text("[]\n", encoding="utf-8")
+            except Exception:
+                pass
+
+        obj = ObjNode(oid, str(obj_path))
+        wk  = WkNode(obj, str(wk_path))
+        return wk
 
     def _build_objects(self) -> Dict[str, Any]:
         objects: Dict[str, Any] = {}
@@ -209,11 +317,41 @@ class llcMgmt:
                 mgr = llcAssets(wk)
             elif obj_name == "llcExpRev":
                 mgr = llcExpRev(wk)
+            elif obj_name == "llcPayables":
+                mgr = llcPayables(wk)
+            elif obj_name == "llcReceivables":
+                mgr = llcReceivables(wk)
 
             if mgr is not None:
                 if hasattr(mgr, "bind_session"):
                     mgr.bind_session(self.eSession)
                 objects[obj_name] = mgr
+
+        # ── v0.2: auto-register Payables / Receivables if the caller's
+        # eSession didn't include them. We derive the Accts folder from an
+        # existing sibling WkNode (typically llcAssets) and create a WkNode
+        # pointing to the empty JSON DB. If no sibling is available we fall
+        # back to a memory-only WkNode so the view still renders with
+        # headers + zero rows instead of "Under Construction".
+        for ap_ar, default_filename in (
+            ("llcPayables",    "llcPayables_WBGroupLLC.json"),
+            ("llcReceivables", "llcReceivables_WBGroupLLC.json"),
+        ):
+            if ap_ar in objects:
+                continue
+            wk = self._auto_wknode(ap_ar, default_filename)
+            if wk is None:
+                continue
+            mgr = llcPayables(wk) if ap_ar == "llcPayables" else llcReceivables(wk)
+            if hasattr(mgr, "bind_session"):
+                mgr.bind_session(self.eSession)
+            objects[ap_ar] = mgr
+            # Make it visible in the eSession oDict so the home page
+            # session-objects table lists it too.
+            try:
+                self.eSession.oDict.setdefault(ap_ar, wk)
+            except Exception:
+                pass
 
         # ── computed (read-only) views ────────────────────────────────────────
         objects["llcGeneralLedger"]  = llcGeneralLedger(self.eSession)
@@ -230,6 +368,13 @@ class llcMgmt:
         objects["llcFormSchedM1"]= llcFormSchedM1(self.eSession)
         objects["llcFormSchedM2"]= llcFormSchedM2(self.eSession)
 
+        # ── Form 1065 detail pages (Pg2–Pg6) ─────────────────────────────────
+        objects["llcForm1065SchBPg2"] = llcForm1065SchBPg2(self.eSession)
+        objects["llcForm1065SchBPg3"] = llcForm1065SchBPg3(self.eSession)
+        objects["llcForm1065SchBPg4"] = llcForm1065SchBPg4(self.eSession)
+        objects["llcForm1065SchKPg5"] = llcForm1065SchKPg5(self.eSession)
+        objects["llcForm1065Pg6"]     = llcForm1065Pg6(self.eSession)
+
         return objects
 
     def available_views(self) -> List[Dict[str, Any]]:
@@ -244,7 +389,7 @@ class llcMgmt:
         return items
 
     def _supports_record_views(self, obj_type: str) -> bool:
-        return obj_type in ("llcAssets", "llcExpRev")
+        return obj_type in ("llcAssets", "llcExpRev", "llcPayables", "llcReceivables")
 
     def _normalize_view_mode(self, value: str) -> str:
         value = (value or "all").strip().lower()
@@ -446,6 +591,30 @@ class llcMgmt:
             manager  = self.objects.get(obj_type)
 
             if manager is None:
+                # v0.2: for editable record views (Assets / ExpRev / Payables /
+                # Receivables) render an empty table with headers instead of
+                # the "Under Construction" page, so a fresh A/P or A/R tab
+                # always looks like an empty ledger rather than a stub.
+                if self._supports_record_views(obj_type):
+                    columns = list(self.RECORD_VIEW_OPTIONS["all"])
+                    return render_template(
+                        "table_view.html",
+                        title=self.title,
+                        obj_type=obj_type,
+                        rows=[],
+                        raw_rows=[],
+                        columns=columns,
+                        stats={"Transactions": 0, "AccountTypes": 0, "Balance": 0.0, "ByAcctType": {}},
+                        stats_labels=[],
+                        meta={"objectName": obj_type, "workingFile": "", "objectFile": ""},
+                        display_scalar=self._display_scalar,
+                        view_mode="all",
+                        view_by="All",
+                        view_by_options=["All"],
+                        show_view_options=True,
+                        read_only=False,
+                    )
+
                 meta = {"objectName": obj_type}
                 return render_template(
                     "construction.html",
@@ -608,6 +777,27 @@ class llcMgmt:
             stamp = self.eSession.push()
             self.eSession.reset()
             return jsonify({"ok": True, "snapshot": stamp})
+
+        # ── Logoff (quit the LLC editor app) ──────────────────────────────────
+        # v0.2: graceful shutdown triggered from the UI.  Returns JSON first,
+        # then terminates the Flask process (and its daemon thread in notebook
+        # mode) ~500 ms later so the client has time to receive the response.
+        @app.route("/api/logoff", methods=["POST"])
+        def logoff():
+            import os as _os
+            import threading as _threading
+
+            def _shutdown():
+                # os._exit() is intentional: it stops the Flask dev server /
+                # notebook-mode daemon thread without waiting on werkzeug's
+                # deprecated shutdown hook.
+                _os._exit(0)
+
+            _threading.Timer(0.5, _shutdown).start()
+            return jsonify({
+                "ok": True,
+                "message": "LLC editor shutting down. You may close this tab.",
+            })
 
         # ── COA lookup ────────────────────────────────────────────────────────
         @app.route("/api/coa/get")

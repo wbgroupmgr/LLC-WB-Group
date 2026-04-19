@@ -110,10 +110,17 @@ class llcGeneralLedger:
         return {
             'objectName': self.object_name(),
             'sources': {
-                'llcExpRev': self._wk_fn('llcExpRev'),
-                'llcAssets': self._wk_fn('llcAssets'),
+                'llcExpRev':      self._wk_fn('llcExpRev'),
+                'llcAssets':      self._wk_fn('llcAssets'),
+                # v0.2: A/P and A/R are converted to GL and merged in too
+                'llcPayables':    self._wk_fn('llcPayables'),
+                'llcReceivables': self._wk_fn('llcReceivables'),
             },
-            'note': 'Read-only. Double-entry expanded GL. Cross-source dups flagged ⚠ Dup.',
+            'note': (
+                'Read-only. Double-entry expanded GL built by merging '
+                'llcAssets + llcExpRev + llcPayables + llcReceivables. '
+                'Cross-source dups flagged ⚠ Dup.'
+            ),
         }
 
     def list(self) -> List[Dict[str, Any]]:

@@ -7,6 +7,10 @@
             "acctID": "1020",
             "acctDesc": "Security Deposit Trust Account (Funds held for tenants; must be kept separate)"
         },
+        "Acct.AR.Loan": {
+            "acctID": "1100",
+            "acctDesc": "Account Receivables, loans)"
+        },
         "Acct.Fixed.Tangible.InConstruction": {
             "acctID": "1310",
             "acctDesc": "Asset: Debit Buildings Not InService - purchase prices + construction Expenses"
@@ -31,13 +35,9 @@
             "acctID": "1470",
             "acctDesc": "Buildings, Improvements (Major: new flooring, central A/C, complete remodels)"
         },
-        "Acct.Liab.Payable": {
-            "acctID": "2010",
-            "acctDesc": "Accounts Payable (Unpaid bills to vendors)"
-        },
-        "Acct.Liab.Morgage": {
+        "Acct.Liab.AP": {
             "acctID": "2100",
-            "acctDesc": "Mortgage Payable (The principal balance on your property loan)"
+            "acctDesc": "Accounts Payable (Unpaid bills to vendors)"
         },
         "Acct.Liab.Customer.Security": {
             "acctID": "2200",
@@ -46,6 +46,10 @@
         "Acct.Liab.Customer.Rent.Prepai": {
             "acctID": "2300",
             "acctDesc": "Prepaid Rent (Rent paid by tenants before it is due, first, last)"
+        },
+        "Acct.Liab.Morgage": {
+            "acctID": "2500",
+            "acctDesc": "Mortgage Payable - long term 25xx-26xx (The principal balance on your property loan)"
         },
         "Acct.Equity.Owner.Capital.Funds": {
             "acctID": "3010",

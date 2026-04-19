@@ -137,6 +137,9 @@ def build_default_session(base_dir: str = ".") -> EditSession:
     mappings = [
         ("llcAssets", "llcAssets_WBGroupLLC_b8a9be15-7305-4f85-b3e3-6461e0e89c46.json"),
         ("llcExpRev", "llcExpRev_WBGroupLLC_c7d848ab-a25b-4c8e-835f-1a224da93dcd.json"),
+        # v0.2: A/P and A/R transaction ledgers
+        ("llcPayables",    "llcPayables_WBGroupLLC.json"),
+        ("llcReceivables", "llcReceivables_WBGroupLLC.json"),
         ("llcIncomeStmt", "llcIncomeStmt_WBGroupLLC.json"),
         ("llcBalanceSheet", "llcBalanceSheet_WBGroupLLC.json"),
     ]

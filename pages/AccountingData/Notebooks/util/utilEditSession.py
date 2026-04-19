@@ -23,6 +23,8 @@ import pandas as pd
 from ledger.LLC import LLC
 from ledger.llcExpRev import llcExpRev
 from ledger.llcAssets import llcAssets
+from ledger.llcPayables import llcPayables
+from ledger.llcReceivables import llcReceivables
 from ledger.llcFinancialReport import llcFinancialReport
 
 from util.utilWorkingDB import utilWorkingDB
@@ -31,6 +33,12 @@ class wkAssets(utilWorkingDB):
     pass
 
 class wkExpRev(utilWorkingDB):
+    pass
+
+class wkAP(utilWorkingDB):
+    pass
+
+class wkAR(utilWorkingDB):
     pass
 
 class noDBFinancialReport(llcFinancialReport):
@@ -101,6 +109,15 @@ class utilEditSession():
         erObj = llcExpRev(self.llc, **kwargs)
         wObj = wkExpRev(self.llc, editSession=self, tObj=erObj)
         wkDict[wObj.oID] = wObj
+
+        apObj = llcPayables(self.llc, **kwargs)
+        wObj = wkAP(self.llc, editSession=self, tObj=apObj)   
+        wkDict[wObj.oID] = wObj
+        
+        arObj = llcReceivables(self.llc, **kwargs)
+        wObj = wkAR(self.llc, editSession=self, tObj=arObj)   
+        wkDict[wObj.oID] = wObj
+        
 
         if False:
             bsObj = noDBFinancialReport(self.llc, **kwargs)

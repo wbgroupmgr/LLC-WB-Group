@@ -4,8 +4,8 @@ from ledger.ledgerObject import ledgerObject
 from ledger.llcCOA import ChartOfAccounts as llcCOA
 from ledger.llcAssets import getBal
 
-toKAmt = lambda d : -d['amt'] if d['aType'] == 'Credit' else d['amt']
-toTid = lambda d : f"{d['dt']}_{toKAmt(d):0.2f}"
+toKAmt = lambda d : -float(d['amt'] or 0) if d['aType'] == 'Credit' else float(d['amt'] or 0)
+toTid  = lambda d : f"{d['dt']}_{toKAmt(d):0.2f}"
 toIDDict = lambda l : {toTid(d):i for i,d in enumerate(l)}
 
 class ledgerGeneral(ledgerObject):

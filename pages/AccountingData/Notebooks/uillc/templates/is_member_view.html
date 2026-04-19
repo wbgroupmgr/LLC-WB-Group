@@ -40,17 +40,6 @@
         background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
         padding: 4px 10px; user-select: none;
     }
-    .title-left .menu .dropdown {
-        position: absolute; top: 36px; left: 0;
-        background: white; color: black; min-width: 220px;
-        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
-        z-index: 100; border-radius: 6px; overflow: hidden;
-    }
-    .title-left .menu .dropdown a {
-        display: block; padding: 9px 12px; text-decoration: none; color: black;
-        border-bottom: 1px solid #eee; font-size: 14px;
-    }
-    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
     .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
     .title-sep  { color: #93c5fd; font-size: 15px; }
     .title-sub  { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -135,12 +124,7 @@
             <div class="menu">
                 <details>
                     <summary>☰</summary>
-                    <div class="dropdown">
-                        <a href="/">LLC Accounts</a>
-                        {% for v in available_views %}
-                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
-                        {% endfor %}
-                    </div>
+                    {% include '_nav_dropdown.html' %}
                 </details>
             </div>
             <span class="title-name">{{ app_title }}</span>

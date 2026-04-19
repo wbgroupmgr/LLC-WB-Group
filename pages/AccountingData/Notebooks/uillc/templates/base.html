@@ -16,6 +16,41 @@
             background: #374151; color: white; border-radius: 4px;
             padding: 6px 12px; user-select: none;
         }
+        /* ── Shared grouped navigation dropdown ─────────────────────── */
+        .nav-dropdown {
+            position: absolute; top: 38px; left: 0;
+            background: white; color: black;
+            min-width: 270px; max-height: 82vh; overflow-y: auto;
+            border: 1px solid #d1d5db; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+            z-index: 200; border-radius: 8px;
+        }
+        .nav-home {
+            display: block; padding: 10px 14px;
+            text-decoration: none; color: #1e40af; font-weight: 700; font-size: 14px;
+            background: #f0f5ff; border-bottom: 2px solid #c7d2fe;
+        }
+        .nav-home:hover { background: #dbeafe; }
+        .nav-group-header {
+            display: flex; align-items: center; gap: 6px;
+            padding: 7px 14px 4px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: #9ca3af;
+            background: #f9fafb; border-top: 1px solid #e5e7eb;
+            position: sticky; top: 0; z-index: 1;
+        }
+        .nav-group-header .nav-gi { font-size: 13px; }
+        .nav-view-link {
+            display: block; padding: 7px 14px 7px 32px;
+            text-decoration: none; color: #374151; font-size: 13px;
+            border-bottom: 1px solid #f3f4f6;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .nav-view-link:hover { background: #eff6ff; color: #1e40af; }
+        .nav-view-link.nav-active {
+            background: #dbeafe; color: #1e40af; font-weight: 600;
+            border-left: 3px solid #3b82f6; padding-left: 29px;
+        }
+        /* legacy flat dropdown (base topbar only) */
         .dropdown {
             position: absolute; top: 42px; left: 0;
             background: white; color: black; min-width: 260px;
@@ -99,12 +134,7 @@
         <div class="menu">
             <details>
                 <summary>☰</summary>
-                <div class="dropdown">
-                    <a href="/">LLC Accounts</a>
-                    {% for v in available_views %}
-                    <a href="/view/{{ v.name }}">{{ v.label }}</a>
-                    {% endfor %}
-                </div>
+                {% include '_nav_dropdown.html' %}
             </details>
         </div>
         <div><strong>{{ title or app_title }}</strong></div>

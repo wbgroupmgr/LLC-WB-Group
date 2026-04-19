@@ -85,12 +85,32 @@
         return await res.json();
     }
 
+    // ── Enter key → Done for field editor ────────────────────────────────────
+    function _onRecordEditorKey(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            // Only fire if the focused element is an input (not textarea)
+            if (document.activeElement && document.activeElement.tagName === "INPUT") {
+                e.preventDefault();
+                doneFieldEditor();
+            }
+        }
+        if (e.key === "Escape") {
+            closeBackdrop("recordEditorBackdrop");
+        }
+    }
+
     function openBackdrop(id) {
         document.getElementById(id).style.display = "flex";
+        if (id === "recordEditorBackdrop") {
+            document.addEventListener("keydown", _onRecordEditorKey);
+        }
     }
 
     function closeBackdrop(id) {
         document.getElementById(id).style.display = "none";
+        if (id === "recordEditorBackdrop") {
+            document.removeEventListener("keydown", _onRecordEditorKey);
+        }
     }
 
     function toggleJsonPane() {
@@ -148,6 +168,24 @@
         }
     }
 
+    // ── tID auto-generation ───────────────────────────────────────────────────
+    // tID format mirrors ledgerGeneral.py: f"{dt}_{±amt:0.2f}"
+    // amt is positive for Debit, negative for Credit
+    function autoGenTid() {
+        const dtEl    = document.getElementById("edit-field-dt");
+        const amtEl   = document.getElementById("edit-field-amt");
+        const aTypeEl = document.getElementById("edit-field-aType");
+        const tIdEl   = document.getElementById("edit-field-tID");
+        if (!dtEl || !amtEl || !tIdEl) return;          // fields not present — skip
+
+        const dt    = (dtEl.value || "").trim();
+        const raw   = parseFloat(amtEl.value) || 0;
+        const aType = aTypeEl ? aTypeEl.value.trim() : "";
+        const signed = (aType === "Credit") ? -Math.abs(raw) : Math.abs(raw);
+        const amtStr = (signed < 0 ? "-" : "") + Math.abs(signed).toFixed(2);
+        tIdEl.value  = dt && raw !== 0 ? `${dt}_${amtStr}` : tIdEl.value;
+    }
+
     function renderFieldEditor(title, payload) {
         document.getElementById("recordEditorTitle").textContent = title;
         const host = document.getElementById("recordEditorFields");
@@ -182,6 +220,12 @@
             }
 
             host.appendChild(wrap);
+        });
+
+        // ── Wire tID auto-generation on dt / amt / aType change ──
+        ["dt", "amt", "aType"].forEach(f => {
+            const el = document.getElementById(`edit-field-${f}`);
+            if (el) el.addEventListener("input", autoGenTid);
         });
 
         openBackdrop("recordEditorBackdrop");
@@ -298,6 +342,23 @@
         window.location.href = buildViewUrl();
     }
 
+    async function saveAndPublish() {
+        // Step 1: Save working data
+        const saveResult = await postCmd({ cmd: "save", payload: RAW_ROWS });
+        if (!saveResult.ok) {
+            alert(saveResult.error || "Save failed");
+            return;
+        }
+        // Step 2: Publish to DB
+        const pubResult = await postCmd({ cmd: "save_object" });
+        if (!pubResult.ok) {
+            alert(pubResult.error || "Publish failed");
+            return;
+        }
+        alert("Saved and published successfully.");
+        window.location.href = buildViewUrl();
+    }
+
     async function resetFromObject() {
         if (!confirm("Reset working file from object file?")) return;
         const result = await postCmd({ cmd: "reset_from_object" });
@@ -356,17 +417,6 @@
         background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
         padding: 4px 10px; user-select: none;
     }
-    .title-left .menu .dropdown {
-        position: absolute; top: 36px; left: 0;
-        background: white; color: black; min-width: 220px;
-        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
-        z-index: 100; border-radius: 6px; overflow: hidden;
-    }
-    .title-left .menu .dropdown a {
-        display: block; padding: 9px 12px; text-decoration: none; color: black;
-        border-bottom: 1px solid #eee; font-size: 14px;
-    }
-    .title-left .menu .dropdown a:hover { background: #f3f4f6; }
     .title-name {
         font-size: 16px;
         font-weight: 700;
@@ -478,17 +528,12 @@
             <div class="menu">
                 <details>
                     <summary>☰</summary>
-                    <div class="dropdown">
-                        <a href="/">LLC Accounts</a>
-                        {% for v in available_views %}
-                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
-                        {% endfor %}
-                    </div>
+                    {% include '_nav_dropdown.html' %}
                 </details>
             </div>
             <span class="title-name">{{ app_title }}</span>
             <span class="title-sep">·</span>
-            <span class="title-sub">📋 {{ obj_type }} — edits commit to wk on Save</span>
+            <span class="title-sub">📋 {{ obj_type }} — Save-Publish commits all records to DB</span>
         </div>
 
         <!-- right: view selector + action buttons -->
@@ -512,10 +557,9 @@
 
             {% if not read_only %}
             <button class="btn btn-success"   title="Add a new record"                       onclick="openAddEditor()">Add</button>
-            <button class="btn btn-primary"   title="Save view → wk object"                  onclick="saveWorking()">Save</button>
+            <button class="btn btn-primary"   title="Save all records and publish to DB"      onclick="saveAndPublish()">💾 Save-Publish</button>
             <button class="btn btn-secondary" title="Reload wk object, discard view changes"  onclick="window.location.href=buildViewUrl()">Refresh View</button>
             <button class="btn btn-secondary" title="Reset wk from DB"                        onclick="resetFromObject()">Refresh DB</button>
-            <button class="btn btn-primary"   title="Publish wk → DB"                         onclick="saveObject()">Publish</button>
             {% else %}
             <button class="btn btn-secondary" title="Reload view"                             onclick="window.location.href=buildViewUrl()">Refresh</button>
             {% endif %}

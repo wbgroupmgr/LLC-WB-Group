@@ -1,6 +1,7 @@
 # llcFinancialReport Services
 
 import datetime
+import json
 import pandas as pd
 import numpy as np
 from IPython.display import display, Markdown
@@ -216,6 +217,240 @@ class llcFinancialReport(ledgerObject):
             display(Markdown(f'<h2>Gross Profits: {strAmt(rAmt - cogsAmt)}'))
 
             
+    # ═══════════════════════════════════════════════════════════════════════
+    #  TAX DATA  —  IS / BS / owners aggregates for all IRS tax forms
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def taxData(self) -> str:
+        """
+        Compute all tax-form data from the GL and return as a JSON string.
+
+        Top-level keys
+        --------------
+        meta      – generated date, LLC name, tax year
+        is_data   – Income Statement aggregates (Form 1065 Pg1 + Sched K)
+        bs_data   – Balance Sheet aggregates    (Form 1065 Sched L)
+        owners    – Partner summary             (Form 1065 Sched M-2 / K-1)
+
+        Usage in Form 1065 workflow
+        ---------------------------
+            fr  = llcFinancialReport(llc)
+            td  = json.loads(fr.taxData())
+
+            f1065    = Form1065(llc=llc)
+            fillDict = f1065._buildFillDict(
+                           is_data = td['is_data'],
+                           bs_data = td['bs_data'],
+                       )
+            f1065.saveFILL(fillDict)
+
+        Account taxonomy (for this LLC)
+        --------------------------------
+        Income Statement accounts (acctType = Income / Expense):
+          Acct.Rev.Rent              – gross rental receipts
+          Acct.Rev.Interest          – interest earned
+          Acct.Rev.Fees.*            – other income (misc fees / refunds)
+          Acct.Exp.Repair            – repairs & maintenance
+          Acct.Exp.Util              – utilities
+          Acct.Exp.Other             – property taxes, licenses, other operating
+          Acct.Exp.Operating         – miscellaneous operating expenses
+          Acct.Exp.Interest          – mortgage interest (if booked separately)
+          Acct.Exp.Salary            – salaries and wages
+          Acct.Exp.Depreciation      – depreciation expense for the period
+
+        Balance Sheet accounts (acctType = Asset / Liability / Equity):
+          Acct.Cash.Bank             – cash (end-of-year balance)
+          Acct.Receivable.*          – accounts receivable
+          Acct.Fixed.Tangible.InService   – depreciable building / improvements (cost)
+          Acct.Fixed.Tangible.Land        – land (non-depreciable)
+          Acct.Fixed.Tangible.InConstruction – construction in progress
+          Acct.Fixed.Depreciation.Accum   – accumulated depreciation (contra-asset)
+          Acct.Payable.*             – accounts payable
+          Acct.Fixed.Tangible.LongTerm    – mortgage / notes payable ≥ 1 year
+          Acct.Equity.*              – partners' capital accounts
+
+        Notes
+        -----
+        • interest_expense: mortgage interest is often booked as a mortgage
+          principal reduction (Acct.Fixed.Tangible.LongTerm Debit).  If the LLC
+          separates interest into Acct.Exp.Interest, that account is used.
+          Otherwise, the CPA must split mortgage payments into principal + interest
+          using the amortisation schedule and override this field.
+
+        • distributions_cash: set to max(0, net_income) for a positive-income
+          year; zero when net_income ≤ 0 (no distribution from a loss year).
+
+        • cash_contributions: summed from Acct.Equity.Owner.Capital.Funds Credit
+          entries in the BS — reflects capital injected during the tax year.
+
+        Returns
+        -------
+        str   JSON-encoded dict with keys: meta, is_data, bs_data, owners.
+        """
+        # ── Build IS and BS DataFrames ────────────────────────────────────
+        try:
+            isDF = self._buildIncStmt()
+        except Exception as _e:
+            isDF = None
+
+        try:
+            bsDF = self._buildBS()
+        except Exception as _e:
+            bsDF = None
+
+        # ── Safe acct-pattern aggregation helper ──────────────────────────
+        def _asum(df, acct_pat: str, col: str) -> float:
+            """
+            Sum `col` (Debit or Credit) for all rows whose `acct` index level
+            contains `acct_pat`.  Returns absolute value, rounded to 2 dp.
+            NaN cells are treated as 0.
+            """
+            if df is None:
+                return 0.0
+            if col not in df.columns:
+                return 0.0
+            try:
+                lvl  = df.index.get_level_values('acct')
+                mask = lvl.str.contains(acct_pat, regex=False, na=False)
+                val  = float(df.loc[mask, col].fillna(0).sum())
+                return round(abs(val), 2)
+            except Exception:
+                return 0.0
+
+        # ── IS aggregates ─────────────────────────────────────────────────
+        rent_income     = _asum(isDF, 'Acct.Rev.Rent',          'Credit')
+        interest_income = _asum(isDF, 'Acct.Rev.Interest',      'Credit')
+        fees_income     = _asum(isDF, 'Acct.Rev.Fees',          'Credit')
+
+        total_income    = round(rent_income + interest_income + fees_income, 2)
+        other_income    = round(total_income - rent_income - interest_income, 2)
+
+        # Expense lines — match by GL account name
+        salaries        = _asum(isDF, 'Acct.Exp.Salary',        'Debit')
+        repairs         = _asum(isDF, 'Acct.Exp.Repair',        'Debit')
+        utilities       = _asum(isDF, 'Acct.Exp.Util',          'Debit')
+        taxes_licenses  = _asum(isDF, 'Acct.Exp.Other',         'Debit')
+        depreciation    = _asum(isDF, 'Acct.Exp.Depreciation',  'Debit')
+        interest_exp_gl = _asum(isDF, 'Acct.Exp.Interest',      'Debit')
+        other_deduct    = _asum(isDF, 'Acct.Exp.Operating',     'Debit')
+
+        # Mortgage interest: use dedicated Exp.Interest when available;
+        # fall back to the LongTerm Liability payments (includes principal —
+        # CPA must separate using the amortisation schedule).
+        if interest_exp_gl == 0.0:
+            interest_expense = _asum(bsDF, 'Acct.Fixed.Tangible.LongTerm', 'Debit')
+        else:
+            interest_expense = interest_exp_gl
+
+        total_expenses  = round(
+            salaries + repairs + utilities + taxes_licenses +
+            depreciation + interest_expense + other_deduct, 2
+        )
+        net_income      = round(total_income - total_expenses, 2)
+
+        # ── Owners ────────────────────────────────────────────────────────
+        try:
+            from ledger.llcOwners import llcOwners
+            owners_list = llcOwners(self.llc).load()
+        except Exception:
+            owners_list = []
+
+        # Cash distributions: only distribute when net income is positive
+        distributions_cash = round(
+            sum(max(0.0, round(net_income * float(o.get('pct', 0)), 2))
+                for o in owners_list),
+            2
+        )
+
+        # Capital contributions: equity Credits booked during the tax year
+        cash_contributions = _asum(
+            bsDF, 'Acct.Equity.Owner.Capital.Funds', 'Credit'
+        )
+
+        # ── BS aggregates ─────────────────────────────────────────────────
+        # Cash: net of all Debits (inflows) and Credits (outflows)
+        cash_deb = _asum(bsDF, 'Acct.Cash.Bank', 'Debit')
+        cash_crd = _asum(bsDF, 'Acct.Cash.Bank', 'Credit')
+        cash     = round(cash_deb - cash_crd, 2)
+
+        # Fixed assets — cost (Debit side of asset accounts)
+        buildings   = _asum(bsDF, 'Acct.Fixed.Tangible.InService',     'Debit')
+        land        = _asum(bsDF, 'Acct.Fixed.Tangible.Land',          'Debit')
+        in_progress = _asum(bsDF, 'Acct.Fixed.Tangible.InConstruction','Debit')
+        accum_depr  = _asum(bsDF, 'Acct.Fixed.Depreciation.Accum',     'Credit')
+
+        ar          = _asum(bsDF, 'Acct.Receivable',  'Debit')
+        other_assets = round(in_progress, 2)   # expand as COA grows
+
+        total_assets = round(
+            cash + ar + buildings - accum_depr + land + other_assets, 2
+        )
+
+        # Liabilities
+        payables  = _asum(bsDF, 'Acct.Payable',                     'Credit')
+        other_liab = _asum(bsDF, 'Acct.Liability.Other',            'Credit')
+
+        # Mortgage balance: net of Credits (origination) minus Debits (payments)
+        mtg_crd  = _asum(bsDF, 'Acct.Fixed.Tangible.LongTerm', 'Credit')
+        mtg_deb  = _asum(bsDF, 'Acct.Fixed.Tangible.LongTerm', 'Debit')
+        mortgage = round(mtg_crd - mtg_deb, 2)
+
+        total_liabilities = round(mortgage + payables + other_liab, 2)
+
+        # Partners' capital: equity Credits minus Debits (draws)
+        eq_crd     = _asum(bsDF, 'Acct.Equity', 'Credit')
+        eq_deb     = _asum(bsDF, 'Acct.Equity', 'Debit')
+        total_equity = round(eq_crd - eq_deb + net_income, 2)
+
+        total_liab_capital = round(total_liabilities + total_equity, 2)
+
+        # ── Assemble result ───────────────────────────────────────────────
+        result = {
+            "meta": {
+                "generated": datetime.date.today().isoformat(),
+                "llc":       getattr(self.llc, 'objName', ''),
+                "year":      getattr(self.llc, 'yr', ''),
+            },
+            "is_data": {
+                "rent_income":        rent_income,
+                "other_income":       other_income,
+                "interest_income":    interest_income,
+                "total_income":       total_income,
+                "salaries":           salaries,
+                "repairs":            repairs,
+                "taxes_licenses":     taxes_licenses,
+                "interest_expense":   interest_expense,
+                "depreciation":       depreciation,
+                "other_deductions":   other_deduct,
+                "total_expenses":     total_expenses,
+                "net_income":         net_income,
+                "distributions_cash": distributions_cash,
+            },
+            "bs_data": {
+                "cash":               cash,
+                "ar":                 ar,
+                "buildings":          buildings,
+                "accum_depr":         accum_depr,
+                "land":               land,
+                "other_assets":       other_assets,
+                "total_assets":       total_assets,
+                "payables":           payables,
+                "mortgage":           mortgage,
+                "other_liab":         other_liab,
+                "total_liabilities":  total_liabilities,
+                "total_equity":       total_equity,
+                "total_liab_capital": total_liab_capital,
+            },
+            "owners": {
+                "count":              str(len(owners_list)),
+                "cash_contributions": cash_contributions,
+                "distributions_cash": distributions_cash,
+                "detail":             owners_list,
+            },
+        }
+
+        return json.dumps(result, indent=2)
+
     def ReaEstateIncome(self):
         '''
         Real Estate Income

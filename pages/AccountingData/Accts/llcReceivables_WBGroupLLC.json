@@ -1,0 +1,21 @@
+[
+    {
+        "Ledger": "Acct.AR.Loan",
+        "aType": "Debit",
+        "acct": "Acct.AR.Loan",
+        "acctSub": null,
+        "amt": 0,
+        "desc": "Null Transaction - template",
+        "dt": "2025.08.20",
+        "propAddr": "177 Kingsway Dr, Wimberley, 786767",
+        "propID": "a20250820-Cash1",
+        "propNm": "Cash_LLC",
+        "propOwners": {
+            "o20250801_1": 100
+        },
+        "refDB": "llcReceivables",
+        "refDoc": "na",
+        "tDB": "llcReceivables",
+        "tID": "a20250820-AR1"
+    }
+]
