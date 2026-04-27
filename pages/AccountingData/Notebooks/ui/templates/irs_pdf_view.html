@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{# v0.2.4.7 — IRS PDF embed view.
+   Replaces the bespoke per-form Pg1/Pg2/Pg3/… constructed views.  The page
+   now embeds the canonical FILL.pdf produced by irs.<Form>.saveFILL() in an
+   <iframe>, with a small stat-chip header and a download/open-in-new-tab
+   toolbar.  No row tables; no nSpaceMap; no view-layer data wrangling. #}
+
+{% block head_extra %}
+<style>
+    .stat-bar {
+        display: flex; flex-wrap: wrap; gap: 10px;
+        margin-bottom: 14px;
+    }
+    .stat-chip {
+        background: white; border-radius: 8px; padding: 10px 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.08);
+        min-width: 130px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .stat-chip .stat-val {
+        font-size: 18px; font-weight: 700; color: #111827;
+    }
+    .stat-chip .stat-lbl {
+        font-size: 11px; color: #6b7280; text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .pdf-wrap {
+        background: white; border-radius: 10px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        padding: 8px;
+    }
+    .pdf-frame {
+        width: 100%; height: calc(100vh - 240px); min-height: 600px;
+        border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb;
+    }
+    .pdf-toolbar {
+        display: flex; gap: 8px; flex-wrap: wrap;
+        align-items: center; margin-bottom: 10px;
+    }
+    .pdf-toolbar .source-tag {
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 12px; color: #6b7280; margin-left: auto;
+    }
+    .missing-pdf {
+        background: #fef3c7; border: 1px solid #f59e0b;
+        color: #78350f; padding: 16px; border-radius: 8px;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2 style="margin:0 0 4px 0;">{{ view_title }}</h2>
+    <div class="muted" style="margin-bottom: 12px;">
+        Source: {{ meta.sources.pdf if meta.sources and meta.sources.pdf else 'irs.<Form>.saveFILL()' }}
+    </div>
+
+    {# Stat chips #}
+    {% if stats_labels %}
+    <div class="stat-bar">
+        {% for s in stats_labels %}
+        <div class="stat-chip">
+            <span class="stat-val">{{ s.value }}</span>
+            <span class="stat-lbl">
+                {% if s.group %}{{ s.group }} — {% endif %}{{ s.text }}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Toolbar #}
+    <div class="pdf-toolbar">
+        {% if meta.pdfPresent %}
+            <a class="btn btn-primary" href="{{ pdf_url }}" target="_blank" rel="noopener">
+                Open in new tab
+            </a>
+            <a class="btn btn-secondary" href="{{ pdf_url }}?download=1" download>
+                Download
+            </a>
+        {% endif %}
+        <span class="source-tag">{{ meta.formId }}_FILL.pdf</span>
+    </div>
+
+    {# Embed #}
+    <div class="pdf-wrap">
+        {% if meta.pdfPresent %}
+        <iframe class="pdf-frame"
+                src="{{ pdf_url }}"
+                title="{{ view_title }}"></iframe>
+        {% else %}
+        <div class="missing-pdf">
+            <strong>FILL.pdf not found.</strong><br>
+            Expected at <code>{{ meta.pdfPath or 'Forms_IRS/' ~ meta.formId ~ '_FILL.pdf' }}</code>.
+            Run the IRS form pipeline (<code>_buildNSpace</code> → <code>saveNSpace</code>
+            → <code>_buildFillDict</code> → <code>saveFILL</code>) to produce it.
+        </div>
+        {% endif %}
+    </div>
+
+    {% if meta.note %}
+    <p class="muted" style="margin-top:14px; font-size:12px;">{{ meta.note }}</p>
+    {% endif %}
+</div>
+{% endblock %}

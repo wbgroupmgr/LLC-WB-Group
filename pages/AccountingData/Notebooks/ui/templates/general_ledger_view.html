@@ -1,0 +1,428 @@
+{# ── general_ledger_view.html ── v0.2.3.4 ──────────────────────────────
+   2-frame General Ledger page (Flask/Jinja, server-side rendered).
+
+   Frame 1 (top):  Trial Balance — aggregated acct rows from
+                   ledger.stmtTrialBalance.
+   Frame 2 (bot):  Transaction Records — details from
+                   ledger.stmtGeneralLedger.
+
+   Both frames are wrapped in <details open> so each is independently
+   collapsible via pure HTML — no JS state.
+
+   The only client JS is the ViewBy <select>'s onchange, which is a
+   plain form submit (navigates the page — no client-side filtering).
+   The ViewBy value is the same for both frames (page-level filter).
+
+   Expected context:
+     obj_type          — "stmtGeneralLedger"
+     view_title        — "General Ledger"
+     frames            — the dict produced by
+                         ui.stmtGeneralLedger.stmtGeneralLedger.frames(view_by)
+                         See that method's docstring for the shape.
+     stats_labels      — pre-flattened stats (via llcMgmt._stats_labels)
+─────────────────────────────────────────────────────────────────────── #}
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    /* ── Minimal JS: ViewBy navigation + JSON-pane toggles ────────── */
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const CURRENT_VIEW_BY = {{ frames.view_by|tojson }};
+
+    function applyViewBy(selectEl) {
+        const vb = selectEl.value;
+        const params = new URLSearchParams();
+        if (vb && vb !== "All") {
+            params.set("viewBy", vb);
+        }
+        const query = params.toString();
+        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+    }
+
+    function buildViewUrl() {
+        const params = new URLSearchParams();
+        if (CURRENT_VIEW_BY && CURRENT_VIEW_BY !== "All") {
+            params.set("viewBy", CURRENT_VIEW_BY);
+        }
+        const query = params.toString();
+        return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+    }
+
+    function togglePane(id) {
+        const pane = document.getElementById(id);
+        pane.open = !pane.open;
+        if (pane.open) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+</script>
+
+<style>
+    /* ── Title panel ── shared with financial_view.html ── */
+    .title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 18px;
+        border-radius: 10px;
+        display: flex; flex-direction: column; gap: 0;
+        padding: 0 !important; overflow: hidden;
+    }
+    .title-toolbar {
+        display: flex; align-items: center; gap: 12px;
+        flex-wrap: nowrap; background: #1e40af;
+        padding: 12px 16px; color: white;
+    }
+    .stats-sub { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .meta-row  { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
+    .title-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep { color: #93c5fd; font-size: 15px; }
+    .title-sub { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row { display: flex; align-items: center; gap: 8px;
+                   flex-wrap: wrap; margin-left: auto; flex-shrink: 0; }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+
+    /* ── Frame wrapper ── */
+    .frame {
+        background: white; border: 1px solid #e5e7eb;
+        border-radius: 10px; margin-bottom: 18px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        overflow: hidden;
+    }
+    .frame > summary {
+        list-style: none; cursor: pointer;
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px;
+        background: #f3f4f6; border-bottom: 1px solid #e5e7eb;
+        font-size: 15px; font-weight: 700; color: #1f2937;
+        user-select: none;
+    }
+    .frame > summary::-webkit-details-marker { display: none; }
+    .frame > summary::before {
+        content: "▸"; display: inline-block; font-size: 11px;
+        color: #6b7280; transition: transform 0.15s;
+    }
+    .frame[open] > summary::before { transform: rotate(90deg); }
+    .frame .frame-body { padding: 14px 16px 18px; }
+    .frame-tag {
+        font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+        text-transform: uppercase; color: white;
+        background: #3b82f6; padding: 2px 8px; border-radius: 999px;
+    }
+    .frame-tag.tb { background: #10b981; }
+    .frame-tag.tx { background: #6366f1; }
+    .frame-sub { color: #6b7280; font-weight: 400; font-size: 13px; }
+    .frame-sub .pill {
+        display: inline-block; font-size: 11px; font-weight: 600;
+        padding: 1px 8px; border-radius: 999px;
+        background: #fef3c7; color: #92400e; margin-left: 6px;
+    }
+    .frame-sub .pill.ok { background: #dcfce7; color: #14532d; }
+
+    /* ── TB & TX tables ── */
+    .gl-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    .gl-table th {
+        background: #1f2937; color: white; padding: 9px 10px;
+        text-align: left; font-size: 12px; font-weight: 600;
+        letter-spacing: 0.03em;
+    }
+    .gl-table th.num { text-align: right; }
+    .gl-table td { padding: 6px 10px; border-bottom: 1px solid #f3f4f6; }
+    .gl-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .gl-table tr:hover td { background: #f9fafb; }
+    .gl-table tr.section-header td {
+        background: #f9fafb; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        font-size: 11px; color: #374151;
+        border-top: 2px solid #d1d5db; padding: 8px 10px;
+    }
+    .gl-table tr.subtotal td {
+        background: #eff6ff; font-weight: 600; color: #1e40af;
+        border-top: 1px solid #bfdbfe;
+    }
+    .gl-table tr.grand-total td {
+        background: #1f2937; color: white; font-weight: 700;
+        font-size: 13px; border-top: 3px solid #374151;
+    }
+    .amt-pos { color: #166534; }
+    .amt-neg { color: #991b1b; }
+    .acct-name { font-family: monospace; font-size: 12px; color: #4b5563; }
+    .dup-flag  { color: #b45309; font-weight: 600; font-size: 11px; }
+
+    /* ── Warning / OK banners (imbalance) ── */
+    .bal-warning {
+        background: #fef2f2; border: 1px solid #fca5a5;
+        color: #7f1d1d; border-radius: 8px;
+        padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+    }
+    .bal-ok {
+        background: #f0fdf4; border: 1px solid #86efac;
+        color: #14532d; border-radius: 8px;
+        padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+    }
+
+    /* JSON pane */
+    .json-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{# ── Title bar ── #}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">📒 {{ view_title }}</span>
+        </div>
+        <div class="toolbar-row">
+            {% if frames.view_by_options %}
+            <label for="viewBySelect" title="Filter both frames by account type">
+                <strong>ViewBy</strong>
+            </label>
+            <select id="viewBySelect" onchange="applyViewBy(this)"
+                    title="Filter both Trial Balance and Transaction Records">
+                {% for opt in frames.view_by_options %}
+                <option value="{{ opt }}" {% if frames.view_by == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <button class="btn btn-secondary"
+                    title="Reload view"
+                    onclick="window.location.href=buildViewUrl()">Refresh</button>
+            <button class="btn btn-warning"
+                    title="Toggle raw JSON pane"
+                    onclick="togglePane('jsonPane')">JSON</button>
+        </div>
+    </div>
+
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">No stats available.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary title="Show or hide metadata details">🗂️ Metadata</summary>
+            <pre>{{ frames.meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+{# ── Imbalance banner (from Trial Balance) ── #}
+{% if frames.tb.is_balanced %}
+<div class="bal-ok">
+    ✅ Trial Balance in equilibrium —
+    Σ Debit ({{ "%.2f"|format(frames.tb.totals.Debit) }})
+    = Σ Credit ({{ "%.2f"|format(frames.tb.totals.Credit) }}).
+</div>
+{% else %}
+<div class="bal-warning">
+    ⚠️ Trial Balance out of equilibrium —
+    Σ Debit {{ "%.2f"|format(frames.tb.totals.Debit) }}
+    vs Σ Credit {{ "%.2f"|format(frames.tb.totals.Credit) }}
+    (difference {{ "%.2f"|format(frames.tb.totals.Debit - frames.tb.totals.Credit) }}).
+    Investigate missing / mis-classified entries before closing the books.
+</div>
+{% endif %}
+
+{# ─────────────── FRAME 1 — Trial Balance (aggregated) ─────────────── #}
+<details class="frame" open>
+    <summary>
+        <span class="frame-tag tb">Frame 1</span>
+        <span>Trial Balance</span>
+        <span class="frame-sub">
+            &nbsp;· {{ frames.tb.rows|length }} account{% if frames.tb.rows|length != 1 %}s{% endif %}
+            · ViewBy <strong>{{ frames.view_by }}</strong>
+            {% if frames.tb.is_balanced %}
+                <span class="pill ok">balanced</span>
+            {% else %}
+                <span class="pill">imbalanced</span>
+            {% endif %}
+        </span>
+    </summary>
+    <div class="frame-body">
+        <table class="gl-table">
+            <thead>
+                <tr>
+                    <th style="width:110px">acctType</th>
+                    <th>acct</th>
+                    <th style="width:160px">acctSub</th>
+                    <th class="num" style="width:120px">Debit</th>
+                    <th class="num" style="width:120px">Credit</th>
+                    <th class="num" style="width:120px">Balance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set ns = namespace(current_type="",
+                                      sec_debit=0, sec_credit=0, sec_balance=0) %}
+                {% for row in frames.tb.rows %}
+                    {% set at       = row.get("acctType", "") %}
+                    {% set acct     = row.get("acct", "") %}
+                    {% set acct_sub = row.get("acctSub", "") %}
+                    {% set debit    = (row.get("Debit",   0) or 0) | float %}
+                    {% set credit   = (row.get("Credit",  0) or 0) | float %}
+                    {% set bal      = (row.get("Balance", 0) or 0) | float %}
+
+                    {% if at != ns.current_type %}
+                        {% if ns.current_type %}
+                        <tr class="subtotal">
+                            <td colspan="3" style="text-align:right; font-style:italic">
+                                {{ ns.current_type }} Subtotal
+                            </td>
+                            <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.sec_credit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.sec_balance) }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr class="section-header">
+                            <td colspan="6">{{ at or "— unclassified —" }}</td>
+                        </tr>
+                        {% set ns.current_type = at %}
+                        {% set ns.sec_debit = 0 %}
+                        {% set ns.sec_credit = 0 %}
+                        {% set ns.sec_balance = 0 %}
+                    {% endif %}
+                    {% set ns.sec_debit   = ns.sec_debit   + debit %}
+                    {% set ns.sec_credit  = ns.sec_credit  + credit %}
+                    {% set ns.sec_balance = ns.sec_balance + bal %}
+
+                    <tr>
+                        <td></td>
+                        <td class="acct-name">{{ acct }}</td>
+                        <td style="font-size:12px; color:#6b7280; font-family:monospace">
+                            {{ acct_sub }}
+                        </td>
+                        <td class="num {% if debit > 0 %}amt-pos{% endif %}">
+                            {{ "%.2f"|format(debit) if debit else "" }}
+                        </td>
+                        <td class="num {% if credit > 0 %}amt-pos{% endif %}">
+                            {{ "%.2f"|format(credit) if credit else "" }}
+                        </td>
+                        <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">
+                            {{ "%.2f"|format(bal) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+
+                {# Close last section subtotal + grand total #}
+                {% if frames.tb.rows %}
+                <tr class="subtotal">
+                    <td colspan="3" style="text-align:right; font-style:italic">
+                        {{ ns.current_type }} Subtotal
+                    </td>
+                    <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
+                    <td class="num">{{ "%.2f"|format(ns.sec_credit) }}</td>
+                    <td class="num">{{ "%.2f"|format(ns.sec_balance) }}</td>
+                </tr>
+                <tr class="grand-total">
+                    <td colspan="3">TOTAL</td>
+                    <td class="num">{{ "%.2f"|format(frames.tb.totals.Debit) }}</td>
+                    <td class="num">{{ "%.2f"|format(frames.tb.totals.Credit) }}</td>
+                    <td class="num">{{ "%.2f"|format(frames.tb.totals.Balance) }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">No trial-balance rows under ViewBy
+                    <strong>{{ frames.view_by }}</strong>.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</details>
+
+{# ─────────── FRAME 2 — Transaction Records (details) ─────────── #}
+<details class="frame" open>
+    <summary>
+        <span class="frame-tag tx">Frame 2</span>
+        <span>Transaction Records</span>
+        <span class="frame-sub">
+            &nbsp;· {{ frames.tx.rows|length }} row{% if frames.tx.rows|length != 1 %}s{% endif %}
+            · ViewBy <strong>{{ frames.view_by }}</strong>
+            {% if frames.tx.summary.get('dup_count') %}
+                <span class="pill">{{ frames.tx.summary.dup_count }} dup{% if frames.tx.summary.dup_count != 1 %}s{% endif %}</span>
+            {% endif %}
+        </span>
+    </summary>
+    <div class="frame-body">
+        <table class="gl-table">
+            <thead>
+                <tr>
+                    <th style="width:70px">Status</th>
+                    <th style="width:100px">dt</th>
+                    <th style="width:110px">acctType</th>
+                    <th>acct</th>
+                    <th style="width:70px">aType</th>
+                    <th class="num" style="width:100px">amt</th>
+                    <th>desc</th>
+                    <th style="width:120px">acctSub</th>
+                    <th style="width:90px">refDB</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in frames.tx.rows %}
+                    {% set amt = (row.get("amt", 0) or 0) | float %}
+                    <tr>
+                        <td>
+                            {% if row.get("Status") %}
+                                <span class="dup-flag">{{ row.get("Status") }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.get("dt", "") }}</td>
+                        <td>{{ row.get("acctType", "") }}</td>
+                        <td class="acct-name">{{ row.get("acct", "") }}</td>
+                        <td>{{ row.get("aType", "") }}</td>
+                        <td class="num {% if amt > 0 %}amt-pos{% elif amt < 0 %}amt-neg{% endif %}">
+                            {{ "%.2f"|format(amt) }}
+                        </td>
+                        <td>{{ row.get("desc", "") }}</td>
+                        <td style="font-size:12px; color:#6b7280; font-family:monospace">
+                            {{ row.get("acctSub", "") }}
+                        </td>
+                        <td style="font-size:12px">{{ row.get("refDB", "") }}</td>
+                    </tr>
+                {% endfor %}
+                {% if not frames.tx.rows %}
+                <tr><td colspan="9" class="muted">No transaction rows under ViewBy
+                    <strong>{{ frames.view_by }}</strong>.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</details>
+
+{# ── Raw JSON pane (for debugging) ── #}
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary title="Show or hide raw data">💾 Raw Data (both frames)</summary>
+        <pre>{{ frames | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

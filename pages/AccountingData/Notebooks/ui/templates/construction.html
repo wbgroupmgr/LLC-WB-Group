@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>🚧 {{ obj_type }}</h2>
+    <h3>View Under Construction</h3>
+    <p>This view is reserved for future implementation.</p>
+</div>
+
+<div class="panel">
+    <h3>ℹ️ Metadata</h3>
+    <pre>{{ meta | tojson(indent=2) }}</pre>
+</div>
+{% endblock %}

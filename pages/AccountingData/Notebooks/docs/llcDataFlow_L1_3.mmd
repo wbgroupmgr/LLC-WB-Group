@@ -1,0 +1,106 @@
+flowchart TD
+
+    %% ────────── SOURCE: book transactions ──────────
+    subgraph L1_Trans["① Level: Transactions,  editable JSON data via ledger/llc* services, "]
+        direction LR
+        subgraph Admin ["LLC Admin"]
+            direction TB
+            J_Profile[("llcProfile_LLC.json<br/>— entity/TxForm header dict")]
+            ~~~ llcOwners[("llcOwners_LLC.json<br/>— partners / K-1 Dist / Owner Reports")]
+            ~~~ llcCustomers[("llcCustomers_LLC.json<br/>— renters / Customer Reports")]
+        end
+        subgraph DB["Bank Stmt"]
+            direction TB
+            bankCSV[("Bank CSV<br>BankStmt/Download.csv")]
+            ~~~ llcBank["ƒ(x) llcBank<br>classifyTransactions"]
+            ~~~ llcER[("llcExpRev_LLC.json<br/>— revenue + operating expenses")]
+            bankCSV --> llcBank --> llcER
+        end
+        subgraph LLC["LLC "]
+            direction TB
+            llcA[("llcAssets_LLC.json<br/>— asset acquisitions + depreciation")]
+            ~~~ llcAP[("llcPayables_LLC.json<br/>— A/P")]
+            ~~~ llcAR[("llcReceivables_LLC.json<br/>— A/R")]
+        end
+    end
+
+    %% ────────── LEDGER: constructed, immutable ──────────
+    subgraph LDG["② Level: Book, constructed immutable tables via ledger.stmt* services"]
+        direction TB
+        stmtGL["🗓️ stmtGeneralLedger<br/><i>merge + double->single(2)</i>"]
+        stmtBS["🗓️ stmtBalanceSheet<br/><i>Asset / Liability / Equity</i>"]
+        stmtIS["🗓️ stmtIncomeStmt<br/><i>Income / Expense</i>"]
+        stmtOE["🗓️ stmtOwnerEquity<br/><i>Owners capital accounts</i>"]
+        stmtPE["🗓️ stmtPropertyEquity<br/><i>Properties capital accounts</i>"]
+
+        stmtPROF["🗓️ stmtProfile<br/><i>LLC Dict : entity, F1065 </i>"]
+        Bk_GLNSpace("🗓️ bkGLNSpaceDict<br/><i>LLC+GL NSpace<br>[fromObj][Acct_UAS]</i>")
+        stmtPROF --> Bk_GLNSpace
+    
+        stmtGL --> stmtBS
+        stmtGL --> stmtIS
+        stmtGL --> stmtOE
+        stmtGL --> stmtPE
+    end
+    
+    %% ────────── Analysis: Human Review of Statements ──────────
+    subgraph AN["③ Level: Analysis, consumable data for Rconcilation"]
+        direction TB
+        rptTB["rptTrialBalance<br/><i>acctType aggregation</i>"]
+        rptFR["rptFinancialReport<br/><i>taxData(): stmtIS / stmtBS / owners bundle</i>"]
+        
+    end
+    %% ────────── BOOK API ──────────
+    subgraph _API_BK_ ["API: Book Services "]
+        API_BK["Book API Services"]
+        L[ ] ~~~ API_BK ~~~ R[ ]
+        style API_BK fill:#000,stroke:#333,stroke-width:2px,color:#fff
+    end
+
+
+    %% ────────── Wiring between layers ──────────
+
+    %% L1_Trans ==> LDG ==> AN 
+    L1_Trans ~~~ LDG ~~~ AN ~~~ _API_BK_
+
+    stmtPROF --> API_BK
+    
+    llcOwners --> stmtOE
+    llcOwners --> stmtPE
+
+
+    llcER ==> stmtGL
+    llcA ==> stmtGL
+    llcAP ==> stmtGL
+    llcAR ==> stmtGL
+    
+    stmtGL ==> API_BK
+    %%stmtBS --> API_BK
+    %%stmtIS --> API_BK
+    %%stmtOE --> API_BK
+    %%stmtPE --> API_BK
+
+    J_Profile --> stmtPROF
+    llcOwners --> API_BK
+    llcCustomers --> API_BK
+    
+    API_BK --> rptTB & rptFR
+
+    
+
+    %% ────────── VERTICAL ALIGNMENT HACK ──────────
+    %% These links force the subgraphs to stack vertically
+    %% L1_Trans --> LDG --> AN --> IRS --> STR
+    linkStyle 16,17,18,19 stroke:none, stroke-width:0;
+
+    %% ---------- Styles ---------------------------
+    classDef inDB   fill:#fff7ed,stroke:#c2410c,color:#7c2d12;
+    classDef ldg   fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+    classDef irs   fill:#f0fdf4,stroke:#15803d,color:#14532d;
+    classDef outDB   fill:#fef3c7,stroke:#b45309,color:#78350f;
+    classDef invisible fill:none,stroke:none,color:none
+    class L,R invisible
+    class llcA,llcER,llcAP,llcAR,stmtProfile,llcOwners,llcCustomers inDB;
+    class stmtGL,stmtBS,stmtIS,stmtOE,stmtProfile,rptFR,rptTB ldg;
+    class Bk_GLNSpace outDB;
+

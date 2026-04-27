@@ -1,0 +1,81 @@
+flowchart TD
+    direction TB
+
+    %% ------- Book API 
+    subgraph _API_BK_ [API: Book Services]
+        API_BK["Book API<br>See llcDataFlow_L1_3"]
+        L[ ] ~~~ API_BK ~~~ R[ ]
+        style API_BK fill:#000,stroke:#333,stroke-width:2px,color:#fff
+    end
+
+    %% ────────── IRS: Form1065 namespace / fillDict ──────────
+    subgraph IRS["④ Level: TaxPrepare, Book to IRS PDF workflow, any IRS Form"]
+        direction LR
+
+        subgraph BkNS [ BkNS]
+            direction TB
+            Bk_BuildNSpace["ƒ(x) ledger.stmtProfile.getNSpace<br>(irsFormName) -> bkGLNSpaceDict()<br/><i>Step 1 — LLC+GL NSpace</i>"]
+            ==> Bk_NSpace("🗓️ bkNSpaceDict<br/><i>LLC+GL NSpace<br>[ObjID],[Acct_UAS]</i>")
+            %%Bk_BldNSpace ~~~ Bk_NSpace
+        end
+        subgraph _irsNS_ [irsNS]
+            direction TB
+            O_IRSPDF[("FormName_IRS.pdf<br/><i>downoaded empty IRS form</i>")]
+            ==> Tx_BldNSpace["ƒ(x) irsForm._buildNSpace()<br/><i>Step 2 — AcroForm field discovery</i>"]
+            ==> Tx_NSpace("🗓️ taxNSpaceDict)")
+            --> FILL_SAVE["⚙ Form1065.saveFILL(taxNSpaceDict)<br/><i>Step 4 — write FILL.pdf</i>"]
+            -->O_FDJSON[("Form1065_fillDict.json<br/><i>cached field bindings</i>")]
+            --> CkFill["⚙ Human REview/Reference: Visual map of  F### (field number) per every line in IRS Form"]
+        end
+        subgraph _FillPDF_ [FillPDF]
+            direction TB
+            irsRESOLVE["ƒ(x) irsForm._resolveTaxData()<br/><i>Step 3 - Cross Ref Bk_NSpace X Tx_NSpace</i>"]
+            ==> O_FILLDICT["🗓️ taxfillDict<br/><i>Final fillDict [{F###,fval}]</i>"]            
+            ==> PDF_SAVE["ƒ(x) irsForm.savePDF(fillDict)<br/><i>Step 4 — apply fillDict & write FILL.pdf</i>"]
+            ==> O_FILLPDF[("FormName_FILL.PDF<br/><i>cached field bindings</i>")]
+        end
+        _BkNS_ ~~~ _irsNS_ ~~~ _FillPDF_
+        API_BK ==> Bk_NSpace
+        Bk_NSpace ==> irsRESOLVE
+        Tx_NSpace ==> irsRESOLVE
+
+    end
+
+    %% ────────── STR: Strategy ──────────
+    subgraph STR["⑤  Strategy, Planning, Outlook"]
+        direction TB
+        LT_P[("LLC Planning.pdf")]
+        LT_F[("LLC Forecasting.pdf")] 
+        LT_TxS[("LLC Tax Strategy.pdf")]
+        LT_RA[("LLC Risk Assessment.pdf")]
+    end
+    %% ────────── L6_V: Verification ──────────
+    subgraph _L6_V_["⑥ Verification/Audit"]
+        L6_V[LLC Audit Review - human external review of financial reports]
+    end
+
+    %% ────────── Wiring between layers ──────────
+
+    _API_BK_ ~~~ IRS ~~~ STR ~~~ _L6_V_
+
+    API_BK --> LT_P
+    API_BK --> LT_F
+    API_BK --> LT_TxS
+    API_BK --> LT_RA
+
+    %% ────────── VERTICAL ALIGNMENT HACK ──────────
+    %% These links force the subgraphs to stack vertically
+    %% SRC --> LDG --> AN --> IRS --> STR
+    linkStyle 16,17,18,19 stroke:none, stroke-width:0;
+
+    %% ---------- Styles ---------------------------
+    classDef inDB   fill:#fff7ed,stroke:#c2410c,color:#7c2d12;
+    classDef node   fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+    classDef irs   fill:#f0fdf4,stroke:#15803d,color:#14532d;
+    classDef outDB   fill:#fef3c7,stroke:#b45309,color:#78350f;
+    classDef invisible fill:none,stroke:none,color:none
+    class L,R invisible
+    class L6_V node;
+    class IRS_NSPACE,BK_NSPACE,irsRESOLVE,Bk_NSPACE,PDF_BUILD,PDF_SAVE irs;
+    class O_IRSPDF,O_FDJSON,O_FILLPDF outDB;
+

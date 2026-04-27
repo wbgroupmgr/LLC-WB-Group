@@ -4,7 +4,7 @@ Form4562.py
 IRS Form 4562 (Depreciation and Amortization) service.
 
 Subclass of irsForm.  Pulls depreciation figures from the official
-llcFinancialReport databases (BS: buildings cost / accumulated depreciation;
+stmtFinancialReport databases (BS: buildings cost / accumulated depreciation;
 IS: current-year depreciation expense).
 
 Workflow
@@ -233,7 +233,7 @@ class Form4562(irsForm):
             if fd["logicalKey"]
         }
 
-        # ── Step B: load IS/BS from llcFinancialReport ─────────────────────
+        # ── Step B: load IS/BS from stmtFinancialReport ─────────────────────
         if is_data is None or bs_data is None:
             td = self._resolveTaxData()
             if is_data is None:
@@ -305,26 +305,26 @@ class Form4562(irsForm):
 
         return fillDict
 
-    # ── Tax data helpers (inherited from Form1065 → same llcFinancialReport) ─
+    # ── Tax data helpers (inherited from Form1065 → same stmtFinancialReport) ─
 
     def _resolveTaxData(self) -> Dict:
         """
-        Return IS/BS/owners from the official llcFinancialReport DB.
+        Return IS/BS/owners from the official stmtFinancialReport DB.
         Identical strategy to Form1065._resolveTaxData().
         """
         if self.llc is not None:
             try:
                 try:
-                    from ledger.llcFinancialReport import llcFinancialReport
+                    from ledger.stmtFinancialReport import stmtFinancialReport
                 except ImportError:
-                    from llcFinancialReport import llcFinancialReport
+                    from stmtFinancialReport import stmtFinancialReport
 
-                fr = llcFinancialReport(self.llc)
+                fr = stmtFinancialReport(self.llc)
                 td = json.loads(fr.taxData())
                 if self.verbose:
                     depr = td.get("is_data", {}).get("depreciation", "?")
                     cost = td.get("bs_data", {}).get("buildings", "?")
-                    print(f"  ℹ️  Form4562 llcFinancialReport loaded  "
+                    print(f"  ℹ️  Form4562 stmtFinancialReport loaded  "
                           f"(depreciation={depr}, buildings={cost})")
                 return td
             except Exception as exc:

@@ -1,17 +1,21 @@
-'''
-llcReceivables — Accounts Receivable transaction records.
+"""
+uillc.llcReceivables — Compatibility shim (Phase 4 DataModelGuide refactor).
 
-Parallels llcAssets / llcExpRev.  Each record represents an amount owed
-TO the LLC (an asset) until it is collected.  Storage, load / save
-semantics, and COA mapping all come from llcRecordsView; this subclass
-only names the object type so that llcMgmt and llcReportEngine can
-register it.
+The real implementation moved to ui.llcReceivables as part of the ui/ refactor
+(DataModelGuide § 3 — View Services hold no data construction).  This
+shim re-exports the public surface so existing callers importing from
+``uillc.llcReceivables`` keep working unchanged.
 
-Timestamp of last change: 2026.04.16
-'''
+Timestamp of last change: 2026.04.19
+"""
 
-from uillc.llcRecordsView import llcRecordsView
+from ui.llcReceivables import *  # noqa: F401,F403
+from ui import llcReceivables as _ui_mod
 
-
-class llcReceivables(llcRecordsView):
-    pass
+# Re-export the module-level __all__ if the target defined one, so that
+# ``from uillc.llcReceivables import X`` continues to resolve names the target
+# chose to export explicitly.
+try:
+    __all__ = list(_ui_mod.__all__)  # type: ignore[attr-defined]
+except AttributeError:
+    __all__ = [n for n in dir(_ui_mod) if not n.startswith("_")]

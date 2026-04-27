@@ -1,8 +1,14 @@
 '''
-llcEquity — Owner / Member Equity computation service.
+ledger.llcEquity — Owner / Member Equity computation service.
+
+Relocated from ledger/ → stmt/ per DataModelGuide § 2 (Constructed Financial
+Data Objects live in stmt/).  Behaviour is unchanged; only the import path
+moved.  Consumers now import:
+
+    from ledger.llcEquity import llcEquity
 
 Encapsulates all owner-equity logic so it can be shared between the
-Owner Equity view (llcOwnerEquity) and the Schedule K-1 view (llcFormK1).
+Owner Equity view (stmtOwnerEquity) and the Schedule K-1 view (llcFormK1).
 
 Usage:
     equity = llcEquity(llc)
@@ -17,7 +23,7 @@ Returns a list of per-owner dicts:
     {oID, name, status, memType, pct_pl,
      capital_share, net_income_share, distribution}
 
-Timestamp of last change: 2026.04.14
+Timestamp of last change: 2026.04.19  (ledger → stmt relocation)
 '''
 
 from collections import defaultdict

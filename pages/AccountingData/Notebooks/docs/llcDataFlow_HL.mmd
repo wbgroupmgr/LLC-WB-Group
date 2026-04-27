@@ -1,0 +1,95 @@
+flowchart TD
+    direction TB
+
+    %% Define Level 1
+    subgraph TRANSACTIONS [Level 1: TRANSACTIONS]
+        direction LR
+        subgraph bnk [BankObj]
+            direction TB
+            bankCSV[("Bank CSV<br>BankStmt/Download.csv")]
+            llcBank["llcBank<br>classifyTransactions"]
+            llcExpRev[("llcExpRev_<llc>.json")]
+        end
+        llcA[("llcAssets<llc>.json")]
+        llcAP("llcPayable_<llc>.json")]
+        llcAR[("llcReceivables_<llc>.json")]
+        llcO[("llcOwners<llc>.json")]
+        llcC[("llcCustomers<llc>.json")]
+        bankCSV --> llcBank --> llcExpRev
+    end
+
+    %% Define Level 2
+    subgraph BOOK [Level 2: BOOK]
+        stmtProfile[stmtProfile<br>dataframe]
+
+        BS["stmtBalanceSheet<br>dataframe"]
+        IS["stmtIncomeStmt<br>dataframe"]
+        stmtOE["stmtOwnerEquity<br>dataframe"]
+        stmtPE["stmtPropertyEquity<br>dataframe"]
+        stmtProfile ~~~ stmtOE ~~~ stmtPE
+
+        stmtGL[stmtGeneralLedger<br>hdataframe]
+    end
+
+    
+    %% Define Level 3
+    subgraph ANALYSIS [Level 3: ANALYSIS/RECONCILE]
+        BS["stmtBalanceSheet<br>dataframe"]
+        IS["stmtIncomeStmt<br>dataframe"]
+        BS ~~~ IS
+    end
+
+    %% Define Level 4
+    subgraph TAX [Level 4: TAX PREPARATION]
+        subgraph irsDL [ ]
+            TX1[("Form1065_IRS.pdf<br>header + pg 1-6")]
+        end
+        subgraph irsFILL [ ]
+            TX2[("Form1065_FILL.pdf<br>hheader + pg1-6")]
+            TX3[("SckK1_FILL.pdf<br>hper member Income/Loss")]
+            TX4[("Form4562_FILL.pdf<br>hdepreciation")]
+            TX1 ~~~ TX2 ~~~ TX3
+        end
+    end
+
+    %% Define Level 5
+    subgraph STRATEGY [Level 5: STRATEGY]
+        S_P[("Report: LLC Planning.pdf")]
+        S_F[("Report: LLC Forecasting.pdf")] 
+        S_TxS[("Report: LLC Tax Strategy.pdf")]
+        S_RA[("Report: LLC Risk Assessment.pdf")]
+        S_P ~~~ S_F ~~~ S_TxS ~~~ S_RA
+    end
+
+    %% ────────── Wiring between layers ──────────
+
+    bnk ~~~  llcA
+    %% Make above link invisible - fails
+    %% linkStyle 2 stroke:none, stroke-width:0
+    stmtProfile ~~~ stmtGL
+
+    TRANSACTIONS ==> BOOK  ==> ANALYSIS ==> TAX ==> STRATEGY
+
+    %% ────────── VERTICAL ALIGNMENT HACK ──────────
+    %% These links force the subgraphs to stack vertically
+    %% SRC --> LDG --> AN --> IRS --> STR
+    %%linkStyle 16,17,18,19 stroke:none, stroke-width:0;
+
+    %% ---------- Styles ---------------------------
+    classDef inDB   fill:#fff7ed,stroke:#c2410c,color:#7c2d12;
+    classDef obj   fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+    classDef irs   fill:#f0fdf4,stroke:#15803d,color:#14532d;
+    classDef outDB   fill:#fef3c7,stroke:#b45309,color:#78350f;
+    classDef invisible fill:none,stroke:none,color:none
+    %%class L,R invisible
+    class bankCSV,llcA,llcExpRev,llcO,llcC,TX1 inDB;
+    class stmtBank,stmtBalanceSheeet,stmtIncomeStmt,stmtGeneralLedger,stmtProfile,stmtOE,stmtPE obj;
+    class S_P,S_F,S_TxS,S_RA,TX2,TX3,TX4 outDB
+
+    %% Normal Hierarchical Links
+
+    %% CROSS-LEVEL LINKS
+    %% (These will cut across the diagram)
+    %% A -.->|Direct Audit| F
+    %% C ---|Consultation| G
+    %% B ===|Fast Track| H

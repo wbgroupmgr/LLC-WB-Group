@@ -1,0 +1,102 @@
+flowchart TD
+    %% ────────── SOURCE: book transactions ──────────
+    subgraph SRC["① Level: Transactions,  editable JSON data via ledger/llc* services, "]
+        direction LR
+        
+        subgraph DB["Transactions"]
+            direction TB
+            CSV_BK["llcBank<br/>— Bank csv download"]
+            ~~~ J_ASSET["llcAssets_WBGroupLLC.json<br/>— asset acquisitions + depreciation"]
+            ~~~ J_EXPR["llcExpRev_WBGroupLLC.json<br/>— revenue + operating expenses"]
+            ~~~ J_AP["llcPayables_WBGroupLLC.json<br/>— A/P"]
+            ~~~ J_AR["llcReceivables_WBGroupLLC.json<br/>— A/R"]
+        end
+        subgraph LLC["LLC "]
+            direction TB
+            J_PROF["llcProfile_WBGroupLLC.json<br/>— entity + F1065 header block"]
+            ~~~ J_OWN["llcOwners_WBGroupLLC.json<br/>— partners / K-1 Dist / Owner Reports"]
+            ~~~ J_CUST["llcCustomers_WBGroupLLC.json<br/>— renters / Customer Reports"]
+        end
+    end
+
+    %% ────────── LEDGER: constructed, immutable ──────────
+    %% FIXED: Changed &amp; to & below
+    subgraph LDG["② Level: Book, constructed immutable tables via ledger/stmt* services"]
+        direction TB
+        GL["ledger.stmtGeneralLedger<br/><i>merge + double-entry expansion</i>"]
+        TB["ledger.stmtTrialBalance<br/><i>acctType aggregation</i>"]
+        BS["ledger.stmtBalanceSheet<br/><i>Asset / Liability / Equity</i>"]
+        IS["ledger.stmtIncomeStmt<br/><i>Income / Expense</i>"]
+        OE["ledger.stmtOwnerEquity<br/><i>capital accounts</i>"]
+        PROF["ledger.stmtProfile<br/><i>entity + F1065 row-addressable</i>"]
+        FR["ledger.stmtFinancialReport<br/><i>taxData(): IS / BS / owners bundle</i>"]
+
+        GL --> TB
+        GL --> BS
+        GL --> IS
+        GL --> OE
+        BS --> FR
+        IS --> FR
+        OE --> FR
+    end
+
+    %% ────────── IRS: Form1065 namespace / fillDict ──────────
+    subgraph IRS["③ Level: TaxPrepare, Book to IRS PDF workflow, nSpace_irs x nSpace_book -> FILL.pdf"]
+        direction TB
+        F_NSPACE["Form1065._buildNSpace()<br/><i>Step 1 — AcroForm field discovery</i>"]
+        F_RESOLVE["Form1065._resolveTaxData()<br/><i>pulls IS + BS + owners via stmtFinancialReport<br/>(and entity + F1065 via stmtProfile)</i>"]
+        F_NSMAP["Form1065.nSpaceMap(fillDict)<br/><i>triple → [fillDict, …]<br/>one book cell → many PDF fields</i>"]
+        F_BUILD["Form1065._buildFillDict(nspace)<br/><i>Step 3 — publish flags + resolved values</i>"]
+        F_SAVE["Form1065.saveFILL(fillDict)<br/><i>Step 4 — write FILL.pdf + JSON cache</i>"]
+
+        F_NSPACE --> F_NSMAP
+        F_RESOLVE --> F_NSMAP
+        F_NSMAP --> F_BUILD
+        F_BUILD --> F_SAVE
+    end
+
+    %% ────────── UI: browser preview ──────────
+    subgraph UIL["④ ui/ — Flask browser preview (thin, no data wrangling)"]
+        direction TB
+        UI_F1065["ui.llcForm1065<br/><i>6-frame collapsible view<br/>(Pg 1 + Sch B Pg 2-4 + Sch K Pg 5 + Pg 6)</i>"]
+        UI_TPL["templates/form1065_view.html<br/><i>Jinja render + ViewBy filter</i>"]
+        UI_F1065 --> UI_TPL
+    end
+
+    %% ────────── OUTPUT: filed artifacts ──────────
+    subgraph OUT["⑤ Filed artifacts (on disk)"]
+        direction LR
+        O_FDJSON[("Form1065_fillDict.json<br/><i>cached field bindings</i>")]
+        O_FPDF[("Form1065_FILL.pdf<br/><i>the filed IRS form</i>")]
+    end
+
+    %% ────────── Wiring between layers ──────────
+    J_ASSET --> GL
+    J_EXPR  --> GL
+    J_AP    --> GL
+    J_AR    --> GL
+    J_PROF  --> PROF
+    J_OWN   --> FR
+
+    TB   --> F_RESOLVE
+    BS   --> F_RESOLVE
+    IS   --> F_RESOLVE
+    OE   --> F_RESOLVE
+    PROF --> F_RESOLVE
+    FR   --> F_RESOLVE
+
+    F_NSMAP --> UI_F1065
+    F_SAVE  --> O_FDJSON
+    F_SAVE  --> O_FPDF
+
+    classDef src   fill:#fff7ed,stroke:#c2410c,color:#7c2d12;
+    classDef ldg   fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+    classDef irs   fill:#f0fdf4,stroke:#15803d,color:#14532d;
+    classDef ui    fill:#fdf4ff,stroke:#a21caf,color:#701a75;
+    classDef out   fill:#fef3c7,stroke:#b45309,color:#78350f;
+
+    class J_ASSET,J_EXPR,J_AP,J_AR,J_PROF,J_OWN src;
+    class GL,TB,BS,IS,OE,PROF,FR ldg;
+    class F_NSPACE,F_RESOLVE,F_NSMAP,F_BUILD,F_SAVE irs;
+    class UI_F1065,UI_TPL ui;
+    class O_FDJSON,O_FPDF out;

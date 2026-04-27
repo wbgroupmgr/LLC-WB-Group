@@ -1,4 +1,16 @@
-# llcFinancialReport Services
+'''
+ledger.stmtFinancialReport — Constructed Financial Report & tax-data aggregator.
+
+Relocated from ledger/ → stmt/ per DataModelGuide § 2 (Constructed Financial
+Data Objects live in stmt/).  Behaviour is unchanged; only the import path
+moved.  Consumers (uillc, irs, util, notebooks) now import:
+
+    from ledger.stmtFinancialReport import stmtFinancialReport
+
+This class still inherits from ledger.ledgerObject rather than the new
+stmtDB base so existing callers keep their full interface (notebook display
+helpers, taxData(), etc.).  A future pass may harden it onto stmtDB.
+'''
 
 import datetime
 import json
@@ -7,11 +19,11 @@ import numpy as np
 from IPython.display import display, Markdown
 
 from ledger.ledgerObject import ledgerObject
-from ledger.llcCashFlowStmt import llcCashFlow
+from ledger.stmtCashFlowStmt import stmtCashFlow
 
 strAmt = lambda n : f"${n:,.0f}"
 
-class llcFinancialReport(ledgerObject):
+class rptFinancialReport(ledgerObject):
     def __init__(self, llc, **kwargs):
 
         # Initialize, set self.llc
@@ -234,7 +246,7 @@ class llcFinancialReport(ledgerObject):
 
         Usage in Form 1065 workflow
         ---------------------------
-            fr  = llcFinancialReport(llc)
+            fr  = stmtFinancialReport(llc)
             td  = json.loads(fr.taxData())
 
             f1065    = Form1065(llc=llc)
@@ -570,7 +582,58 @@ class llcFinancialReport(ledgerObject):
         display(lDF)
 
     def displayCashFlow(self):
-        llcCashFlow(self).displayCashFlow()
+        stmtCashFlow(self).displayCashFlow()
+
+    # ── Trial Balance (v0.2.3.2) ─────────────────────────────────────────────
+
+    def trialBalance(self, view_by: str = 'All'):
+        '''
+        Return the constructed Trial Balance for the current year.
+
+        The Trial Balance is the standard pre-statement diagnostic: for
+        every account it lists Σ Debit and Σ Credit; the grand totals
+        must agree for the books to "trial balance".  Built from the
+        single source of truth (stmtGeneralLedger with COA seed rows)
+        via ``ledger.stmtGeneralLedger.stmtTrialBalance``.
+
+        Parameters
+        ----------
+        view_by : str
+            'All' (default) | 'ByAsset' | 'ByLiability' | 'ByEquity'
+            | 'ByIncome' | 'ByExpense'.
+
+        Returns
+        -------
+        stmtTrialBalance
+            Immutable snapshot.  Use ``.to_DF()`` for the DataFrame,
+            ``.is_balanced()`` for the zero-sum check, ``.totals()`` for
+            the grand totals dict.
+        '''
+        from ledger.stmtGeneralLedger import stmtTrialBalance
+        return stmtTrialBalance(self.llc, view_by=view_by)
+
+    def displayTrialBalance(self, view_by: str = 'All'):
+        '''Render the Trial Balance to the notebook and flag any imbalance.'''
+        tb = self.trialBalance(view_by=view_by)
+
+        s = f"<h2>{self.llc.objName}: Trial Balance<br>"
+        display(Markdown(s))
+        display(Markdown(f"As of Dec 31, {self.llc.yr}<br>"))
+
+        display(tb.to_DF())
+
+        totals = tb.totals()
+        if tb.is_balanced():
+            display(Markdown(
+                f"**✓ Balanced** — Σ Debit {strAmt(totals['Debit'])} "
+                f"= Σ Credit {strAmt(totals['Credit'])}"
+            ))
+        else:
+            display(Markdown(
+                f"**⚠ NOT balanced** — Σ Debit {strAmt(totals['Debit'])} "
+                f"vs Σ Credit {strAmt(totals['Credit'])} "
+                f"(diff {strAmt(totals['Diff'])})"
+            ))
 
 
     def RentRoll(self):
@@ -613,6 +676,7 @@ class llcFinancialReport(ledgerObject):
         s = f"As of Dec 31, {self.llc.yr}<br>"
         display(Markdown(s))
 
+        self.displayTrialBalance()
         self.displayIncomeStatement()
         self.displayBalanceSheet()
         self.displayCashFlow()
@@ -624,7 +688,7 @@ class llcFinancialReport(ledgerObject):
         
 
 
-mdIRS = ''' Tips from llcFinancialReport
+mdIRS = ''' Tips from stmtFinancialReport
 
 <h1> Financial Report Tips/Guidelines
 

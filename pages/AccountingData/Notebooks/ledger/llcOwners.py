@@ -110,5 +110,83 @@ class llcOwners(ledgerObject):
         import pandas as pd
         return pd.DataFrame(self.loadCapDist(tObj))
 
+    # ── _to_IRS : IRS2LLC provisioning declaration ──────────────────────────
+    # CPA knowledge: llcOwners provisions partner-identification cells on
+    # Form1065 (count of K-1s) and Schedule K-1 per-partner header / box-J
+    # percentages and box-L beginning capital + contributions.
+    #
+    # Per-partner forms (Sch_K1) are flattened: for each owner we emit
+    # one formLineDict entry per logicalKey, with rowNm = f"owner[{i}]"
+    # so the consumer can distinguish which partner-column the cell
+    # belongs to when Sch_K1 is rendered once per partner.  Owner
+    # iteration order follows the llcOwners list (same order that is
+    # written to disk).
+    def _to_IRS(self, formObj):
+        '''
+        Return the per-fid IRS bindings this owners roster provisions
+        for ``formObj``.  Invoked by ``irs.mapIRS2LLC._mapIRS2LLC()``.
+        '''
+        try:
+            from irs.mapIRS2LLC import _lk_to_fid
+        except ImportError:
+            from mapIRS2LLC import _lk_to_fid
 
-        
+        formNm = getattr(formObj, 'oID', '')
+        lk2fid = _lk_to_fid(formObj)
+        owners = self.load() or []
+        out = []
+
+        if formNm == 'Form1065':
+            # Page 1 box I — number of Schedules K-1 attached = owner count
+            fid = lk2fid.get('P1_I')
+            if fid:
+                out.append({
+                    'fid':   fid,
+                    'tbl':   'llcOwners',
+                    'row':   'count',
+                    'col':   'n',
+                    'value': len(owners),
+                })
+            return out
+
+        if formNm == 'Sch_K1':
+            # Per-partner header + box-J percentages + capital contributions.
+            # Owner columns follow the llcOwners list order (partner index i).
+            for i, o in enumerate(owners):
+                nm_list  = o.get('nm') or []
+                nm_first = nm_list[0] if isinstance(nm_list, list) and nm_list else str(o.get('oID', ''))
+                pct      = o.get('pct', 0) or 0
+                try:
+                    pct_num = float(pct)
+                except (TypeError, ValueError):
+                    pct_num = 0.0
+                # pct is stored as fraction (e.g. 0.96 → 96.00%).
+                pct_str = f"{pct_num * 100:.2f}"
+                partner_bindings = [
+                    ('K1_PtName',   'nm',          nm_first),
+                    ('K1_PtEIN',    'ein',         o.get('ein', '') or ''),
+                    ('K1_PtAddr',   'addr',        o.get('addr', '') or ''),
+                    ('K1_PtType',   'memType',     o.get('memType', '') or ''),
+                    ('K1_PtStatus', 'status',      o.get('status', '') or ''),
+                    ('K1_J_Profit',  'pct_str',    pct_str),
+                    ('K1_J_Loss',    'pct_str',    pct_str),
+                    ('K1_J_Capital', 'pct_str',    pct_str),
+                    ('K1_L1', 'beg_capital',       o.get('beg_capital', 0) or 0),
+                    ('K1_L2', 'capital_contributed', o.get('capital_contributed', 0) or 0),
+                ]
+                rowNm = f"owner[{i}]"
+                for lk, colNm, value in partner_bindings:
+                    fid = lk2fid.get(lk)
+                    if not fid:
+                        continue
+                    out.append({
+                        'fid':   fid,
+                        'tbl':   'llcOwners',
+                        'row':   rowNm,
+                        'col':   colNm,
+                        'value': value,
+                    })
+            return out
+
+        return out
+

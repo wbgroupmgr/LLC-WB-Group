@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ title or app_title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f6f7fb; color: #111827; }
+        .topbar {
+            background: #1f2937; color: white; padding: 12px 16px;
+            display: flex; align-items: center; gap: 12px;
+            position: sticky; top: 0; z-index: 20;
+        }
+        .menu details { position: relative; }
+        .menu summary {
+            list-style: none; cursor: pointer; font-size: 22px;
+            background: #374151; color: white; border-radius: 4px;
+            padding: 6px 12px; user-select: none;
+        }
+        /* ── Shared grouped navigation dropdown ─────────────────────── */
+        .nav-dropdown {
+            position: absolute; top: 38px; left: 0;
+            background: white; color: black;
+            min-width: 270px; max-height: 82vh; overflow-y: auto;
+            border: 1px solid #d1d5db; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+            z-index: 200; border-radius: 8px;
+        }
+        .nav-home {
+            display: block; padding: 10px 14px;
+            text-decoration: none; color: #1e40af; font-weight: 700; font-size: 14px;
+            background: #f0f5ff; border-bottom: 2px solid #c7d2fe;
+        }
+        .nav-home:hover { background: #dbeafe; }
+        .nav-group-header {
+            display: flex; align-items: center; gap: 6px;
+            padding: 7px 14px 4px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: #9ca3af;
+            background: #f9fafb; border-top: 1px solid #e5e7eb;
+            position: sticky; top: 0; z-index: 1;
+        }
+        .nav-group-header .nav-gi { font-size: 13px; }
+        .nav-view-link {
+            display: block; padding: 7px 14px 7px 32px;
+            text-decoration: none; color: #374151; font-size: 13px;
+            border-bottom: 1px solid #f3f4f6;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .nav-view-link:hover { background: #eff6ff; color: #1e40af; }
+        .nav-view-link.nav-active {
+            background: #dbeafe; color: #1e40af; font-weight: 600;
+            border-left: 3px solid #3b82f6; padding-left: 29px;
+        }
+        /* legacy flat dropdown (base topbar only) */
+        .dropdown {
+            position: absolute; top: 42px; left: 0;
+            background: white; color: black; min-width: 260px;
+            border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+            z-index: 100;
+        }
+        .dropdown a {
+            display: block; padding: 10px 12px; text-decoration: none; color: black;
+            border-bottom: 1px solid #eee;
+        }
+        .dropdown a:hover { background: #f3f4f6; }
+        .page { padding: 20px; }
+        .panel, .card {
+            background: white; border-radius: 10px; padding: 16px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 18px;
+        }
+        .grid-2 {
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;
+        }
+        @media (max-width: 980px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        table { border-collapse: collapse; width: 100%; background: white; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px; vertical-align: top; text-align: left; }
+        th { background: #f3f4f6; }
+        .table-wrap { overflow-x: auto; }
+        .muted { color: #6b7280; }
+        .btn {
+            border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer;
+            margin-right: 6px; font-size: 14px;
+        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-secondary { background: #4b5563; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-warning { background: #b45309; color: white; }
+        .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+        pre {
+            background: #f9fafb; padding: 12px; border: 1px solid #e5e7eb;
+            overflow-x: auto; border-radius: 6px;
+        }
+        .pill {
+            display: inline-block; padding: 4px 10px; border-radius: 999px;
+            background: #eef2ff; color: #3730a3; font-size: 12px;
+        }
+        .modal-backdrop {
+            position: fixed; inset: 0; background: rgba(17, 24, 39, .55);
+            display: none; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal {
+            background: white; width: min(920px, 94vw); max-height: 88vh; overflow: auto;
+            border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25);
+            padding: 18px;
+        }
+        .modal h3 { margin-top: 0; }
+        .form-grid {
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+        }
+        @media (max-width: 760px) {
+            .form-grid { grid-template-columns: 1fr; }
+        }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        .field label { font-weight: 600; font-size: 13px; }
+        .field input, .field textarea {
+            width: 100%; box-sizing: border-box; padding: 8px;
+            border: 1px solid #cbd5e1; border-radius: 6px;
+            font-family: inherit; font-size: 14px;
+        }
+        .field textarea { min-height: 110px; resize: vertical; }
+        .modal-toolbar {
+            display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px;
+            flex-wrap: wrap;
+        }
+        .nowrap { white-space: nowrap; }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    {% block topbar %}
+    <div class="topbar">
+        <div class="menu">
+            <details>
+                <summary>☰</summary>
+                {% include '_nav_dropdown.html' %}
+            </details>
+        </div>
+        <div><strong>{{ title or app_title }}</strong></div>
+    </div>
+    {% endblock %}
+
+    <div class="page">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

@@ -56,23 +56,37 @@ class LLC(object):
         
     def _ProfileLoad(self, **kwargs):
         '''
-        Load LLC profile that points to where the LLC directory and data is
-        ProfileDir = ../<objName>.json
+        Load LLC profile.
+
+        Resolution order (v0.2.2.7):
+          1. kwargs['FN_profile']                              (explicit override)
+          2. <setup_paths.ACCTS_DIR>/llcProfile_<name>.json     (canonical)
+          3. <kwargs['top'] or setup_paths.TOP>/llcProfile_<name>.json
+             (legacy top-level location — retained for backwards compat)
         '''
         BN = f"llcProfile_{self.objName}.json"
-        dirTOP = kwargs.get('top', setup_paths.TOP)
-        FN = kwargs.get('FN_profile', os.path.join(dirTOP, BN))
-                        
+
+        # 1. Explicit override wins
+        explicit = kwargs.get('FN_profile')
+        if explicit:
+            FN = explicit
+        else:
+            # 2. Canonical location inside Accts/
+            canonical_FN = os.path.join(str(setup_paths.ACCTS_DIR), BN)
+            # 3. Legacy location at repo TOP
+            dirTOP     = kwargs.get('top', setup_paths.TOP)
+            legacy_FN  = os.path.join(str(dirTOP), BN)
+            FN = canonical_FN if os.path.exists(canonical_FN) else legacy_FN
 
         if self.debug: print(f"{self.oID} llcProfile FN {FN}")
         if kwargs.get('saveProfile', False):
             pDict = dict(dirLLC = self.dirLLC,
                          dirData = self.dirData)
-            
+
             with open(FN, 'w') as fio:
                 json.dump(pDict, fio)
             return pDict
-            
+
         with open(FN, 'r') as fio:
             pDict = json.load(fio)
             if self.debug : print("Profile loaded", FN)
@@ -164,5 +178,84 @@ class LLC(object):
         glDF.loc[f'Balance'] = glDF.sum()
         return glDF
 
-    
-                
+    # ── _to_IRS : IRS2LLC provisioning declaration ──────────────────────────
+    # CPA knowledge: the LLC profile (self.entity + self.F1065) publishes
+    # every entity-header / business-identification cell that is NOT a
+    # financial aggregate.  The knowledge of which profile key goes to
+    # which IRS logicalKey lives here (no UI imports; reads only self.*).
+    #
+    # Binding table per form.  The value is a (source_attr, key) tuple:
+    #   source_attr ∈ {"entity", "F1065"}   — maps to self.entity / self.F1065
+    #   key          — dict key inside that source
+    _IRS_BINDINGS = {
+        "Form1065": {
+            # Page 1 — Header
+            "P1_Hdr_0": ("F1065",  "date_from"),
+            "P1_Hdr_1": ("F1065",  "tax_year"),
+            "P1_Hdr_2": ("F1065",  "date_to"),
+            "P1_Hdr_3": ("F1065",  "tax_year"),
+            "P1_Hdr_4": ("entity", "entity_name"),
+            "P1_Hdr_5": ("entity", "address"),
+            "P1_Hdr_7": ("F1065",  "C_city"),
+            "P1_Hdr_8": ("F1065",  "C_state"),
+            "P1_Hdr_9": ("F1065",  "C_zip"),
+            # Page 1 — Entity info
+            "P1_A":     ("F1065",  "principal_activity"),
+            "P1_B":     ("F1065",  "B_product"),
+            "P1_C":     ("F1065",  "C_busCode"),
+            "P1_D":     ("entity", "ein"),
+            "P1_E":     ("entity", "date_business_began"),
+            # Paid preparer block
+            "P1_PP_0":  ("F1065",  "preparer_name"),
+            "P1_PP_2":  ("F1065",  "preparer_date"),
+            "P1_PP_3":  ("F1065",  "preparer_ptin"),
+            "P1_PP_4":  ("F1065",  "preparer_ein"),
+            "P1_PP_5":  ("F1065",  "preparer_firm"),
+            "P1_PP_6":  ("F1065",  "preparer_addr"),
+        },
+        "Sch_K1": {
+            "K1_EIN":       ("entity", "ein"),
+            "K1_TaxYr":     ("F1065",  "tax_year"),
+            "K1_PshipNm":   ("entity", "entity_name"),
+            "K1_PshipAddr": ("entity", "address"),
+        },
+        "Form4562": {
+            "F4562_Nm":  ("entity", "entity_name"),
+            "F4562_EIN": ("entity", "ein"),
+            "F4562_Biz": ("F1065",  "principal_activity"),
+        },
+    }
+
+    def _to_IRS(self, formObj):
+        '''
+        Return the per-fid IRS bindings this LLC profile provisions
+        for ``formObj``.  Invoked by ``irs.mapIRS2LLC._mapIRS2LLC()``.
+        '''
+        try:
+            from irs.mapIRS2LLC import _lk_to_fid
+        except ImportError:
+            from mapIRS2LLC import _lk_to_fid
+
+        formNm   = getattr(formObj, 'oID', '')
+        bindings = self._IRS_BINDINGS.get(formNm, {})
+        if not bindings:
+            return []
+        lk2fid = _lk_to_fid(formObj)
+
+        entity = getattr(self, 'entity', {}) or {}
+        f1065  = getattr(self, 'F1065',  {}) or {}
+        out = []
+        for lk, (src, key) in bindings.items():
+            fid = lk2fid.get(lk)
+            if not fid:
+                continue
+            src_dict = entity if src == 'entity' else f1065
+            value = src_dict.get(key) if isinstance(src_dict, dict) else None
+            out.append({
+                'fid':   fid,
+                'tbl':   f'LLC.{src}',
+                'row':   src,
+                'col':   key,
+                'value': value,
+            })
+        return out

@@ -1,0 +1,55 @@
+{
+  "_doc": {
+    "purpose": "Book NSpace mapping table — IRS form fid → Balance-Sheet Acct UAS path.",
+    "format":  "[ 'F###', '<Acct UAS>' ]   3-digit zero-padded fid; UAS is either a single COA acct (e.g. 'Acct.Equity.Owner.Capital.Funds') or a stmtBalanceSheet taxAggregate name prefixed 'BS.' (e.g. 'BS.total_assets').",
+    "scope":   "Only fields sourced from the Balance Sheet appear here.  Profile-sourced and Income-Statement-sourced fields live in bookNS_Profile.json / bookNS_IS.json.  A single Acct may appear under multiple fids (e.g. BS.total_assets → F016, F371, F373).  Begin/End-of-year columns currently resolve to the same end-of-period BS snapshot; prior-year carry will be added when a prior-period BS becomes available.",
+    "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' → stmtBalanceSheet row Balance for that COA acct;  acct startswith 'BS.'   → stmtBalanceSheet.taxAggregates()[name];  acct startswith 'Profile.' → stmtProfile cell;  acct startswith 'IS.'   → stmtIncomeStmt.taxAggregates()[name].",
+    "perPartner": "Sch_K1 entries reference partnership-level totals.  irsForm.savePDF() multiplies them by partner.pct from llcOwners when emitting per-partner FILL pdfs (capital section Item L)."
+  },
+
+  "Form1065": [
+    ["F016", "BS.total_assets"],
+
+    ["F_l_cash_beg", "BS.cash"],
+    ["F_l_cash_end", "BS.cash"],
+
+    ["F299", "BS.ar"],
+    ["F301", "BS.ar"],
+
+    ["F347", "BS.buildings"],
+    ["F349", "BS.buildings"],
+
+    ["F339", "BS.other_assets"],
+    ["F341", "BS.other_assets"],
+
+    ["F371", "BS.total_assets"],
+    ["F373", "BS.total_assets"],
+
+    ["F375", "BS.payables"],
+    ["F377", "BS.payables"],
+
+    ["F403", "BS.total_equity"],
+    ["F405", "BS.total_equity"],
+
+    ["F407", "BS.total_liab_capital"],
+    ["F409", "BS.total_liab_capital"],
+
+    ["F426", "Acct.Equity.Owner.Capital.Dist"],
+    ["F427", "Acct.Equity.Earnings.PnL"],
+    ["F428", "Acct.Equity.Owner.Capital.Funds"],
+    ["F439", "BS.total_equity"],
+    ["F440", "BS.total_equity"]
+  ],
+
+  "Sch_K1": [
+    ["F_K1_L1",  "BS.total_equity"],
+    ["F_K1_L2",  "Acct.Equity.Owner.Capital.Funds"],
+    ["F_K1_L4a", "Acct.Equity.Owner.Capital.Dist"],
+    ["F_K1_L5",  "BS.total_equity"]
+  ],
+
+  "Form4562": [
+    ["F_F4562_19a_cost",  "Acct.Fixed.Tangible.InService"],
+    ["F_F4562_19a_accum", "Acct.Fixed.Depreciation.Accum"]
+  ]
+}

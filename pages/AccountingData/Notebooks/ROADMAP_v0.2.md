@@ -31,12 +31,12 @@ accounting folders.
       `uillc_audit.log` next to the working files.
 
 ### Views & reports
-- [ ] `llcIncomeStmt` PerMember: show owner % share alongside the absolute
+- [ ] `stmtIncomeStmt` PerMember: show owner % share alongside the absolute
       numbers.
-- [ ] `llcBalanceSheet`: expose `last_check()` result (accounting-equation
+- [ ] `stmtBalanceSheet`: expose `last_check()` result (accounting-equation
       delta) directly on the view, with a red banner when non-zero.
 - [ ] `llcFormK1`: one PDF export per partner that mirrors the live table.
-- [ ] `llcPropertyEquity`: add "since acquisition" and "YTD" columns.
+- [ ] `stmtPropertyEquity`: add "since acquisition" and "YTD" columns.
 
 ### Bank reconciliation
 - [ ] Persist the last uploaded CSV per bank account so a restart doesn't

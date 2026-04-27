@@ -242,7 +242,7 @@ class Sch_K1(Form1065):
             if fd["logicalKey"]
         }
 
-        # ── Step C: load official IS/BS/owners from llcFinancialReport ─────
+        # ── Step C: load official IS/BS/owners from stmtFinancialReport ─────
         if is_data is None or bs_data is None:
             td = self._resolveTaxData()
             if is_data is None:

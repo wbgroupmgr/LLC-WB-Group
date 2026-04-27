@@ -40,18 +40,18 @@ saveFILL(fillDict)     ← writes FILL.pdf (publish=True fields only)
 
 ## Data sources
 
-Financial figures for the FILL PDF are **always** drawn from the official `llcFinancialReport` databases, never from a working `EditSession`.
+Financial figures for the FILL PDF are **always** drawn from the official `stmtFinancialReport` databases, never from a working `EditSession`.
 
 | source key | Origin |
 |------------|--------|
 | `entity`   | `llcProfile_WBGroupLLC.json` → `profile["entity"]` |
 | `F1065`    | `llcProfile_WBGroupLLC.json` → `profile["F1065"]` |
-| `IS`       | `llcFinancialReport(llc).taxData()` → `td["is_data"]` |
-| `BS`       | `llcFinancialReport(llc).taxData()` → `td["bs_data"]` |
-| `owners`   | `llcFinancialReport(llc).taxData()` → `td["owners"]` |
+| `IS`       | `stmtFinancialReport(llc).taxData()` → `td["is_data"]` |
+| `BS`       | `stmtFinancialReport(llc).taxData()` → `td["bs_data"]` |
+| `owners`   | `stmtFinancialReport(llc).taxData()` → `td["owners"]` |
 | `schB_default` | Hard-coded `{"No": "/2", "Yes": "/1"}` — Sched B checkbox defaults |
 
-The `llcFinancialReport` is instantiated internally by `_resolveTaxData()`.  No external reference to it is needed in the caller's workflow.
+The `stmtFinancialReport` is instantiated internally by `_resolveTaxData()`.  No external reference to it is needed in the caller's workflow.
 
 ---
 
@@ -181,7 +181,7 @@ Applies publish flags in priority order:
 3. Schedule B `checkText` No-defaults (pattern `c{pg}_{seq}_No`) → `publish=True`, value = checkedValue
 4. All remaining fields → `publish=False`, value blank
 
-IS/BS data is loaded from `llcFinancialReport(self.llc).taxData()` via `_resolveTaxData()`.
+IS/BS data is loaded from `stmtFinancialReport(self.llc).taxData()` via `_resolveTaxData()`.
 
 **`_FILL_MAP` — auto-filled fields**
 
@@ -205,7 +205,7 @@ Covers lines that require accountant judgment: returns & allowances (1b), COGS (
 
 | Method | Description |
 |--------|-------------|
-| `_resolveTaxData() → dict` | Instantiates `llcFinancialReport(self.llc)`, calls `taxData()`, returns `{is_data, bs_data, owners, meta}`. Falls back to empty dicts on failure. |
+| `_resolveTaxData() → dict` | Instantiates `stmtFinancialReport(self.llc)`, calls `taxData()`, returns `{is_data, bs_data, owners, meta}`. Falls back to empty dicts on failure. |
 | `_getFRData(fr) → dict` | Calls `fr.taxData()` and JSON-parses the result. |
 
 ---
@@ -296,7 +296,7 @@ fillDict = f4562._buildFillDict(nspace)
 f4562.saveFILL(fillDict)   # writes FILL.pdf + fillDict JSON
 ```
 
-**Key auto-filled lines** (from `llcFinancialReport`):
+**Key auto-filled lines** (from `stmtFinancialReport`):
 
 | Line | Source | Description |
 |------|--------|-------------|
@@ -317,7 +317,7 @@ Replaces direct `llcReportEngine` usage so that editor views display the
 
 **Load priority:**
 1. Saved `Form1065_fillDict.json` (fastest — values already resolved)
-2. Fresh build from `llcFinancialReport(llc).taxData()`
+2. Fresh build from `stmtFinancialReport(llc).taxData()`
 
 **Helper methods:**
 

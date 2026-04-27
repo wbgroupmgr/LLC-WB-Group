@@ -1,7 +1,7 @@
 """
 irsNspace.py
 ===================
-Given an IRS PDF template (e.g. 'Form1065-IRS.pdf'), generates two output files:
+Given an IRS PDF template (e.g. 'Form1065_IRS.pdf'), generates two output files:
 
   1. <form>_namespace.json  — every AcroForm field in the PDF, each with:
         fID        : sequential identifier (f1 … fn)
@@ -19,11 +19,11 @@ Given an IRS PDF template (e.g. 'Form1065-IRS.pdf'), generates two output files:
 
 Usage
 -----
-    python formWorksheetCmd.py Form1065-IRS.pdf
+    python formWorksheetCmd.py Form1065_IRS.pdf
 
     -or- from Python:
         from irs.formWorksheetCmd import FormWorksheetCmd
-        cmd = FormWorksheetCmd('Form1065-IRS.pdf')
+        cmd = FormWorksheetCmd('Form1065_IRS.pdf')
         cmd.run()
 
 Paths
@@ -33,7 +33,7 @@ All input PDFs and keys files are resolved relative to
 
 Output files are saved to the same folder.
 
-Reference: Form_1065-IRS.pdf, Form_1065-keys.pdf, Form_1065-FieldNames.json
+Reference: Form1065_IRS.pdf, Form_1065-keys.pdf, Form_1065-FieldNames.json
 """
 
 import json
@@ -120,7 +120,7 @@ class irsNspace(irsForm:
     Parameters
     ----------
     form_filename : str
-        Filename of the IRS template PDF, e.g. 'Form1065-IRS.pdf'.
+        Filename of the IRS template PDF, e.g. 'Form1065_IRS.pdf'.
         Must be located in the Forms_IRS folder.
     form_name : str, optional
         Short form name used in fID namespace (default derived from filename).
@@ -137,16 +137,16 @@ class irsNspace(irsForm:
         self.form_filename = form_filename
         self.verbose       = kwargs.get('verbose',True)
 
-        # Derive short form name, e.g. "Form1065" from "Form_1065-IRS.pdf"
-        stem = Path(form_filename).stem                 # "Form_1065-IRS"
-        base = stem.replace("-IRS", "").replace("-", "").replace("_", "")
+        # Derive short form name, e.g. "Form1065" from "Form1065_IRS.pdf"
+        stem = Path(form_filename).stem                 # "Form1065_IRS"
+        base = stem.replace("_IRS", "").replace("-", "").replace("_", "")
         self.form_name = form_name or base              # "Form1065"
 
         # Input paths
         self.irs_pdf_path  = _FORMS_DIR / form_filename
-        keys_name          = form_filename.replace("-IRS.pdf", "-keys.pdf")
+        keys_name          = form_filename.replace("_IRS.pdf", "-keys.pdf")
         self.keys_pdf_path = _FORMS_DIR / keys_name
-        fnames_name        = form_filename.replace("-IRS.pdf", "-FieldNames.json")
+        fnames_name        = form_filename.replace("_IRS.pdf", "-FieldNames.json")
         self.fnames_path   = _FORMS_DIR / fnames_name
 
         # Output paths

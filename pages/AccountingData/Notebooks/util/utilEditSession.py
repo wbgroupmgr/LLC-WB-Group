@@ -25,7 +25,7 @@ from ledger.llcExpRev import llcExpRev
 from ledger.llcAssets import llcAssets
 from ledger.llcPayables import llcPayables
 from ledger.llcReceivables import llcReceivables
-from ledger.llcFinancialReport import llcFinancialReport
+from ledger.rptFinancialReport import rptFinancialReport
 
 from util.utilWorkingDB import utilWorkingDB
 
@@ -41,7 +41,7 @@ class wkAP(utilWorkingDB):
 class wkAR(utilWorkingDB):
     pass
 
-class noDBFinancialReport(llcFinancialReport):
+class noDBFinancialReport(rptFinancialReport):
     def load(self):
         return []
  

@@ -21,11 +21,11 @@ Data sources for the FILL PDF
 ------------------------------
   entity  – llcProfile_WBGroupLLC.json   →  profile["entity"]
   F1065   – llcProfile_WBGroupLLC.json   →  profile["F1065"]
-  IS      – llcFinancialReport(llc).taxData()  →  td["is_data"]
-  BS      – llcFinancialReport(llc).taxData()  →  td["bs_data"]
-  owners  – llcFinancialReport(llc).taxData()  →  td["owners"]
+  IS      – stmtFinancialReport(llc).taxData()  →  td["is_data"]
+  BS      – stmtFinancialReport(llc).taxData()  →  td["bs_data"]
+  owners  – stmtFinancialReport(llc).taxData()  →  td["owners"]
 
-IS/BS/owners are ALWAYS sourced from the official llcFinancialReport databases
+IS/BS/owners are ALWAYS sourced from the official stmtFinancialReport databases
 built from self.llc.  Working EditSessions are intentionally excluded; they
 must not feed the filed return.  Pass ``is_data`` / ``bs_data`` kwargs only
 to override specific lines for testing.
@@ -35,7 +35,7 @@ Timestamp of last change: 2026.04.18
 
 import json
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from irs.irsForm import irsForm
@@ -317,7 +317,8 @@ class Form1065(irsForm):
 
     def __init__(self, llc, **kwargs):
         super().__init__(llc, **kwargs)
-        print("xxxx form1065 324", self.verbose)
+        if self.verbose:
+            print("xxxx form1065 324", self.verbose)
 
     # ── IRS template filename override ───────────────────────────────────
     def FN(self) -> str:
@@ -400,7 +401,7 @@ class Form1065(irsForm):
           • Sets ``publish=True``         — Schedule B No-answer checkText defaults
           • Sets ``publish=False``        — all remaining fields
 
-        Values are resolved from the official llcFinancialReport databases
+        Values are resolved from the official stmtFinancialReport databases
         (IS/BS/owners via ``_resolveTaxData()``).  Pass ``is_data`` / ``bs_data``
         only to override specific lines for testing.
 
@@ -432,7 +433,7 @@ class Form1065(irsForm):
             if fd["logicalKey"]
         }
 
-        # ── Step C: load official IS / BS / owners from llcFinancialReport ─
+        # ── Step C: load official IS / BS / owners from stmtFinancialReport ─
         owners_agg: Dict = {
             "count":              "0",
             "cash_contributions": 0.0,
@@ -560,14 +561,229 @@ class Form1065(irsForm):
         return fillDict
 
     # ════════════════════════════════════════════════════════════════════════
+    #  nSpaceMap — DataModelGuide § 4 per-data-object publish aggregation
+    # ════════════════════════════════════════════════════════════════════════
+
+    def nSpaceMap(
+        self,
+        data_objects: Optional[List[Any]] = None,
+        fillDict:     Optional[Dict[str, Dict]] = None,
+    ) -> Dict[Tuple[str, str, str], List[Dict[str, Any]]]:
+        """
+        Aggregate the per-data-object PUBLISH_MAP payloads into one map
+        keyed by ``(src_tbl, src_row, src_col)`` — the DataModelGuide
+        addressing triple.
+
+        Because many form fields can bind to the SAME data cell (e.g.
+        ``IncomeStmt.TOTAL.Balance`` → P1_23, K_1, M1_1, M1_5, M1_9,
+        M2_3 on Form 1065), each key maps to a **list** of minimal
+        fillDicts — one entry per form field that binds to that cell.
+        UI views iterate::
+
+            for (tbl, row, col), fds in form.nSpaceMap().items():
+                for fd in fds:
+                    render_row(tbl, row, col, fd)
+
+        Minimal fillDict fields — sufficient to render the Form1065 UI
+        view AND generate FILL.pdf:
+
+            formNm        : str
+            logicalKey    : str                      ("P1_23" …)
+            fID, pdfField : str (from AcroForm discovery)
+            shortName     : str
+            label         : str
+            fType         : "text"|"checkBox"|"checkText"|"image"
+            page          : int  (1-based)
+            location      : str  ("Form1065.Pg1.Income" …)
+            checkedValue  : str  ("/1", "/2", "")
+            publish       : True | "CPA:unknown"
+            value         : str  (currency-formatted for text fields)
+            raw           : Any  (untouched numeric when known)
+            note          : str
+            src_tbl/_row/_col : same as the map key (convenience)
+
+        Sources merged in this order (later DOES NOT override earlier):
+          1. Published cells from stmt/ledger data objects —
+             ``obj.to_form_payload(self.oID)`` for each ``obj`` in
+             ``data_objects``.  One entry per PubEntry declared.
+          2. ``_CPA_NOTES`` → ``publish="CPA:unknown"`` (skipped if any
+             data object already published that logicalKey).
+          3. Legacy ``_FILL_MAP`` fallback for logicalKeys no data
+             object publishes — resolved value comes from the already-
+             built ``fillDict`` (which went through Step F/G/H in
+             ``_buildFillDict``).  Keys like ``rent_income`` that are
+             aggregates of many stmt rows land here during the Phase 5
+             transition.
+
+        Parameters
+        ----------
+        data_objects : list, optional
+            Data objects to poll.  Default: construct the standard
+            stmt set (IS, OwnerEquity, BS) from ``self.llc``.
+        fillDict : dict, optional
+            Pre-computed output of ``_buildFillDict`` — pass this to
+            avoid redoing PDF I/O on repeated calls.
+
+        Returns
+        -------
+        dict { (tblID, rowNm, colNm) : [ minimal_fillDict, ... ] }
+        """
+        # ── 1. Metadata layer: lk → full fillDict entry ───────────────────
+        if fillDict is None:
+            ns       = self._buildNSpace()
+            fillDict = self._buildFillDict(ns)
+        lk_to_fd: Dict[str, Dict] = {
+            fd["logicalKey"]: fd
+            for fd in fillDict.values()
+            if fd.get("logicalKey")
+        }
+
+        # ── 2. Collect publish-map payloads ───────────────────────────────
+        if data_objects is None:
+            data_objects = self._defaultDataObjects()
+
+        payload_rows: List[Dict[str, Any]] = []
+        for obj in data_objects:
+            try:
+                payload_rows.extend(obj.to_form_payload(self.oID))
+            except Exception as err:
+                if getattr(self, "verbose", False):
+                    print(f"  ⚠️  {obj.__class__.__name__}.to_form_payload"
+                          f"({self.oID}) failed: {err}")
+
+        published_lks = {p["logicalKey"] for p in payload_rows}
+
+        # ── 3. Assemble the nSpaceMap (list-valued to allow many-to-one) ─
+        out: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+
+        def _append(key: Tuple[str, str, str], entry: Dict[str, Any]) -> None:
+            out.setdefault(key, []).append(entry)
+
+        # 3a. Published cells
+        for p in payload_rows:
+            lk  = p["logicalKey"]
+            fd  = lk_to_fd.get(lk, {})
+            key = (p["src_tbl"], p["src_row"], p["src_col"])
+            _append(key, {
+                "formNm":       p["formNm"],
+                "logicalKey":   lk,
+                "fID":          fd.get("fID", ""),
+                "pdfField":     fd.get("pdfField", ""),
+                "shortName":    fd.get("shortName", ""),
+                "label":        fd.get("label", ""),
+                "fType":        fd.get("fType", p.get("fType", "text")),
+                "page":         fd.get("page", 0),
+                "location":     fd.get("location", ""),
+                "checkedValue": p.get("checkedValue") or fd.get("checkedValue", ""),
+                "publish":      True,
+                "value":        p["value"],
+                "raw":          p.get("raw"),
+                "note":         p.get("note", ""),
+                "src_tbl":      p["src_tbl"],
+                "src_row":      p["src_row"],
+                "src_col":      p["src_col"],
+            })
+
+        # 3b. CPA:unknown — synthetic key (f"_{oID}", logicalKey, "value")
+        for lk, note in self._CPA_NOTES.items():
+            if lk in published_lks:
+                continue
+            fd = lk_to_fd.get(lk)
+            if not fd:
+                continue
+            key = (f"_{self.oID}", lk, "value")
+            _append(key, {
+                "formNm":       self.oID,
+                "logicalKey":   lk,
+                "fID":          fd.get("fID", ""),
+                "pdfField":     fd.get("pdfField", ""),
+                "shortName":    fd.get("shortName", ""),
+                "label":        fd.get("label", ""),
+                "fType":        fd.get("fType", "text"),
+                "page":         fd.get("page", 0),
+                "location":     fd.get("location", ""),
+                "checkedValue": fd.get("checkedValue", ""),
+                "publish":      "CPA:unknown",
+                "value":        "",
+                "raw":          None,
+                "note":         note,
+                "src_tbl":      f"_{self.oID}",
+                "src_row":      lk,
+                "src_col":      "value",
+            })
+
+        # 3c. Legacy _FILL_MAP fallback — aggregates + pending migrations
+        for lk, spec in self._FILL_MAP.items():
+            if lk in published_lks:
+                continue
+            fd = lk_to_fd.get(lk)
+            if not fd:
+                continue
+            src  = spec.get("source", "")
+            path = spec.get("path",   "")
+            key  = (f"_{src}", path, "value")
+            _append(key, {
+                "formNm":       self.oID,
+                "logicalKey":   lk,
+                "fID":          fd.get("fID", ""),
+                "pdfField":     fd.get("pdfField", ""),
+                "shortName":    fd.get("shortName", ""),
+                "label":        fd.get("label", ""),
+                "fType":        fd.get("fType", "text"),
+                "page":         fd.get("page", 0),
+                "location":     fd.get("location", ""),
+                "checkedValue": fd.get("checkedValue", ""),
+                "publish":      fd.get("publish", True),
+                "value":        fd.get("value", ""),
+                "raw":          None,
+                "note":         (spec.get("note", "") + "  [legacy _FILL_MAP]").strip(),
+                "src_tbl":      f"_{src}",
+                "src_row":      path,
+                "src_col":      "value",
+            })
+
+        return out
+
+    def _defaultDataObjects(self) -> List[Any]:
+        """
+        Construct the default set of stmt data objects that publish to
+        Form 1065.  Called by ``nSpaceMap()`` when the caller does not
+        supply explicit objects.
+
+        Failures are swallowed (diagnostic print in verbose mode) so a
+        missing optional dependency never breaks the whole map.
+        """
+        objs: List[Any] = []
+        llc = getattr(self, "llc", None)
+        if llc is None:
+            return objs
+
+        # Order matters only for UI sorting / not for correctness.
+        specs: List[Tuple[str, str, Dict[str, Any]]] = [
+            ("ledger.stmtIncomeStmt",   "stmtIncomeStmt",   {"view_by": "All"}),
+            ("ledger.stmtOwnerEquity",  "stmtOwnerEquity",  {}),
+            ("ledger.stmtBalanceSheet", "stmtBalanceSheet", {"view_by": "All"}),
+        ]
+        for mod_nm, cls_nm, kwargs in specs:
+            try:
+                mod = __import__(mod_nm, fromlist=[cls_nm])
+                cls = getattr(mod, cls_nm)
+                objs.append(cls(llc, **kwargs))
+            except Exception as err:
+                if getattr(self, "verbose", False):
+                    print(f"  ⚠️  _defaultDataObjects: {mod_nm}.{cls_nm} "
+                          f"failed: {err}")
+        return objs
+
+    # ════════════════════════════════════════════════════════════════════════
     #  TAX DATA HELPERS
     # ════════════════════════════════════════════════════════════════════════
 
     def _resolveTaxData(self) -> Dict:
         """
-        Return IS/BS/owners data from the **official** llcFinancialReport DB.
+        Return IS/BS/owners data from the **official** stmtFinancialReport DB.
 
-        Always uses ``llcFinancialReport(self.llc).taxData()``.
+        Always uses ``stmtFinancialReport(self.llc).taxData()``.
         Working EditSessions are intentionally excluded.
 
         Falls back to empty dicts (with warning) only if ``self.llc`` is None
@@ -576,23 +792,23 @@ class Form1065(irsForm):
         if self.llc is not None:
             try:
                 try:
-                    from ledger.llcFinancialReport import llcFinancialReport
+                    from ledger.stmtFinancialReport import stmtFinancialReport
                 except ImportError:
-                    from llcFinancialReport import llcFinancialReport
+                    from stmtFinancialReport import stmtFinancialReport
 
-                fr = llcFinancialReport(self.llc)
+                fr = stmtFinancialReport(self.llc)
                 td = self._getFRData(fr)
 
                 if self.verbose:
                     ni = td.get("is_data", {}).get("net_income", "?")
                     ta = td.get("bs_data", {}).get("total_assets", "?")
-                    print(f"  ℹ️  llcFinancialReport loaded  "
+                    print(f"  ℹ️  stmtFinancialReport loaded  "
                           f"(net_income={ni}, total_assets={ta})")
                 return td
 
             except Exception as exc:
                 if self.verbose:
-                    print(f"  ⚠️  _resolveTaxData: llcFinancialReport failed: {exc}")
+                    print(f"  ⚠️  _resolveTaxData: stmtFinancialReport failed: {exc}")
 
         if self.verbose:
             print("  ⚠️  _resolveTaxData: self.llc is None — "

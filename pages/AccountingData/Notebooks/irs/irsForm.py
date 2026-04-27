@@ -13,7 +13,7 @@ Simplified 4-step workflow
 The old intermediate GLMap step is gone.  ``_buildFillDict`` is the single
 authoritative pass: it receives the namespace, sets ``publish`` on every
 field, and resolves live values for ``publish=True`` fields using the
-official financial databases (IS/BS from llcFinancialReport).
+official financial databases (IS/BS from stmtFinancialReport).
 
 Field types (fType)
 -------------------
@@ -103,7 +103,8 @@ class irsForm:
         self.oID     = self.__class__.__name__   # e.g. "Form1065", "Sch_K1"
         self.llc     = llc
         self.verbose = kwargs.get('verbose', False)
-        print(f"irsForm Entry: oID:{self.oID}, verbose:{self.verbose}") 
+        if self.verbose:
+            print(f"irsForm Entry: oID:{self.oID}, verbose:{self.verbose}") 
         
         # Resolve irsDir from the LLC object
         self.irsDir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
@@ -665,7 +666,7 @@ class irsForm:
         if self.verbose:
             print("---- irsForm._to_PDF Entry")
         # ── Step 1 — Namespace ─────────────────────────────────────────
-        #    Reads Form_1065-IRS.pdf, discovers all 500 AcroForm fields,
+        #    Reads Form1065-IRS.pdf, discovers all 500 AcroForm fields,
         #    writes Form1065_namespace.json + Form1065_namespace.pdf
         nspaceDict = self._buildNSpace()
         if self.verbose:

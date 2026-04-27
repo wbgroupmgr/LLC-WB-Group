@@ -1,7 +1,7 @@
 # Cash Flow Statement - part of Financial Report 
 from IPython.display import display, Markdown
 
-class llcCashFlow(object):
+class stmtCashFlow(object):
     
     '''
     <h2> 3. Cash Flow Statement 

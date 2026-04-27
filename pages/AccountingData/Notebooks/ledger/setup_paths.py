@@ -54,7 +54,7 @@ if str(NOTEBOOKS_DIR) not in sys.path:
 
 
 if __name__ == "__main__":
-    _pkgs = ["ledger", "irs", "F1065_K1", "uillc", "util"]
+    _pkgs = ["ledger", "stmt", "irs", "F1065_K1", "uillc", "util"]
     print(f"TOP            : {TOP}")
     print(f"Notebooks root : {NOTEBOOKS_DIR}")
     print(f"AccountingData : {ACCT_DATA_DIR}")

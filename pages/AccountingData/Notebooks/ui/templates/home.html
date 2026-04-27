@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    async function confirmNewSession() {
+        document.getElementById("newSessionBackdrop").style.display = "flex";
+    }
+    function cancelNewSession() {
+        document.getElementById("newSessionBackdrop").style.display = "none";
+    }
+    async function doNewSession() {
+        const btn = document.getElementById("newSessionConfirmBtn");
+        btn.disabled = true;
+        btn.textContent = "Resetting…";
+        try {
+            const res  = await fetch("/api/session/new", { method: "POST" });
+            const data = await res.json();
+            if (data.ok) {
+                cancelNewSession();
+                window.location.href = "/";
+            } else {
+                alert("New Session failed: " + (data.error || "unknown error"));
+                btn.disabled = false;
+                btn.textContent = "Confirm Reset";
+            }
+        } catch (err) {
+            alert("New Session error: " + err);
+            btn.disabled = false;
+            btn.textContent = "Confirm Reset";
+        }
+    }
+
+    // ── Logoff (v0.2): shuts down the LLC editor server ──────────────────
+    function confirmLogoff() {
+        document.getElementById("logoffBackdrop").style.display = "flex";
+    }
+    function cancelLogoff() {
+        document.getElementById("logoffBackdrop").style.display = "none";
+    }
+    async function doLogoff() {
+        const btn = document.getElementById("logoffConfirmBtn");
+        btn.disabled = true;
+        btn.textContent = "Shutting down…";
+        try {
+            await fetch("/api/logoff", { method: "POST" });
+        } catch (err) {
+            // expected — server is going away
+        }
+        // Replace the whole page so no more XHRs fire against a dead server.
+        document.body.innerHTML =
+            '<div style="font-family:system-ui;padding:40px;max-width:560px;margin:60px auto;' +
+            'border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">' +
+            '<h2 style="margin:0 0 12px 0;">👋 LLC editor stopped</h2>' +
+            '<p>The server has shut down. You can close this tab.</p>' +
+            '</div>';
+    }
+</script>
+
+<style>
+    /* ── Sticky title bar ── */
+    .title-panel {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        margin-bottom: 24px;
+        border-radius: 10px;
+    }
+    .title-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: nowrap;
+    }
+    .title-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-name { font-size: 18px; font-weight: 700; white-space: nowrap; }
+    .title-sep  { color: #9ca3af; font-size: 15px; }
+    .title-sub  { font-size: 13px; color: #6b7280; white-space: nowrap; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
+    }
+
+    /* ── Financial Report section ── */
+    .report-section { margin-bottom: 28px; }
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    .section-header .sec-icon { font-size: 20px; }
+    .section-header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        color: #111827;
+        letter-spacing: 0.01em;
+    }
+    .section-header .sec-count {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-left: auto;
+    }
+
+    /* ── View card grid ── */
+    .view-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 10px;
+    }
+    .view-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 14px 16px;
+        text-decoration: none;
+        color: #111827;
+        transition: all 0.15s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    .view-card:hover {
+        background: #f0f5ff;
+        border-color: #a5b4fc;
+        box-shadow: 0 4px 10px rgba(99,102,241,.15);
+        transform: translateY(-1px);
+    }
+    .view-card.wip {
+        opacity: 0.45;
+        cursor: default;
+        pointer-events: none;
+    }
+    .vc-icon {
+        font-size: 24px;
+        flex-shrink: 0;
+        width: 36px;
+        text-align: center;
+    }
+    .vc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .vc-label { font-weight: 600; font-size: 14px; line-height: 1.2; }
+    .vc-sub   { font-size: 11px; color: #9ca3af; }
+
+    /* Group colour accents — matches group.label | lower | replace(' ', '-') */
+    .group-transactions       .view-card:hover { background: #f0fdf4; border-color: #86efac; box-shadow: 0 4px 10px rgba(34,197,94,.12); }
+    .group-financial-statements .view-card:hover { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 4px 10px rgba(59,130,246,.12); }
+    .group-irs-tax-aids       .view-card:hover { background: #fefce8; border-color: #fde047; box-shadow: 0 4px 10px rgba(234,179,8,.12); }
+
+    /* ── Session table ── */
+    .session-panel { margin-top: 8px; }
+    .session-panel table { width: 100%; }
+
+    /* ── Divider between sections inside a panel ── */
+    .section-divider { border: none; border-top: 1px solid #f3f4f6; margin: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ── Sticky title panel ──────────────────────────────────────────── -->
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">📋 Financial Report</span>
+        </div>
+        <div class="toolbar-row">
+            <button class="btn btn-danger"
+                    title="Snapshot current working data, then reset all working files from the DB"
+                    onclick="confirmNewSession()">⟳ New Session</button>
+            <button class="btn btn-secondary"
+                    title="Shut down the LLC editor server (Logoff)"
+                    onclick="confirmLogoff()">⏻ Logoff</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Financial Report ───────────────────────────────────────────── -->
+<div class="panel">
+
+    {% set icons = {
+        "llcAssets":        ("🏦", "Asset transactions"),
+        "llcExpRev":        ("💸", "Expenses & Revenue"),
+        "llcPayables":      ("📤", "Accounts payable (owed by LLC)"),
+        "llcReceivables":   ("📥", "Accounts receivable (owed to LLC)"),
+        "llcGeneralLedger": ("📒", "Double-entry ledger"),
+        "llcBank":          ("🏧", "Bank reconciliation"),
+        "llcBalanceSheet":  ("⚖️",  "Assets = Liab + Equity"),
+        "llcIncomeStmt":    ("📈", "Income & Expenses"),
+        "llcOwnerEquity":   ("👥", "Member capital & P&L"),
+        "llcForm1065":      ("🇺🇸", "Partnership return (FILL.pdf)"),
+        "llcFormK1":        ("📋", "Per-partner K-1 (FILL.pdf)"),
+    } %}
+
+    {% for group in view_groups %}
+    <div class="report-section group-{{ group.label | lower | replace(' ', '-') }}">
+        <div class="section-header">
+            <span class="sec-icon">{{ group.icon }}</span>
+            <h3>{{ group.label }}</h3>
+            <span class="sec-count">{{ group.views | length }} views</span>
+        </div>
+
+        <div class="view-grid">
+            {% for vname in group.views %}
+                {% set vlabel = view_labels.get(vname, vname) %}
+                {% set vicon_sub = icons.get(vname, ("📋", "")) %}
+                <a href="/view/{{ vname }}"
+                   class="view-card"
+                   title="{{ vlabel }}">
+                    <span class="vc-icon">{{ vicon_sub[0] }}</span>
+                    <div class="vc-text">
+                        <span class="vc-label">{{ vlabel }}</span>
+                        {% if vicon_sub[1] %}
+                        <span class="vc-sub">{{ vicon_sub[1] }}</span>
+                        {% endif %}
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% if not loop.last %}<hr class="section-divider">{% endif %}
+    {% endfor %}
+
+</div>
+
+<!-- ── Session Objects ────────────────────────────────────────────── -->
+<div class="panel session-panel">
+    <details>
+        <summary style="cursor:pointer; font-weight:600; font-size:14px; padding:4px 0;">
+            🧠 Session Objects ({{ session_views | length }})
+        </summary>
+        <div class="table-wrap" style="margin-top:12px">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Object Name</th>
+                        <th>Working File</th>
+                        <th>Object (DB) File</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in session_views %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="muted" style="font-size:12px;font-family:monospace">{{ item.working_file }}</td>
+                        <td class="muted" style="font-size:12px;font-family:monospace">{{ item.object_file }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not session_views %}
+                    <tr><td colspan="3" class="muted">No session objects found.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+</div>
+
+<!-- ── New Session confirmation modal ─────────────────────────────── -->
+<div id="newSessionBackdrop" class="modal-backdrop"
+     onclick="if(event.target===this) cancelNewSession()">
+    <div class="modal" style="max-width:480px">
+        <h3>⚠️ Start New Session?</h3>
+        <p>This will:</p>
+        <ol>
+            <li>Snapshot all current working data to timestamped backup files</li>
+            <li>Reset all working files back to the last published DB state</li>
+        </ol>
+        <p class="muted" style="font-size:13px">
+            Any unsaved changes in the working files will be captured in the backup
+            before being discarded. Published (DB object) data is not affected.
+        </p>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="cancelNewSession()">Cancel</button>
+            <button id="newSessionConfirmBtn" class="btn btn-danger" onclick="doNewSession()">Confirm Reset</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Logoff confirmation modal (v0.2) ────────────────────────────── -->
+<div id="logoffBackdrop" class="modal-backdrop"
+     onclick="if(event.target===this) cancelLogoff()">
+    <div class="modal" style="max-width:480px">
+        <h3>⏻ Logoff &amp; Quit Editor?</h3>
+        <p>This will stop the LLC editor server.</p>
+        <p class="muted" style="font-size:13px">
+            Any unsaved edits in the browser (not yet saved via the Save button)
+            will be lost. Already-saved data in the working / DB files is safe.
+        </p>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="cancelLogoff()">Cancel</button>
+            <button id="logoffConfirmBtn" class="btn btn-danger" onclick="doLogoff()">Confirm Logoff</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
