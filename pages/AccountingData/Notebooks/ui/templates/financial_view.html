@@ -148,6 +148,13 @@
         font-weight: 700; font-size: 14px;
         border-top: 3px solid #374151;
     }
+    /* Acct-level subtotal (By Property views) */
+    .fin-table tr.acct-subtotal td {
+        background: #f0f9ff; font-weight: 600;
+        border-top: 1px solid #bae6fd;
+        color: #0369a1; font-style: italic;
+        font-size: 12px;
+    }
     /* Amount cell coloring */
     .amt-pos { color: #166534; }
     .amt-neg { color: #991b1b; }
@@ -229,79 +236,126 @@
 <div class="panel">
     <h3>{{ view_title }}</h3>
     <div class="table-wrap">
+        {# ── Column visibility flags ── #}
+        {% set show_minor      = view_by not in ('ByProperty',) %}
+        {% set show_acct_subs  = view_by in ('ByProperty', 'ByPropertyDetails') %}
+        {% set n_cols          = 8 if show_minor else 6 %}
+        {% set label_cols      = 5 if show_minor else 3 %}
         <table class="fin-table">
             <thead>
                 <tr>
                     <th style="width:120px">Type</th>
                     <th>Account</th>
-                    <th style="width:160px">Minor</th>
+                    {% if show_minor %}<th style="width:160px">Minor</th>{% endif %}
                     <th style="width:140px">Property</th>
-                    <th style="width:160px">Sub-Account</th>
+                    {% if show_minor %}<th style="width:160px">Sub-Account</th>{% endif %}
                     <th class="num" style="width:120px">Debit</th>
                     <th class="num" style="width:120px">Credit</th>
                     <th class="num" style="width:120px">Balance</th>
                 </tr>
             </thead>
             <tbody>
-                {% set ns = namespace(current_type="", section_debit=0, section_credit=0, section_balance=0) %}
+                {% set ns = namespace(current_type="", current_acct="",
+                                      section_debit=0, section_credit=0, section_balance=0,
+                                      acct_debit=0,    acct_credit=0,    acct_balance=0) %}
                 {% for row in rows %}
-                    {% set at = row.data.get("acctType", "") %}
-                    {% set acct = row.data.get("acct", "") %}
+                    {% set at       = row.data.get("acctType", "") %}
+                    {% set acct     = row.data.get("acct", "") %}
                     {% set acct_minor = row.data.get("acctMinor", "") %}
-                    {% set prop_nm = row.data.get("propNm", "") %}
+                    {% set prop_nm  = row.data.get("propNm", "") %}
                     {% set acct_sub = row.data.get("acctSub", "") %}
-                    {% set debit = row.data.get("Debit", 0) | float %}
-                    {% set credit = row.data.get("Credit", 0) | float %}
-                    {% set bal = row.data.get("Balance", 0) | float %}
+                    {% set debit    = row.data.get("Debit",   0) | float %}
+                    {% set credit   = row.data.get("Credit",  0) | float %}
+                    {% set bal      = row.data.get("Balance", 0) | float %}
 
                     {% if at == "TOTAL" %}
-                        {# Grand total row — close last section first #}
+                        {# Close last acct-subtotal then last section #}
+                        {% if show_acct_subs and ns.current_acct %}
+                        <tr class="acct-subtotal">
+                            <td colspan="{{ label_cols }}" style="text-align:right">{{ ns.current_acct }} Subtotal</td>
+                            <td class="num">{{ "%.2f"|format(ns.acct_debit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.acct_credit) }}</td>
+                            <td class="num">{{ "%.2f"|format(ns.acct_balance) }}</td>
+                        </tr>
+                        {% endif %}
                         {% if ns.current_type %}
                         <tr class="subtotal">
-                            <td colspan="5" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                            <td colspan="{{ label_cols }}" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
                             <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
                             <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
                             <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
                         </tr>
                         {% endif %}
                         <tr class="grand-total">
-                            <td colspan="5">{{ acct if acct else "TOTAL" }}</td>
+                            <td colspan="{{ label_cols }}">{{ acct if acct else "TOTAL" }}</td>
                             <td class="num">{{ "%.2f"|format(debit) }}</td>
                             <td class="num">{{ "%.2f"|format(credit) }}</td>
                             <td class="num">{{ "%.2f"|format(bal) }}</td>
                         </tr>
                     {% else %}
                         {% if at != ns.current_type %}
-                            {# Emit subtotal for previous section #}
+                            {# Close previous acct subtotal and section subtotal #}
+                            {% if show_acct_subs and ns.current_acct %}
+                            <tr class="acct-subtotal">
+                                <td colspan="{{ label_cols }}" style="text-align:right">{{ ns.current_acct }} Subtotal</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_debit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_credit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_balance) }}</td>
+                            </tr>
+                            {% endif %}
                             {% if ns.current_type %}
                             <tr class="subtotal">
-                                <td colspan="5" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
+                                <td colspan="{{ label_cols }}" style="text-align:right; font-style:italic">{{ ns.current_type }} Subtotal</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_debit) }}</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_credit) }}</td>
                                 <td class="num">{{ "%.2f"|format(ns.section_balance) }}</td>
                             </tr>
                             {% endif %}
-                            {# Section header #}
                             <tr class="section-header">
-                                <td colspan="8">{{ at }}</td>
+                                <td colspan="{{ n_cols }}">{{ at }}</td>
                             </tr>
-                            {% set ns.current_type = at %}
-                            {% set ns.section_debit = 0 %}
-                            {% set ns.section_credit = 0 %}
+                            {% set ns.current_type    = at %}
+                            {% set ns.current_acct    = "" %}
+                            {% set ns.section_debit   = 0 %}
+                            {% set ns.section_credit  = 0 %}
                             {% set ns.section_balance = 0 %}
+                            {% set ns.acct_debit      = 0 %}
+                            {% set ns.acct_credit     = 0 %}
+                            {% set ns.acct_balance    = 0 %}
                         {% endif %}
 
-                        {# Accumulate section totals #}
-                        {% set ns.section_debit = ns.section_debit + debit %}
-                        {% set ns.section_credit = ns.section_credit + credit %}
+                        {# Acct change within section (ByProperty / ByPropertyDetails) #}
+                        {% if show_acct_subs and acct != ns.current_acct %}
+                            {% if ns.current_acct %}
+                            <tr class="acct-subtotal">
+                                <td colspan="{{ label_cols }}" style="text-align:right">{{ ns.current_acct }} Subtotal</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_debit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_credit) }}</td>
+                                <td class="num">{{ "%.2f"|format(ns.acct_balance) }}</td>
+                            </tr>
+                            {% endif %}
+                            {% set ns.current_acct = acct %}
+                            {% set ns.acct_debit   = 0 %}
+                            {% set ns.acct_credit  = 0 %}
+                            {% set ns.acct_balance = 0 %}
+                        {% endif %}
+
+                        {# Accumulate totals #}
+                        {% set ns.section_debit   = ns.section_debit   + debit %}
+                        {% set ns.section_credit  = ns.section_credit  + credit %}
                         {% set ns.section_balance = ns.section_balance + bal %}
+                        {% if show_acct_subs %}
+                        {% set ns.acct_debit   = ns.acct_debit   + debit %}
+                        {% set ns.acct_credit  = ns.acct_credit  + credit %}
+                        {% set ns.acct_balance = ns.acct_balance + bal %}
+                        {% endif %}
 
                         <tr>
                             <td></td>
                             <td class="acct-name">{{ acct }}</td>
-                            <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>
+                            {% if show_minor %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>{% endif %}
                             <td style="font-size:12px; color:#374151">{{ prop_nm }}</td>
-                            <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>
+                            {% if show_minor %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
                             <td class="num {% if debit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(debit) if debit else "" }}</td>
                             <td class="num {% if credit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(credit) if credit else "" }}</td>
                             <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">{{ "%.2f"|format(bal) }}</td>
@@ -309,7 +363,7 @@
                     {% endif %}
                 {% endfor %}
                 {% if not rows %}
-                <tr><td colspan="8" class="muted">No data available.</td></tr>
+                <tr><td colspan="{{ n_cols }}" class="muted">No data available.</td></tr>
                 {% endif %}
             </tbody>
         </table>

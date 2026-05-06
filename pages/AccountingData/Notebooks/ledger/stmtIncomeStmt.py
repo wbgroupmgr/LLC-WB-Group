@@ -66,7 +66,7 @@ class stmtIncomeStmt(stmtDB):
 
     DEFAULT_TBLID = "IncomeStmt"
     COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
-    VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense', 'PerMember']
+    VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember']
 
     # ── Form 1065 publish map (DataModelGuide § 4 / Phase 5) ─────────────────
     #
@@ -197,7 +197,6 @@ class stmtIncomeStmt(stmtDB):
         if df.empty:
             return [], {'net_income': 0, 'income': 0, 'expense': 0}
 
-        # Ensure acctType / amt cols exist.
         if 'acctType' not in df.columns:
             try:
                 from ledger.ledgerGeneral import ledgerGeneral
@@ -209,24 +208,27 @@ class stmtIncomeStmt(stmtDB):
 
         idf = df[df['acctType'].isin(IS_TYPES)].copy()
 
-        if view_by and view_by != 'All' and view_by != 'PerMember':
-            acct_type = view_by[2:]              # 'ByIncome' → 'Income'
-            idf = idf[idf['acctType'] == acct_type]
+        if view_by in ('ByIncome', 'ByExpense'):
+            idf = idf[idf['acctType'] == view_by[2:]]
 
         if idf.empty:
             return [], {'net_income': 0, 'income': 0, 'expense': 0}
 
-        if 'acctSub' in idf.columns:
-            idf['acctSub'] = idf['acctSub'].fillna('').astype(str)
+        for col in ('acctSub', 'propNm', 'acctMinor'):
+            if col in idf.columns:
+                idf[col] = idf[col].fillna('').astype(str)
+            else:
+                idf[col] = ''
+
+        # ByProperty: collapse to acct + propNm only (no minor/sub breakdown)
+        if view_by == 'ByProperty':
+            gb_keys = ['acctType', 'acct', 'propNm', 'aType']
         else:
-            idf['acctSub'] = ''
-        if 'propNm' in idf.columns:
-            idf['propNm'] = idf['propNm'].fillna('').astype(str)
-        else:
-            idf['propNm'] = ''
+            # All, ByIncome, ByExpense, ByPropertyDetails: full detail
+            gb_keys = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'aType']
 
         grp = (
-            idf.groupby(['acctType', 'acct', 'acctSub', 'propNm', 'aType'])['amt']
+            idf.groupby(gb_keys)['amt']
                .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -236,19 +238,18 @@ class stmtIncomeStmt(stmtDB):
         grp['Debit']   = grp['Debit'].round(2)
         grp['Credit']  = grp['Credit'].round(2)
 
-        def _acct_minor(acct):
-            parts = str(acct or '').split('.')
-            return '.'.join(parts[2:]) if len(parts) > 2 else ''
-        grp['acctMinor'] = grp['acct'].map(_acct_minor)
+        if view_by == 'ByProperty':
+            grp['acctMinor'] = ''
+            grp['acctSub']   = ''
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct', 'propNm', 'acctSub']).drop(columns=['_sort'])
+        sort_cols = ['_sort', 'acct', 'propNm'] if view_by == 'ByProperty' \
+                    else ['_sort', 'acct', 'acctMinor', 'propNm', 'acctSub']
+        grp = grp.sort_values(sort_cols).drop(columns=['_sort'])
 
         result = grp[['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
-        # Income balance = Credit - Debit (Credit > Debit = positive income)
-        # Expense balance = Debit - Credit (Debit > Credit = positive expense)
         income_net  = round(sum(-(r['Balance']) for r in result if r['acctType'] == 'Income'),  2)
         expense_net = round(sum(  r['Balance']  for r in result if r['acctType'] == 'Expense'), 2)
         net_income  = round(income_net - expense_net, 2)
@@ -281,24 +282,26 @@ class stmtIncomeStmt(stmtDB):
         except Exception:
             classify = lambda v: ''
 
-        def _acct_minor(acct):
-            parts = str(acct or '').split('.')
-            return '.'.join(parts[2:]) if len(parts) > 2 else ''
-
         buckets: Dict[tuple, Dict[str, float]] = {}
         for r in gl_records:
             at = r.get('acctType') or classify(r.get('acct', ''))
             if at not in IS_TYPES:
                 continue
-            if view_by and view_by != 'All' and view_by != 'PerMember' and at != view_by[2:]:
+            if view_by in ('ByIncome', 'ByExpense') and at != view_by[2:]:
                 continue
-            acct     = r.get('acct', '')
-            acct_sub = str(r.get('acctSub') or '')
-            prop_nm  = str(r.get('propNm') or '')
+            acct      = r.get('acct', '')
+            acct_minor = str(r.get('acctMinor') or '')
+            acct_sub  = str(r.get('acctSub') or '')
+            prop_nm   = str(r.get('propNm') or '')
             try:    amt = float(r.get('amt', 0) or 0)
             except: amt = 0.0
             atype = str(r.get('aType', 'Debit')).strip()
-            key = (at, acct, acct_sub, prop_nm)
+
+            if view_by == 'ByProperty':
+                key = (at, acct, '', '', prop_nm)
+            else:
+                key = (at, acct, acct_minor, acct_sub, prop_nm)
+
             if key not in buckets:
                 buckets[key] = {'Debit': 0.0, 'Credit': 0.0}
             is_credit = atype in ('Credit', 'Cr', 'CR', 'C')
@@ -306,11 +309,12 @@ class stmtIncomeStmt(stmtDB):
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
         result: List[Dict[str, Any]] = []
-        for (at, acct, acct_sub, prop_nm), s in sorted(buckets.items(),
-                                              key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][3], x[0][2])):
+        for (at, acct, acct_minor, acct_sub, prop_nm), s in sorted(
+                buckets.items(),
+                key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2], x[0][4], x[0][3])):
             d = round(s['Debit'], 2)
             c = round(s['Credit'], 2)
-            result.append({'acctType': at, 'acct': acct, 'acctMinor': _acct_minor(acct),
+            result.append({'acctType': at, 'acct': acct, 'acctMinor': acct_minor,
                            'acctSub': acct_sub, 'propNm': prop_nm,
                            'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 

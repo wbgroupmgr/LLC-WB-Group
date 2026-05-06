@@ -153,7 +153,7 @@ class llcMgmt:
     VIEW_BY_OPTIONS: Dict[str, List[str]] = {
         'stmtGeneralLedger': ['All', 'By Dups', 'ByAsset', 'ByLiability', 'ByEquity', 'ByIncome', 'ByExpense'],
         'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity'],
-        'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'PerMember'],
+        'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember'],
         # IRS Form 1065 / Sch K-1 are now PDF-embed views (v0.2.4.7) — no
         # row-level publish filter at the view layer; the publish flag is
         # baked into the underlying FILL.pdf.
