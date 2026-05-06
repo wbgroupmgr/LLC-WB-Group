@@ -1,0 +1,10 @@
+{ "desc": {"howto_cowork" : "/model claude-opus-4-7; /effort high/normal/low",
+           "modelList" : [ "claude-opus-4-7 — $$$$, Architect, strong reasoning, best: architecture, deep debugging",
+                           "claude-sonnet-4-6 —$$, Sr. Dev, High Intelligence, Fast, Ideal daily coding",
+                           "claude-haiku-4-5-20251001 — $, Jr Dev, simpleTasks, Boilerplate generation, fastest"]
+           },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  }
+}
+    

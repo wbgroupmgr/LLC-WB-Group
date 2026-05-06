@@ -113,8 +113,9 @@ class stmtGeneralLedger(stmtDB):
         # Normalise row keys so every row exposes the full column list.
         rows: List[Dict[str, Any]] = []
         for r in filtered:
-            acct = r.get('acct', '') or ''
-            parts = acct.split('.')
+            acct_full = r.get('acct', '') or ''
+            parts = acct_full.split('.')
+            acct = '.'.join(parts[:2]) if len(parts) >= 2 else acct_full
             acct_minor = '.'.join(parts[2:]) if len(parts) > 2 else ''
             prop_nm = r.get('propNm', '')
             if prop_nm is None or (isinstance(prop_nm, float) and prop_nm != prop_nm):
@@ -421,7 +422,7 @@ class stmtTrialBalance(stmtDB):
     '''
 
     DEFAULT_TBLID = "TrialBalance"
-    COLUMNS = ['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']
+    COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity',
                        'ByIncome', 'ByExpense']
 
@@ -518,9 +519,17 @@ class stmtTrialBalance(stmtDB):
             tb['acctSub'] = tb['acctSub'].fillna('').astype(str)
         else:
             tb['acctSub'] = ''
+        if 'acctMinor' in tb.columns:
+            tb['acctMinor'] = tb['acctMinor'].fillna('').astype(str)
+        else:
+            tb['acctMinor'] = ''
+        if 'propNm' in tb.columns:
+            tb['propNm'] = tb['propNm'].fillna('').astype(str)
+        else:
+            tb['propNm'] = ''
 
         grp = (
-            tb.groupby(['acctType', 'acct', 'acctSub', 'aType'])['amt']
+            tb.groupby(['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'aType'])['amt']
               .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -532,9 +541,9 @@ class stmtTrialBalance(stmtDB):
 
         order = {t: i for i, t in enumerate(_TB_ACCT_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct', 'acctSub']).drop(columns=['_sort'])
+        grp = grp.sort_values(['_sort', 'acct', 'acctMinor', 'propNm', 'acctSub']).drop(columns=['_sort'])
 
-        rows = grp[['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+        rows = grp[['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
         total_d = round(sum(r['Debit']  for r in rows), 2)
         total_c = round(sum(r['Credit'] for r in rows), 2)
@@ -543,7 +552,9 @@ class stmtTrialBalance(stmtDB):
         rows.append({
             'acctType': 'TOTAL',
             'acct':     '',
+            'acctMinor': '',
             'acctSub':  '',
+            'propNm':   '',
             'Debit':    total_d,
             'Credit':   total_c,
             'Balance':  tb_diff,
