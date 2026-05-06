@@ -55,7 +55,7 @@ class stmtBalanceSheet(stmtDB):
     '''
 
     DEFAULT_TBLID = "BalanceSheet"
-    COLUMNS = ['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']
+    COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity']
 
     # ── Form 1065 publish map (DataModelGuide § 4 / Phase 5) ─────────────────
@@ -192,9 +192,13 @@ class stmtBalanceSheet(stmtDB):
             bs['acctSub'] = bs['acctSub'].fillna('').astype(str)
         else:
             bs['acctSub'] = ''
+        if 'propNm' in bs.columns:
+            bs['propNm'] = bs['propNm'].fillna('').astype(str)
+        else:
+            bs['propNm'] = ''
 
         grp = (
-            bs.groupby(['acctType', 'acct', 'acctSub', 'aType'])['amt']
+            bs.groupby(['acctType', 'acct', 'acctSub', 'propNm', 'aType'])['amt']
               .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -204,11 +208,16 @@ class stmtBalanceSheet(stmtDB):
         grp['Debit']   = grp['Debit'].round(2)
         grp['Credit']  = grp['Credit'].round(2)
 
+        def _acct_minor(acct):
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+        grp['acctMinor'] = grp['acct'].map(_acct_minor)
+
         order = {t: i for i, t in enumerate(BS_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct', 'acctSub']).drop(columns=['_sort'])
+        grp = grp.sort_values(['_sort', 'acct', 'propNm', 'acctSub']).drop(columns=['_sort'])
 
-        result = grp[['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+        result = grp[['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
         asset_bal  = round(sum(r['Balance'] for r in result if r['acctType'] == 'Asset'),  2)
         liab_bal   = round(sum(r['Balance'] for r in result if r['acctType'] == 'Liability'), 2)
@@ -218,7 +227,7 @@ class stmtBalanceSheet(stmtDB):
         total_d = round(sum(r['Debit']  for r in result), 2)
         total_c = round(sum(r['Credit'] for r in result), 2)
         result.append({
-            'acctType': 'TOTAL', 'acct': '', 'acctSub': '',
+            'acctType': 'TOTAL', 'acct': '', 'acctMinor': '', 'acctSub': '', 'propNm': '',
             'Debit': total_d, 'Credit': total_c, 'Balance': round(total_d - total_c, 2),
         })
 
@@ -244,6 +253,10 @@ class stmtBalanceSheet(stmtDB):
         except Exception:
             classify = lambda v: ''
 
+        def _acct_minor(acct):
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+
         buckets: Dict[tuple, Dict[str, float]] = {}
         for r in gl_records:
             at = r.get('acctType') or classify(r.get('acct', ''))
@@ -253,10 +266,11 @@ class stmtBalanceSheet(stmtDB):
                 continue
             acct     = r.get('acct', '')
             acct_sub = str(r.get('acctSub') or '')
+            prop_nm  = str(r.get('propNm') or '')
             try:    amt = float(r.get('amt', 0) or 0)
             except: amt = 0.0
             atype = str(r.get('aType', 'Debit')).strip()
-            key = (at, acct, acct_sub)
+            key = (at, acct, acct_sub, prop_nm)
             if key not in buckets:
                 buckets[key] = {'Debit': 0.0, 'Credit': 0.0}
             is_credit = atype in ('Credit', 'Cr', 'CR', 'C')
@@ -264,11 +278,12 @@ class stmtBalanceSheet(stmtDB):
 
         order = {t: i for i, t in enumerate(BS_ORDER)}
         result: List[Dict[str, Any]] = []
-        for (at, acct, acct_sub), s in sorted(buckets.items(),
-                                              key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2])):
+        for (at, acct, acct_sub, prop_nm), s in sorted(buckets.items(),
+                                              key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][3], x[0][2])):
             d = round(s['Debit'], 2)
             c = round(s['Credit'], 2)
-            result.append({'acctType': at, 'acct': acct, 'acctSub': acct_sub,
+            result.append({'acctType': at, 'acct': acct, 'acctMinor': _acct_minor(acct),
+                           'acctSub': acct_sub, 'propNm': prop_nm,
                            'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 
         asset_bal  = round(sum(r['Balance'] for r in result if r['acctType'] == 'Asset'),  2)
@@ -278,7 +293,7 @@ class stmtBalanceSheet(stmtDB):
 
         total_d = round(sum(r['Debit']  for r in result), 2)
         total_c = round(sum(r['Credit'] for r in result), 2)
-        result.append({'acctType': 'TOTAL', 'acct': '', 'acctSub': '',
+        result.append({'acctType': 'TOTAL', 'acct': '', 'acctMinor': '', 'acctSub': '', 'propNm': '',
                        'Debit': total_d, 'Credit': total_c,
                        'Balance': round(total_d - total_c, 2)})
 

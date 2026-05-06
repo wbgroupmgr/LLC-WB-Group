@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    participant B as 'UI<br>Browser'
+    participant JS as JavaScript (Frontend)
+    participant API as Flask API (Routes)
+    participant AM as ui.llcMgmt<br>(Middleware/Auth)
+    participant UI as UI<br>(Orchestration)
+    participant Bk as ledger.BookSvc<br>(llc/stmt)
+    participant IRS as irs.Services<br>(Form Processing)
+    participant DB as DB_Json<br>(⛁ OBJs/Profile)
+    participant BookNS as BookNS<br>(⛁ Namespace Control)
+    participant FM as Form.pdf<br>(⛁ namespece/FILL)
+    participant U as Util (Log/Help)
+    participant H as Bookkeeper (Logging/Helpers)
+
+    Note over B, U: Request Phase
+    B->>JS: User Action (e.g., Submit Form)
+    JS->>API: Fetch Request (JWT/Headers)
+    API->>AM: Validated Request
+    AM->>UI: Log Request Initiation
+    UI->>Bk: Service Book Action
+    Bk->>IRS: irs.BookToIRS
+    IRS->>Bk: get BookNS
+    Bk->>DB: get book (GL) data
+    Bk->>IRS: return book data
+    IRS->>Bk: generate FillDict
+    Bk->>BookNS: fetchBookNS/custom values
+    IRS->>FM: fetch form NS from pdf
+    IRS->>IRS: generate values bookNS X form fields
+    IRS->>FM: output FILL.pdf
+    Note over B, H: Response Phase
+    IRS->>Bk: return code
+    Bk->>UI: return success
+    UI->>AM: return to view
+    AM->>API: post return code
+    API->>JS: return payload
+    JS->>B: Update UI / Render ViewX

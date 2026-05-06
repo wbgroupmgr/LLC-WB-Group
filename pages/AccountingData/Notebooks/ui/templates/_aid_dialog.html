@@ -1,0 +1,431 @@
+{# _aid_dialog.html — Book→IRS Aid inline modal (v0.1).
+
+Included from irs_pdf_view.html.  Talks to /api/aid/... routes
+defined in ui/llcMgmt.py::_bind_routes().
+
+Per docs/LLC_BookToIRS_Aid.md: per-fid dialog, no in-memory state,
+no validation gate, output type derived read-only from namespace.fType.
+#}
+<style>
+    .aid-backdrop {
+        position: fixed; inset: 0; background: rgba(17,24,39,.55);
+        display: none; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .aid-backdrop.open { display: flex; }
+    .aid-modal {
+        background: white; width: min(720px, 96vw); max-height: 92vh;
+        overflow: auto; border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(0,0,0,.25); padding: 18px;
+        position: relative;
+    }
+    .aid-modal h3 { margin: 0 0 8px 0; padding-right: 36px; }
+    /* Always-visible X close button (top-right of the modal). */
+    .aid-x-close {
+        position: absolute; top: 10px; right: 12px;
+        background: transparent; border: 0; color: #6b7280;
+        font-size: 22px; line-height: 1; cursor: pointer;
+        padding: 4px 8px; border-radius: 6px;
+    }
+    .aid-x-close:hover { background: #f3f4f6; color: #111827; }
+    /* Cancel button next to the fid picker (always visible — works
+       even before a fid is loaded). */
+    .aid-fid-row {
+        display: grid; grid-template-columns: 130px 1fr auto; gap: 8px 12px;
+        align-items: center; font-size: 13px; margin: 6px 0;
+    }
+    .aid-fid-row label { font-weight: 600; }
+    .aid-fid-row input {
+        padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
+        font: inherit; width: 100%;
+    }
+    .aid-meta-row {
+        display: flex; flex-wrap: wrap; gap: 8px;
+        margin: 8px 0 14px 0; font-size: 12px;
+    }
+    .aid-meta-row .pill {
+        background: #eef2ff; color: #1e3a8a; padding: 3px 10px;
+        border-radius: 999px; border: 1px solid #c7d2fe;
+    }
+    .aid-meta-row .pill.kind-custom {
+        background: #fff7ed; color: #9a3412; border-color: #fed7aa;
+    }
+    .aid-meta-row .pill.kind-blank {
+        background: #f3f4f6; color: #6b7280; border-color: #d1d5db;
+    }
+    .aid-grid {
+        display: grid; grid-template-columns: 130px 1fr; gap: 8px 12px;
+        align-items: center; font-size: 13px; margin: 6px 0;
+    }
+    .aid-grid label { font-weight: 600; }
+    .aid-grid select, .aid-grid input {
+        padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
+        font: inherit; width: 100%;
+    }
+    .aid-live {
+        background: #f0fdf4; border: 1px solid #86efac; color: #14532d;
+        padding: 8px 12px; border-radius: 6px; font-family: monospace;
+        font-size: 13px; margin: 8px 0;
+    }
+    .aid-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .aid-chip {
+        padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    }
+    .aid-chip.warn  { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
+    .aid-chip.error { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+    .aid-actions {
+        display: flex; justify-content: space-between; gap: 8px;
+        margin-top: 14px; padding-top: 12px; border-top: 1px solid #e5e7eb;
+    }
+    .aid-actions .left, .aid-actions .right { display: flex; gap: 8px; flex-wrap: wrap; }
+    .aid-flash {
+        margin-top: 10px; padding: 10px 12px; border-radius: 6px; font-size: 13px;
+    }
+    .aid-flash.ok    { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .aid-flash.err   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .aid-section-h {
+        font-size: 11px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.05em; color: #6b7280; margin: 12px 0 4px 0;
+    }
+</style>
+
+<div id="aidBackdrop" class="aid-backdrop" onclick="if(event.target===this)aidClose()">
+  <div class="aid-modal" role="dialog" aria-modal="true">
+    <button type="button" class="aid-x-close" onclick="aidClose()"
+            title="Cancel — close the Aid (Esc)" aria-label="Close">×</button>
+    <h3>Book→IRS Mapping Aid
+        <span id="aidFormNm" style="font-size:12px;color:#6b7280">— {{ meta.formId or obj_type }}</span>
+    </h3>
+
+    <!-- Step 1 — fid picker + always-visible Cancel button -->
+    <div class="aid-fid-row">
+      <label for="aidFidInput">fid / shortName</label>
+      <input id="aidFidInput" type="text" placeholder="e.g. F042 or f1_31"
+             oninput="aidLookup()" onkeypress="if(event.key==='Enter')aidLookup()">
+      <button type="button" class="btn btn-secondary" onclick="aidClose()"
+              title="Cancel — close without saving (Esc)">Cancel</button>
+    </div>
+
+    <!-- Step 2 — current state -->
+    <div id="aidState" style="display:none;">
+      <div class="aid-meta-row" id="aidMeta"></div>
+
+      <div class="aid-section-h">Current mapping</div>
+      <div id="aidCurrent" style="font-size:13px; padding: 6px 0;"></div>
+
+      <div class="aid-section-h">Live value (what BookToIRS would publish today)</div>
+      <div class="aid-live" id="aidLive">…</div>
+
+      <!-- Step 3 — edit form -->
+      <div class="aid-section-h">Edit / Create / Delete</div>
+      <div class="aid-grid">
+        <label>Output type</label>
+        <span id="aidFType" style="font-size:13px; color:#374151;"></span>
+
+        <label for="aidSrc">Source</label>
+        <select id="aidSrc" onchange="aidSrcChanged()"></select>
+
+        <label for="aidPath">Path</label>
+        <select id="aidPath" onchange="aidPathChanged()"></select>
+
+        <label for="aidPathFree">… or path (free)</label>
+        <input id="aidPathFree" type="text" placeholder="e.g. IS.repairs"
+               oninput="aidPreview()">
+      </div>
+
+      <div class="aid-chips" id="aidChips"></div>
+
+      <div class="aid-actions">
+        <div class="left">
+          <button type="button" class="btn btn-danger" onclick="aidDelete()" id="aidDeleteBtn">Delete</button>
+          <button type="button" class="btn btn-warning" onclick="aidChkToggle()" id="aidChkBtn"
+                  title="Toggle CHECK on/off via Profile.F1065.chk[]"
+                  style="display:none;">Toggle CHECK (chk[])</button>
+        </div>
+        <div class="right">
+          <button type="button" class="btn btn-secondary" onclick="aidClose()"
+                  title="Cancel — close without saving (Esc)">Cancel</button>
+          <button type="button" class="btn btn-success"   onclick="aidSave()">Save mapping</button>
+          <button type="button" class="btn btn-warning"   onclick="aidCustom()" title="Custom map (M4 — not yet wired in v0.1)">+ Custom map</button>
+          <button type="button" class="btn btn-primary"   onclick="aidRegenerate()" title="Re-run BookToIRS and refresh the FILL.pdf">Commit (Regenerate FILL.pdf)</button>
+        </div>
+      </div>
+      <div id="aidFlash"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(() => {
+    const $ = (id) => document.getElementById(id);
+    let CURRENT = null;     // last-loaded mapping state
+    let SOURCES = [];       // ['Profile','BS','IS','GL']
+
+    // The form this Aid dialog operates on — derived from the host
+    // IRS Tax view's meta.formId (Form1065 / Form8825 / Sch_K1 / …).
+    // Falls back to Form1065 so the dialog still works on legacy
+    // pages that don't set meta.formId.
+    const AID_FORM = ({{ (meta.formId or 'Form1065') | tojson }});
+
+    /** Append ?formNm=… to a URL, preserving any existing query string. */
+    function aidUrl(path) {
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}formNm=${encodeURIComponent(AID_FORM)}`;
+    }
+
+    async function aidJSON(method, url, body) {
+        const opts = { method, headers: {'Content-Type':'application/json'} };
+        // POST/PUT/DELETE: inject formNm into the JSON body so the
+        // server-side _aid_form_from_request() picks it up even when
+        // the URL doesn't carry the query string (cache-buster proxies).
+        if (body || method !== 'GET') {
+            const merged = Object.assign({ formNm: AID_FORM }, body || {});
+            opts.body = JSON.stringify(merged);
+        }
+        const finalUrl = aidUrl(url);
+        const r = await fetch(finalUrl, opts);
+        const j = await r.json().catch(() => ({}));
+        return { ok: r.ok && (j.ok !== false), status: r.status, json: j };
+    }
+
+    window.aidOpen = async function(fid) {
+        $('aidBackdrop').classList.add('open');
+        $('aidFlash').innerHTML = '';
+        $('aidState').style.display = 'none';
+        if (!SOURCES.length) {
+            const r = await aidJSON('GET', '/api/aid/sources');
+            SOURCES = r.json.sources || ['Profile','BS','IS','GL'];
+            const sel = $('aidSrc');
+            sel.innerHTML = '';
+            SOURCES.forEach(s => {
+                const o = document.createElement('option');
+                o.value = s; o.text = s; sel.appendChild(o);
+            });
+        }
+        if (fid) { $('aidFidInput').value = fid; aidLookup(); }
+        else     { $('aidFidInput').focus(); }
+    };
+
+    window.aidClose = function() {
+        $('aidBackdrop').classList.remove('open');
+        $('aidFlash').innerHTML = '';
+    };
+
+    // Esc closes the modal from anywhere in the workflow.
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && $('aidBackdrop').classList.contains('open')) {
+            aidClose();
+        }
+    });
+
+    window.aidLookup = async function() {
+        const raw = $('aidFidInput').value.trim();
+        if (!raw) return;
+        // Normalize: f1_31 -> ask backend to resolve via shortName.
+        // Backend's getMapping() accepts any non-empty form; if it doesn't
+        // map to a known fid, we still surface namespace meta from the chips.
+        const fid = raw.match(/^[fF]?\d+$/) ? raw.toUpperCase() : raw;
+        const r = await aidJSON('GET', `/api/aid/mapping/${encodeURIComponent(fid)}`);
+        if (!r.ok) {
+            $('aidFlash').innerHTML = `<div class="aid-flash err">${r.json.error || 'Lookup failed'}</div>`;
+            return;
+        }
+        CURRENT = r.json;
+        renderState(CURRENT);
+        $('aidState').style.display = '';
+        await populatePathDropdown();
+        await aidPreview();
+    };
+
+    function renderState(s) {
+        const ns = s.namespace || {};
+        const meta = $('aidMeta');
+        const inChk = !!(s.chk_array && s.chk_array.in_array);
+        const kind = s.bookNS ? 'kind-bookns'
+                  : s.custom  ? 'kind-custom'
+                  : inChk     ? 'kind-custom'
+                  :              'kind-blank';
+        meta.innerHTML = `
+            <span class="pill">fid <strong>${s.fid}</strong></span>
+            <span class="pill">page ${ns.page || '?'}</span>
+            <span class="pill">short ${ns.shortName || '?'}</span>
+            <span class="pill">fType <strong>${ns.fType || '?'}</strong></span>
+            <span class="pill ${kind}">status: ${s.live_status}</span>
+        `;
+
+        // ── Current mapping section: union of bookNS + Custom + chk[]
+        const cur = $('aidCurrent');
+        const lines = [];
+        if (s.bookNS) {
+            lines.push(`<div><strong>bookNS</strong> &nbsp; <code>${s.bookNS.source}</code> → <code>${s.bookNS.path}</code></div>`);
+        }
+        if (s.custom) {
+            lines.push(`<div><strong>custom</strong> &nbsp; <code>${s.custom.source}</code>.<code>${s.custom.method}()</code></div>`);
+        }
+        if (inChk) {
+            lines.push(`<div><strong>chk-array</strong> &nbsp; <code>${s.chk_array.path}</code> contains fid #${s.chk_array.fid_number} → publishes <code>CHECK</code> (use Toggle CHECK to remove)</div>`);
+        }
+        if (lines.length === 0) {
+            cur.innerHTML = `<em style="color:#6b7280">No mapping yet — Save will create one.</em>`;
+        } else {
+            cur.innerHTML = lines.join('');
+        }
+
+        // Pre-fill the edit form from whichever source we found.
+        if (s.bookNS) {
+            $('aidSrc').value      = s.bookNS.source;
+            $('aidPathFree').value = s.bookNS.path;
+        } else if (s.custom) {
+            $('aidSrc').value      = s.custom.source;
+            $('aidPathFree').value = '';
+        } else {
+            $('aidPathFree').value = '';
+        }
+
+        $('aidLive').textContent = s.live_value === '' ? '(blank)' : s.live_value;
+        $('aidFType').textContent = ns.fType
+                ? `${ns.fType}  (read-only — derived from namespace[${s.fid}].fType)`
+                : '(unknown)';
+        $('aidDeleteBtn').disabled = !(s.bookNS || s.custom);
+
+        // Toggle CHECK button — only meaningful for numeric fids and
+        // checkbox / text fids (the chk[] mechanism stamps X or toggles
+        // /Btn ON depending on the namespace fType).
+        const chkBtn = $('aidChkBtn');
+        const numericFid  = !!(s.chk_array && s.chk_array.fid_number !== null && s.chk_array.fid_number !== undefined);
+        if (numericFid) {
+            chkBtn.style.display = '';
+            chkBtn.textContent = inChk
+                ? `Remove from chk[] (clear CHECK)`
+                : `Add to chk[] (set CHECK)`;
+            chkBtn.title = inChk
+                ? `Remove fid #${s.chk_array.fid_number} from Profile.F1065.chk[] → publishes blank instead of CHECK`
+                : `Add fid #${s.chk_array.fid_number} to Profile.F1065.chk[] → publishes CHECK on Form1065`;
+        } else {
+            chkBtn.style.display = 'none';
+        }
+    }
+
+    window.aidChkToggle = async function() {
+        if (!CURRENT) return;
+        const r = await aidJSON('POST', `/api/aid/chk/${encodeURIComponent(CURRENT.fid)}/toggle`);
+        if (!r.ok) { flashErr(r.json.error || 'chk[] toggle failed'); return; }
+        flashOK(`✅ ${CURRENT.fid} ${r.json.action} ${r.json.action === 'added' ? 'to' : 'from'} Profile.F1065.chk[].  Click Commit to regenerate the FILL.pdf.`);
+        CURRENT = r.json.row;
+        renderState(CURRENT);
+    };
+
+    window.aidSrcChanged = async function() {
+        await populatePathDropdown();
+        aidPreview();
+    };
+
+    async function populatePathDropdown() {
+        const src = $('aidSrc').value;
+        const r = await aidJSON('GET', `/api/aid/fields/${src}`);
+        const sel = $('aidPath');
+        sel.innerHTML = '';
+        const seed = document.createElement('option');
+        seed.value = ''; seed.text = '— pick a path —'; sel.appendChild(seed);
+        const paths = (r.json.resolvable_paths || []).slice();
+        paths.forEach(p => {
+            const o = document.createElement('option');
+            o.value = p; o.text = p; sel.appendChild(o);
+        });
+    }
+
+    window.aidPathChanged = function() {
+        const v = $('aidPath').value;
+        if (v) $('aidPathFree').value = v;
+        aidPreview();
+    };
+
+    window.aidPreview = async function() {
+        if (!CURRENT) return;
+        const src  = $('aidSrc').value;
+        const path = $('aidPathFree').value || $('aidPath').value;
+        if (!src || !path) {
+            $('aidChips').innerHTML = '';
+            return;
+        }
+        const r = await aidJSON('GET',
+            `/api/aid/preview?fid=${encodeURIComponent(CURRENT.fid)}&src=${encodeURIComponent(src)}&path=${encodeURIComponent(path)}`);
+        if (r.ok) {
+            $('aidLive').textContent = r.json.value === '' ? '(blank)' : r.json.value;
+            const chips = (r.json.chips || []).map(c =>
+                `<span class="aid-chip ${c.level}">${c.text}</span>`).join('');
+            $('aidChips').innerHTML = chips;
+        }
+    };
+
+    window.aidSave = async function() {
+        if (!CURRENT) return;
+        const src  = $('aidSrc').value;
+        const path = ($('aidPathFree').value || $('aidPath').value).trim();
+        if (!src || !path) {
+            flashErr('Pick a Source + Path before saving.');
+            return;
+        }
+        const url    = `/api/aid/mapping/${encodeURIComponent(CURRENT.fid)}`;
+        const exists = !!(CURRENT.bookNS || CURRENT.custom);
+        const method = exists ? 'PUT' : 'POST';
+        const body   = exists ? { src, path } : { fid: CURRENT.fid, src, path };
+        const target = exists ? url : '/api/aid/mapping';
+        const r = await aidJSON(method, target, body);
+        if (!r.ok) { flashErr(r.json.error || 'Save failed'); return; }
+        flashOK(`Saved ${CURRENT.fid} → ${src}.${path}`);
+        CURRENT = r.json.row;
+        renderState(CURRENT);
+    };
+
+    window.aidDelete = async function() {
+        if (!CURRENT) return;
+        if (!confirm(`Delete mapping for ${CURRENT.fid}?\n\nThis removes the entry from bookNS / CustomMapDict.`)) return;
+        const r = await aidJSON('DELETE', `/api/aid/mapping/${encodeURIComponent(CURRENT.fid)}`);
+        if (!r.ok) { flashErr(r.json.error || 'Delete failed'); return; }
+        flashOK(`Deleted ${CURRENT.fid}`);
+        CURRENT = r.json.row;
+        renderState(CURRENT);
+    };
+
+    window.aidCustom = async function() {
+        if (!CURRENT) return;
+        const src  = $('aidSrc').value;
+        const note = prompt(`Add custom map for ${CURRENT.fid} on source ${src}.\nNote (optional):`, '');
+        if (note === null) return;
+        const r = await aidJSON('POST', '/api/aid/custom', { fid: CURRENT.fid, src, note });
+        if (r.status === 501) {
+            flashErr(`Custom-map source surgery is M4 — not yet wired in v0.1.\n\nManual: add "${CURRENT.fid}": "_Cplx_${CURRENT.fid}" to stmt${src}_Tax.${'{{ obj_type }}'.startsWith('llcForm') ? 'Form1065' : '?'}_CustomMapDict and define the method body.\n\nSee docs/LLC_BookToIRS_Aid.md §6.`);
+            return;
+        }
+        if (!r.ok) { flashErr(r.json.error || 'Custom-map create failed'); return; }
+        flashOK(`Custom map registered for ${CURRENT.fid}`);
+        CURRENT = r.json.row;
+        renderState(CURRENT);
+    };
+
+    window.aidRegenerate = async function() {
+        flashOK('Regenerating FILL.pdf — this can take 2–4 sec…');
+        const r = await aidJSON('POST', '/api/aid/regenerate');
+        if (!r.ok) {
+            flashErr(`Regenerate failed: ${r.json.error || 'unknown'}<br><pre style="font-size:11px;">${(r.json.traceback||'').slice(0,1200)}</pre>`);
+            return;
+        }
+        flashOK(`✅ FILL.pdf regenerated — pdf_fields=${r.json.pdf_fields} filled=${r.json.filled} check=${r.json.check} complex=${r.json.complex} blank=${r.json.blank}`);
+        // Refresh the embedded PDF iframe with a cache-buster.
+        const frames = document.getElementsByClassName('pdf-frame');
+        if (frames.length) {
+            const base = frames[0].src.split('?')[0];
+            frames[0].src = `${base}?ts=${r.json.ts}`;
+        }
+        // Also refresh the live value inside the dialog.
+        if (CURRENT) {
+            const fresh = await aidJSON('GET', `/api/aid/mapping/${encodeURIComponent(CURRENT.fid)}`);
+            if (fresh.ok) { CURRENT = fresh.json; renderState(CURRENT); }
+        }
+    };
+
+    function flashOK(msg)  { $('aidFlash').innerHTML = `<div class="aid-flash ok">${msg}</div>`;  }
+    function flashErr(msg) { $('aidFlash').innerHTML = `<div class="aid-flash err">${msg}</div>`; }
+})();
+</script>

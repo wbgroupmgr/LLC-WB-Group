@@ -55,7 +55,7 @@ class stmtGeneralLedger(stmtDB):
     '''
 
     DEFAULT_TBLID = "GeneralLedger"
-    COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt',
+    COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'acctMinor', 'propNm', 'aType', 'amt',
                'desc', 'acctSub', 'refDB', 'tID']
     VIEW_BY_OPTIONS = ['All', 'By Dups', 'By COA Seed',
                        'ByAsset', 'ByLiability', 'ByEquity',
@@ -113,17 +113,25 @@ class stmtGeneralLedger(stmtDB):
         # Normalise row keys so every row exposes the full column list.
         rows: List[Dict[str, Any]] = []
         for r in filtered:
+            acct = r.get('acct', '') or ''
+            parts = acct.split('.')
+            acct_minor = '.'.join(parts[2:]) if len(parts) > 2 else ''
+            prop_nm = r.get('propNm', '')
+            if prop_nm is None or (isinstance(prop_nm, float) and prop_nm != prop_nm):
+                prop_nm = ''
             rows.append({
-                'Status':   r.get('Status',   '') or '',
-                'dt':       r.get('dt',       '') or '',
-                'acctType': r.get('acctType', '') or '',
-                'acct':     r.get('acct',     '') or '',
-                'aType':    r.get('aType',    '') or '',
-                'amt':      r.get('amt',      0) or 0,
-                'desc':     r.get('desc',     '') or '',
-                'acctSub':  r.get('acctSub',  '') or '',
-                'refDB':    r.get('refDB',    '') or '',
-                'tID':      r.get('tID',      '') or '',
+                'Status':    r.get('Status',   '') or '',
+                'dt':        r.get('dt',       '') or '',
+                'acctType':  r.get('acctType', '') or '',
+                'acct':      acct,
+                'acctMinor': acct_minor,
+                'propNm':    str(prop_nm),
+                'aType':     r.get('aType',    '') or '',
+                'amt':       r.get('amt',      0) or 0,
+                'desc':      r.get('desc',     '') or '',
+                'acctSub':   r.get('acctSub',  '') or '',
+                'refDB':     r.get('refDB',    '') or '',
+                'tID':       r.get('tID',      '') or '',
             })
 
         summary = self._summarise(rows)

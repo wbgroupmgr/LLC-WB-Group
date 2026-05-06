@@ -58,9 +58,9 @@ class stmtGeneralLedger:
     '''
 
     # ── Column contracts (re-exported for llcMgmt column discovery) ──────
-    VIEW_COLUMNS    = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt',
-                       'desc', 'acctSub', 'refDB']
-    TB_COLUMNS      = ['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']
+    VIEW_COLUMNS    = ['Status', 'dt', 'acctType', 'acct', 'acctMinor', 'propNm',
+                       'aType', 'amt', 'desc', 'acctSub', 'refDB']
+    TB_COLUMNS      = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS = list(_stmtGL.VIEW_BY_OPTIONS)
 
     def __init__(self, eSession):

@@ -216,7 +216,10 @@ class ledgerDB(ledgerObject):
         df = pd.concat([dfA, dfL])
 
         # Return a GL with a single acct; 2 entries per transaction; sort by date via tID; reset index
-        cols = [c for c in gl.coa.recCols() if c != 'Ledger']
+        cDefault = [c for c in self.llc.coa.recCols() if c != 'Ledger']
+        cOpt = kwargs.get('cols', cDefault)
+        if cOpt is None:
+            cols = df.columns
         return df[cols].sort_values(by='tID').reset_index(drop=True)
 
 

@@ -79,6 +79,9 @@
                 Download
             </a>
         {% endif %}
+        {# Book→IRS Aid (v0.1) — opens an inline modal scoped to one fid. #}
+        <button type="button" class="btn btn-warning" onclick="aidOpen()"
+                title="Open the Book→IRS Mapping Aid">🛠 Aid</button>
         <span class="source-tag">{{ meta.formId }}_FILL.pdf</span>
     </div>
 
@@ -102,4 +105,7 @@
     <p class="muted" style="margin-top:14px; font-size:12px;">{{ meta.note }}</p>
     {% endif %}
 </div>
+
+{# Book→IRS Aid inline modal (v0.1) — see ui/templates/_aid_dialog.html. #}
+{% include '_aid_dialog.html' %}
 {% endblock %}

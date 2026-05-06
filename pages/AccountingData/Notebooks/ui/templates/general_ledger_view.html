@@ -1,4 +1,6 @@
-{# ── general_ledger_view.html ── v0.2.3.4 ──────────────────────────────
+{# ── general_ledger_view.html ── v0.2.3.6 ──────────────────────────────
+   see doc/uiDesign-GLViews.md 
+
    2-frame General Ledger page (Flask/Jinja, server-side rendered).
 
    Frame 1 (top):  Trial Balance — aggregated acct rows from
@@ -64,12 +66,16 @@
         margin-bottom: 18px;
         border-radius: 10px;
         display: flex; flex-direction: column; gap: 0;
-        padding: 0 !important; overflow: hidden;
+        padding: 0 !important;
+        /* overflow: visible — required so the hamburger Action dropdown
+           (position: absolute) is not clipped to the panel height. */
+        overflow: visible;
     }
     .title-toolbar {
         display: flex; align-items: center; gap: 12px;
         flex-wrap: nowrap; background: #1e40af;
         padding: 12px 16px; color: white;
+        border-top-left-radius: 10px; border-top-right-radius: 10px;
     }
     .stats-sub { border-top: 2px solid #3b82f6; padding: 8px 16px; }
     .meta-row  { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
@@ -274,7 +280,9 @@
             <thead>
                 <tr>
                     <th style="width:110px">acctType</th>
-                    <th>acct</th>
+                    <th style="width:140px">acct</th>
+                    <th style="width:140px">acctMinor</th>
+                    <th style="width:110px">propNm</th>
                     <th style="width:160px">acctSub</th>
                     <th class="num" style="width:120px">Debit</th>
                     <th class="num" style="width:120px">Credit</th>
@@ -295,7 +303,7 @@
                     {% if at != ns.current_type %}
                         {% if ns.current_type %}
                         <tr class="subtotal">
-                            <td colspan="3" style="text-align:right; font-style:italic">
+                            <td colspan="5" style="text-align:right; font-style:italic">
                                 {{ ns.current_type }} Subtotal
                             </td>
                             <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
@@ -304,7 +312,7 @@
                         </tr>
                         {% endif %}
                         <tr class="section-header">
-                            <td colspan="6">{{ at or "— unclassified —" }}</td>
+                            <td colspan="8">{{ at or "— unclassified —" }}</td>
                         </tr>
                         {% set ns.current_type = at %}
                         {% set ns.sec_debit = 0 %}
@@ -318,6 +326,8 @@
                     <tr>
                         <td></td>
                         <td class="acct-name">{{ acct }}</td>
+                        <td class="acct-name">{{ row.get("acctMinor", "") }}</td>
+                        <td style="font-size:12px; color:#6b7280">{{ row.get("propNm", "") }}</td>
                         <td style="font-size:12px; color:#6b7280; font-family:monospace">
                             {{ acct_sub }}
                         </td>
@@ -336,7 +346,7 @@
                 {# Close last section subtotal + grand total #}
                 {% if frames.tb.rows %}
                 <tr class="subtotal">
-                    <td colspan="3" style="text-align:right; font-style:italic">
+                    <td colspan="5" style="text-align:right; font-style:italic">
                         {{ ns.current_type }} Subtotal
                     </td>
                     <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
@@ -344,13 +354,13 @@
                     <td class="num">{{ "%.2f"|format(ns.sec_balance) }}</td>
                 </tr>
                 <tr class="grand-total">
-                    <td colspan="3">TOTAL</td>
+                    <td colspan="5">TOTAL</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Debit) }}</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Credit) }}</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Balance) }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="muted">No trial-balance rows under ViewBy
+                <tr><td colspan="8" class="muted">No trial-balance rows under ViewBy
                     <strong>{{ frames.view_by }}</strong>.</td></tr>
                 {% endif %}
             </tbody>
@@ -378,12 +388,14 @@
                     <th style="width:70px">Status</th>
                     <th style="width:100px">dt</th>
                     <th style="width:110px">acctType</th>
-                    <th>acct</th>
+                    <th style="width:120px">acct</th>
+                    <th style="width:120px">acctMinor</th>
                     <th style="width:70px">aType</th>
                     <th class="num" style="width:100px">amt</th>
                     <th>desc</th>
                     <th style="width:120px">acctSub</th>
                     <th style="width:90px">refDB</th>
+                    <th style="width:110px">propNm</th>
                 </tr>
             </thead>
             <tbody>
@@ -398,6 +410,7 @@
                         <td>{{ row.get("dt", "") }}</td>
                         <td>{{ row.get("acctType", "") }}</td>
                         <td class="acct-name">{{ row.get("acct", "") }}</td>
+                        <td class="acct-name">{{ row.get("acctMinor", "") }}</td>
                         <td>{{ row.get("aType", "") }}</td>
                         <td class="num {% if amt > 0 %}amt-pos{% elif amt < 0 %}amt-neg{% endif %}">
                             {{ "%.2f"|format(amt) }}
@@ -407,10 +420,11 @@
                             {{ row.get("acctSub", "") }}
                         </td>
                         <td style="font-size:12px">{{ row.get("refDB", "") }}</td>
+                        <td style="font-size:12px; color:#6b7280">{{ row.get("propNm", "") }}</td>
                     </tr>
                 {% endfor %}
                 {% if not frames.tx.rows %}
-                <tr><td colspan="9" class="muted">No transaction rows under ViewBy
+                <tr><td colspan="11" class="muted">No transaction rows under ViewBy
                     <strong>{{ frames.view_by }}</strong>.</td></tr>
                 {% endif %}
             </tbody>

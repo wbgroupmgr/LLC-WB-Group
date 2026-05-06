@@ -216,8 +216,30 @@ class irsForm:
                 "checkedValue": checked_value,
             }
 
-        # ── Sort and assign sequential fIDs ─────────────────────────────
-        sorted_list = sorted(raw_fields.values(), key=self._sortKey)
+        # ── Assign sequential fIDs in document (annotation) order ───────
+        #
+        # We rely on the iteration order of ``rdr.get_fields()`` — pypdf
+        # walks the AcroForm tree depth-first, which matches the visual
+        # top-to-bottom / left-to-right order the IRS authors use when
+        # numbering ``f1_NN`` (text) and ``c1_NN`` (checkbox) fields.
+        # The two counters interleave visually (e.g. on Page 1 the
+        # sequence is …f1_16, c1_1..c1_5, c1_6[0..2], f1_17, f1_18,
+        # c1_7..c1_9, f1_19…), and the iteration order preserves that
+        # exactly.  Sorting by (page, text-before-button) — as the old
+        # ``_sortKey`` did — broke this interleaving and pushed every
+        # checkbox to the end of its page (c1_1 became f63 instead of
+        # f17), erasing the Line G / Line H boxes from the visible
+        # numbering.
+        #
+        # NOTE: container fields (AcroForm group nodes such as
+        # ``topmostSubform[0]``, ``HeaderAddress_ReadOrder[0]``,
+        # ``LinesA-C[0]``) are EXCLUDED from the sequential numbering.
+        # They are not user-fillable; including them used to push the
+        # first real text field to ``f2`` and break the bookNS author
+        # convention "F001 = first text field".  Removing them from a
+        # stable in-order traversal does not shift sibling order.
+        sorted_list = [fi for fi in raw_fields.values()
+                       if fi["fType"] != "container"]
         fields_ns: Dict[str, Dict] = {}
 
         for idx, fi in enumerate(sorted_list, start=1):
@@ -425,14 +447,14 @@ class irsForm:
                 continue
             try:
                 writer.update_page_form_field_values(
-                    writer.pages[pg_num - 1], fills, auto_regenerate=False)
+                    writer.pages[pg_num - 1], fills, auto_regenerate=True)
                 ok += len(fills)
             except Exception:
                 for path, val in fills.items():
                     try:
                         writer.update_page_form_field_values(
                             writer.pages[pg_num - 1], {path: val},
-                            auto_regenerate=False)
+                            auto_regenerate=True)
                         ok += 1
                     except Exception:
                         err += 1
@@ -578,13 +600,92 @@ class irsForm:
         return {}
 
     def _saveWorksheetPDF(self, nSpaceDict: Dict) -> None:
-        """Fill a worksheet copy of the IRS PDF: text→fID, checkBox/checkText→checked."""
+        """Fill a worksheet copy of the IRS PDF: text→fID, checkBox/checkText→checked.
+
+        Multi-line text fields are stamped with ``"<fid>\\n_xx"`` once per
+        extra line so the operator can visually distinguish a multi-line
+        cell from a single-line cell when reading the namespace.pdf —
+        e.g. a 24pt-tall multi-line ``f3`` shows as::
+
+            f3
+            _xx
+
+        rather than just ``f3`` (which would be ambiguous between a
+        single-line field and a multi-line field with one row used).
+        """
         irs_path  = Path(self.FN())
         out_path  = self._nspacePdfFN()
         fields    = nSpaceDict.get("fields", {})
 
         reader = PdfReader(str(irs_path))
         writer = PdfWriter(clone_from=reader)
+
+        # ── Multi-line detection (FIX 2) ─────────────────────────────────
+        # Walk every page's /Annots once and record the visible line count
+        # for each text widget.  Indexed by the fully-qualified PDF field
+        # path that the namespace also uses.
+        SINGLE_LINE_PT = 12.0
+        MULTILINE_BIT  = 1 << 12      # PDF spec Tx field flags, bit 13
+        line_count: Dict[str, int] = {}
+        for page in reader.pages:
+            annots = page.get("/Annots")
+            if annots is None:
+                continue
+            try:
+                annots = annots.get_object()
+            except Exception:
+                pass
+            try:
+                annots_iter = list(annots)
+            except Exception:
+                continue
+            for a_ref in annots_iter:
+                try:
+                    a = a_ref.get_object()
+                except Exception:
+                    continue
+                if str(a.get("/Subtype") or "") != "/Widget":
+                    continue
+                # Walk parent for /FT, /Ff
+                ft = a.get("/FT"); ff = a.get("/Ff")
+                cur = a
+                while (ft is None or ff is None) and cur is not None:
+                    par = cur.get("/Parent")
+                    cur = par.get_object() if par is not None else None
+                    if cur is not None:
+                        if ft is None: ft = cur.get("/FT")
+                        if ff is None: ff = cur.get("/Ff")
+                if str(ft or "") != "/Tx":
+                    continue
+                try:
+                    ff_int = int(ff) if ff is not None else 0
+                except Exception:
+                    ff_int = 0
+                if not (ff_int & MULTILINE_BIT):
+                    continue
+                rect = a.get("/Rect")
+                if rect is None:
+                    continue
+                try:
+                    x0, y0, x1, y1 = [float(v) for v in list(rect)]
+                except Exception:
+                    continue
+                lines = max(1, round((y1 - y0) / SINGLE_LINE_PT))
+                if lines <= 1:
+                    continue
+                # Build the fully-qualified path for this widget.
+                parts: List[str] = []
+                cur = a; seen: set = set()
+                while cur is not None and id(cur) not in seen:
+                    seen.add(id(cur))
+                    t = cur.get("/T")
+                    if t is not None:
+                        parts.append(str(t))
+                    par = cur.get("/Parent")
+                    cur = par.get_object() if par is not None else None
+                full = ".".join(reversed(parts))
+                if full:
+                    line_count[full] = lines
 
         text_page:  Dict[int, Dict[str, str]] = {}
         check_page: Dict[int, Dict[str, str]] = {}
@@ -596,7 +697,11 @@ class irsForm:
             if page < 1 or ftype in ("container", "image"):
                 continue
             if ftype == "text":
-                text_page.setdefault(page, {})[pdf_field] = fd["fID"]
+                fid_label = fd["fID"]
+                n_lines   = line_count.get(pdf_field, 1)
+                stamp     = (fid_label + "\n" + "\n".join(["_xx"] * (n_lines - 1))
+                             if n_lines > 1 else fid_label)
+                text_page.setdefault(page, {})[pdf_field] = stamp
             elif ftype in ("checkBox", "checkText"):
                 check_page.setdefault(page, {})[pdf_field] = fd["checkedValue"]
 
@@ -604,13 +709,13 @@ class irsForm:
         for pg, fills in text_page.items():
             try:
                 writer.update_page_form_field_values(
-                    writer.pages[pg - 1], fills, auto_regenerate=False)
+                    writer.pages[pg - 1], fills, auto_regenerate=True)
                 txt_ok += len(fills)
             except Exception:
                 for path, val in fills.items():
                     try:
                         writer.update_page_form_field_values(
-                            writer.pages[pg - 1], {path: val}, auto_regenerate=False)
+                            writer.pages[pg - 1], {path: val}, auto_regenerate=True)
                         txt_ok += 1
                     except Exception:
                         pass
@@ -620,7 +725,7 @@ class irsForm:
             for path, val in fills.items():
                 try:
                     writer.update_page_form_field_values(
-                        writer.pages[pg - 1], {path: val}, auto_regenerate=False)
+                        writer.pages[pg - 1], {path: val}, auto_regenerate=True)
                     chk_ok += 1
                 except Exception:
                     chk_err += 1
@@ -696,4 +801,276 @@ class irsForm:
         out_path = self.saveFILL(fillDict)
         print(f"\n  → {out_path}")
         return fillDict
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  PUBLIC API — irsBookToIRS / pandas-driven Book→IRS pipeline
+    #
+    #  These helpers exist so callers (e.g. notebooks, batch pipelines) can
+    #  drive the FILL.pdf entirely with normalized fids and a DataFrame —
+    #  without ever reaching into self.irsDir / namespace JSON / template
+    #  PDF paths themselves.  The caller never needs to know whether the
+    #  PDF lives, what the namespace file is named, or how to mutate
+    #  AcroForm objects: it just supplies a DataFrame keyed by ``fid``.
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def normalizeFid(fid: Any) -> str:
+        """
+        Canonical IRS-form fid form.
+
+            f1, F1, 1   → "F001"
+            f016, F016  → "F016"
+            F_K1_ein    → "F_K1_ein"  (non-numeric tokens pass through)
+            None / ""   → ""
+        """
+        if fid is None:
+            return ""
+        s = str(fid).strip()
+        if not s:
+            return ""
+        m = re.match(r"^[fF]?(\d+)$", s)
+        if m:
+            return f"F{int(m.group(1)):03d}"
+        return s
+
+    def loadFieldsDF(self):
+        """
+        Return a pandas DataFrame describing every fillable AcroForm field
+        on the IRS template, with normalized ``fid`` values.
+
+        Columns
+        -------
+            fid          : str   normalized fid  (e.g. "F001")
+            pdf_fid      : str   original sequential fid from namespace ("f1")
+            pdfField     : str   full AcroForm path used by pypdf
+            shortName    : str   leaf name (e.g. "f1_06")
+            fType        : str   namespace-classified type
+                                   ('text'|'checkBox'|'checkText'|'image')
+            pdfFT        : str   underlying AcroForm /FT  ('/Tx'|'/Btn'|...)
+            page         : int   1-based page number
+            checkedValue : str   on-value name for /Btn fields (e.g. "/1");
+                                   empty for /Tx text fields
+
+        ``container`` rows (group nodes) are excluded — they are not
+        writable and would only pollute the merge.
+
+        The namespace JSON is loaded from disk if it exists; otherwise the
+        namespace is built from the IRS template PDF on the fly.
+        """
+        import pandas as pd
+
+        ns_path = self._nspaceFN()
+        if ns_path.exists():
+            with open(ns_path, "r", encoding="utf-8") as fh:
+                ns = json.load(fh)
+        else:
+            ns = self._buildNSpace()
+
+        # Underlying AcroForm /FT — only available by reading the PDF.
+        irs_path = Path(self.FN())
+        pdf_real: Dict[str, Dict] = {}
+        if irs_path.exists():
+            try:
+                pdf_real = PdfReader(str(irs_path)).get_fields() or {}
+            except Exception:
+                pdf_real = {}
+
+        rows: List[Dict[str, Any]] = []
+        for pdf_fid, fld in (ns.get("fields") or {}).items():
+            ftype = fld.get("fType", "text")
+            if ftype == "container":
+                continue
+            pdfField = fld.get("pdfField") or ""
+            real     = pdf_real.get(pdfField) or {}
+            rows.append({
+                "fid":          self.normalizeFid(pdf_fid),
+                "pdf_fid":      pdf_fid,
+                "pdfField":     pdfField,
+                "shortName":    fld.get("shortName"),
+                "fType":        ftype,
+                "pdfFT":        str(real.get("/FT") or "") or None,
+                "page":         int(fld.get("page") or 0),
+                "checkedValue": fld.get("checkedValue") or "",
+            })
+        return pd.DataFrame(rows)
+
+    # Sentinel value for "this checkbox should be ticked".  loadFillDict()
+    # implementations emit this for fids that should turn /Btn fields ON.
+    CHECK_SENTINEL = "CHECK"
+
+    def saveFILL_FromDF(self, df, suffix: str = "") -> str:
+        """
+        Write ``{oID}{suffix}_FILL.pdf`` from a DataFrame.
+
+        Required columns
+        ----------------
+            pdfField     : str     AcroForm path
+            page         : int     1-based page
+            pdfFT        : str     underlying field type ('/Tx', '/Btn', ...)
+            value        : str|None  value to write; rows where ``value`` is
+                                      None / NaN / "" are left blank.
+            checkedValue : str     (optional, /Btn only) on-value to stamp
+                                      when ``value`` == ``CHECK_SENTINEL``;
+                                      defaults to ``"/1"`` if absent.
+
+        Behaviour
+        ---------
+        * /Tx text fields receive ``str(value)``; numeric values are coerced.
+        * /Btn checkbox fields are toggled ON only when ``value`` equals the
+          sentinel ``"CHECK"``.  Any other string on a /Btn is ignored —
+          this prevents the pypdf NameObject corruption that otherwise
+          occurs when arbitrary strings are pushed onto checkbox /AS slots.
+        * Other PDF field types are skipped.
+        * Returns the absolute path of the written PDF.
+        """
+        import pandas as pd
+        import math
+        from pypdf.generic import NameObject, BooleanObject
+
+        irs_path = Path(self.FN())
+        if not irs_path.exists():
+            raise FileNotFoundError(f"IRS template not found: {irs_path}")
+
+        out_path = self._fillFN(suffix)
+        reader   = PdfReader(str(irs_path))
+        writer   = PdfWriter(clone_from=reader)
+
+        page_text_fills: Dict[int, Dict[str, str]] = {}
+        # checkbox stamps  →  list of (pdfField, on_value)  (page-agnostic)
+        check_stamps: List[Tuple[str, str]] = []
+        ok_text  = 0
+        ok_check = 0
+        for _, row in df.iterrows():
+            v = row.get("value")
+            if v is None:
+                continue
+            try:
+                if isinstance(v, float) and math.isnan(v):
+                    continue
+            except Exception:
+                pass
+            sv = v if isinstance(v, str) else str(v)
+            if sv == "":
+                continue
+
+            ft   = str(row.get("pdfFT") or "")
+            path = row.get("pdfField") or ""
+            pg   = int(row.get("page") or 0)
+            if not path:
+                continue
+
+            if ft == "/Tx":
+                if pg < 1:
+                    continue
+                # On a text field, the CHECK sentinel becomes an "X"
+                # mark — IRS forms encode several "checkbox" choices
+                # (Form 1065 boxes G / H / K) as plain text fields where
+                # the taxpayer hand-marks an X.
+                if sv == self.CHECK_SENTINEL:
+                    sv = "X"
+                page_text_fills.setdefault(pg, {})[path] = sv
+                ok_text += 1
+            elif ft == "/Btn":
+                # Only the 'CHECK' sentinel toggles a checkbox ON.
+                if sv != self.CHECK_SENTINEL:
+                    continue
+                cv = row.get("checkedValue") or "/1"
+                cv = str(cv) if cv else "/1"
+                if not cv.startswith("/"):
+                    cv = "/" + cv
+                check_stamps.append((path, cv))
+                ok_check += 1
+            # else: skip image / signature / unknown
+
+        # ── text stamps ──────────────────────────────────────────────────
+        # auto_regenerate=True is required so pypdf rebuilds each field's
+        # appearance stream (/AP) after setting /V.  Without it, deeply
+        # nested fields (Form 8825's Table_Line1.RowA.Col_a.f1_3 etc.)
+        # store /V correctly but render as visually blank in viewers
+        # like Preview / PDF.js because the cached appearance stream
+        # still reflects the empty state.  set_need_appearances_writer
+        # below catches the rest.
+        for pg_num, fills in page_text_fills.items():
+            if pg_num < 1 or pg_num > len(writer.pages):
+                continue
+            writer.update_page_form_field_values(
+                writer.pages[pg_num - 1], fills, auto_regenerate=True,
+            )
+
+        # ── checkbox stamps ──────────────────────────────────────────────
+        # Walk every page's annotations once and toggle /V + /AS for any
+        # /Btn whose fully-qualified field path matches a CHECK sentinel.
+        stamped = 0
+        if check_stamps:
+            stamp_by_path: Dict[str, str] = {p: v for p, v in check_stamps}
+            for page in writer.pages:
+                annots = page.get("/Annots")
+                if annots is None:
+                    continue
+                # /Annots is typically an IndirectObject wrapping an ArrayObject
+                try:
+                    annots = annots.get_object()
+                except Exception:
+                    pass
+                try:
+                    annots_iter = list(annots)
+                except Exception:
+                    continue
+                for annot_ref in annots_iter:
+                    try:
+                        annot = annot_ref.get_object()
+                    except Exception:
+                        continue
+                    if str(annot.get("/Subtype") or "") != "/Widget":
+                        continue
+                    # Build fully-qualified field name by walking /Parent.
+                    parts: List[str] = []
+                    cur = annot
+                    seen: set = set()
+                    while cur is not None and id(cur) not in seen:
+                        seen.add(id(cur))
+                        t = cur.get("/T")
+                        if t is not None:
+                            parts.append(str(t))
+                        par = cur.get("/Parent")
+                        if par is None:
+                            cur = None
+                        else:
+                            try:
+                                cur = par.get_object()
+                            except Exception:
+                                cur = None
+                    full = ".".join(reversed(parts))
+                    if not full:
+                        continue
+                    on_val = stamp_by_path.get(full)
+                    if on_val is None:
+                        continue
+                    try:
+                        annot[NameObject("/V")]  = NameObject(on_val)
+                        annot[NameObject("/AS")] = NameObject(on_val)
+                        # Some /Btn widgets store the value on the parent
+                        # field node (the leaf only carries /AS).  Mirror
+                        # /V onto the parent so AcroForm consumers see the
+                        # field as toggled.
+                        par = annot.get("/Parent")
+                        if par is not None:
+                            try:
+                                par_obj = par.get_object()
+                                par_obj[NameObject("/V")] = NameObject(on_val)
+                            except Exception:
+                                pass
+                        stamped += 1
+                    except Exception:
+                        pass
+
+        writer.set_need_appearances_writer(True)
+        with open(out_path, "wb") as fh:
+            writer.write(fh)
+
+        if self.verbose:
+            print(f"  ✅ FILL PDF (DF)  → {out_path.name}  "
+                  f"({ok_text} text + {stamped} checkbox toggled / "
+                  f"{ok_check} requested)")
+        return str(out_path)
 

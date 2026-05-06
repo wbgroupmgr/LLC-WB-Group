@@ -65,7 +65,7 @@ class stmtIncomeStmt(stmtDB):
     '''
 
     DEFAULT_TBLID = "IncomeStmt"
-    COLUMNS = ['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']
+    COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense', 'PerMember']
 
     # ── Form 1065 publish map (DataModelGuide § 4 / Phase 5) ─────────────────
@@ -220,9 +220,13 @@ class stmtIncomeStmt(stmtDB):
             idf['acctSub'] = idf['acctSub'].fillna('').astype(str)
         else:
             idf['acctSub'] = ''
+        if 'propNm' in idf.columns:
+            idf['propNm'] = idf['propNm'].fillna('').astype(str)
+        else:
+            idf['propNm'] = ''
 
         grp = (
-            idf.groupby(['acctType', 'acct', 'acctSub', 'aType'])['amt']
+            idf.groupby(['acctType', 'acct', 'acctSub', 'propNm', 'aType'])['amt']
                .sum().unstack(fill_value=0.0).reset_index()
         )
         if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
@@ -232,11 +236,16 @@ class stmtIncomeStmt(stmtDB):
         grp['Debit']   = grp['Debit'].round(2)
         grp['Credit']  = grp['Credit'].round(2)
 
+        def _acct_minor(acct):
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+        grp['acctMinor'] = grp['acct'].map(_acct_minor)
+
         order = {t: i for i, t in enumerate(IS_ORDER)}
         grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
-        grp = grp.sort_values(['_sort', 'acct', 'acctSub']).drop(columns=['_sort'])
+        grp = grp.sort_values(['_sort', 'acct', 'propNm', 'acctSub']).drop(columns=['_sort'])
 
-        result = grp[['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+        result = grp[['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
         # Income balance = Credit - Debit (Credit > Debit = positive income)
         # Expense balance = Debit - Credit (Debit > Credit = positive expense)
@@ -249,7 +258,7 @@ class stmtIncomeStmt(stmtDB):
         result.append({
             'acctType': 'TOTAL',
             'acct':     f'Net Income: {net_income:,.2f}',
-            'acctSub':  '',
+            'acctMinor': '', 'acctSub': '', 'propNm': '',
             'Debit': total_d, 'Credit': total_c, 'Balance': net_income,
         })
 
@@ -272,6 +281,10 @@ class stmtIncomeStmt(stmtDB):
         except Exception:
             classify = lambda v: ''
 
+        def _acct_minor(acct):
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+
         buckets: Dict[tuple, Dict[str, float]] = {}
         for r in gl_records:
             at = r.get('acctType') or classify(r.get('acct', ''))
@@ -281,10 +294,11 @@ class stmtIncomeStmt(stmtDB):
                 continue
             acct     = r.get('acct', '')
             acct_sub = str(r.get('acctSub') or '')
+            prop_nm  = str(r.get('propNm') or '')
             try:    amt = float(r.get('amt', 0) or 0)
             except: amt = 0.0
             atype = str(r.get('aType', 'Debit')).strip()
-            key = (at, acct, acct_sub)
+            key = (at, acct, acct_sub, prop_nm)
             if key not in buckets:
                 buckets[key] = {'Debit': 0.0, 'Credit': 0.0}
             is_credit = atype in ('Credit', 'Cr', 'CR', 'C')
@@ -292,11 +306,12 @@ class stmtIncomeStmt(stmtDB):
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
         result: List[Dict[str, Any]] = []
-        for (at, acct, acct_sub), s in sorted(buckets.items(),
-                                              key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2])):
+        for (at, acct, acct_sub, prop_nm), s in sorted(buckets.items(),
+                                              key=lambda x: (order.get(x[0][0], 99), x[0][1], x[0][3], x[0][2])):
             d = round(s['Debit'], 2)
             c = round(s['Credit'], 2)
-            result.append({'acctType': at, 'acct': acct, 'acctSub': acct_sub,
+            result.append({'acctType': at, 'acct': acct, 'acctMinor': _acct_minor(acct),
+                           'acctSub': acct_sub, 'propNm': prop_nm,
                            'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 
         income_net  = round(sum(-(r['Balance']) for r in result if r['acctType'] == 'Income'), 2)
@@ -304,7 +319,8 @@ class stmtIncomeStmt(stmtDB):
         net_income  = round(income_net - expense_net, 2)
         total_d = round(sum(r['Debit']  for r in result), 2)
         total_c = round(sum(r['Credit'] for r in result), 2)
-        result.append({'acctType': 'TOTAL', 'acct': f'Net Income: {net_income:,.2f}', 'acctSub': '',
+        result.append({'acctType': 'TOTAL', 'acct': f'Net Income: {net_income:,.2f}',
+                       'acctMinor': '', 'acctSub': '', 'propNm': '',
                        'Debit': total_d, 'Credit': total_c, 'Balance': net_income})
 
         summary = {

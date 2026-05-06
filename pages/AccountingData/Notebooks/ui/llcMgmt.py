@@ -45,6 +45,7 @@ from ui.llcBankView         import llcBankView
 from ui.stmtPropertyEquity   import stmtPropertyEquity
 from ui.llcForm1065         import llcForm1065
 from ui.llcFormK1           import llcFormK1
+from ui.llcForm8825         import llcForm8825
 
 
 class llcMgmt:
@@ -63,9 +64,10 @@ class llcMgmt:
         "stmtIncomeStmt",
         "stmtOwnerEquity",
         "stmtPropertyEquity",
-        # IRS Tax Aids — v0.2.4.7 PDF-embed restructure (F1065 + K-1 only)
+        # IRS Tax Aids — v0.2.4.7 PDF-embed restructure (F1065 + K-1 + 8825)
         "llcForm1065",
         "llcFormK1",
+        "llcForm8825",
     ]
 
     VIEW_LABELS = {
@@ -81,6 +83,7 @@ class llcMgmt:
         "stmtPropertyEquity":  "Property Equity",
         "llcForm1065":        "Form 1065",
         "llcFormK1":          "Schedule K-1",
+        "llcForm8825":        "Form 8825",
     }
 
     VIEW_TITLES = {
@@ -90,6 +93,7 @@ class llcMgmt:
         "stmtPropertyEquity":  "Property Equity Report",
         "llcForm1065":        "Form 1065 – U.S. Return of Partnership Income",
         "llcFormK1":          "Schedule K-1 – Partner's Share of Income",
+        "llcForm8825":        "Form 8825 – Rental Real Estate Income and Expenses",
     }
 
     # View groups for the home page
@@ -115,7 +119,7 @@ class llcMgmt:
             # v0.2.4.7 — each tax view embeds the canonical FILL.pdf produced
             # by the IRS pipeline (irs.<Form>.saveFILL()).  No constructed
             # row tables, no nSpaceMap detour at the view layer.
-            "views": ["llcForm1065", "llcFormK1"],
+            "views": ["llcForm1065", "llcFormK1", "llcForm8825"],
         },
     ]
 
@@ -127,6 +131,7 @@ class llcMgmt:
     PDF_VIEWS = {
         "llcForm1065": "Form1065",
         "llcFormK1":   "Sch_K1",
+        "llcForm8825": "Form8825",
     }
     # Views that use financial_view.html
     FINANCIAL_VIEWS = {"stmtBalanceSheet", "stmtIncomeStmt", "stmtOwnerEquity"}
@@ -138,11 +143,11 @@ class llcMgmt:
     READ_ONLY_VIEWS = {
         "stmtGeneralLedger", "stmtBalanceSheet", "stmtIncomeStmt", "stmtOwnerEquity",
         "llcBank", "stmtPropertyEquity",
-        "llcForm1065", "llcFormK1",
+        "llcForm1065", "llcFormK1", "llcForm8825",
     }
 
     # Preferred column sets for computed views
-    GL_COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt', 'desc', 'acctSub', 'refDB']
+    GL_COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'acctMinor', 'propNm', 'aType', 'amt', 'desc', 'acctSub', 'refDB']
 
     # ViewBy options per computed view (empty = no dropdown shown)
     VIEW_BY_OPTIONS: Dict[str, List[str]] = {
@@ -218,6 +223,8 @@ class llcMgmt:
             "stmtPropertyEquity": "stmtPropertyEquity",
             "llcForm1065":          "llcForm1065",
             "llcFormK1":            "llcFormK1",
+            "llcForm8825":          "llcForm8825",
+            "Form8825":             "llcForm8825",
         }
         return aliases.get(name, name)
 
@@ -326,6 +333,7 @@ class llcMgmt:
         # ── IRS tax aid views (v0.2.4.7 — PDF-embed only) ────────────────────
         objects["llcForm1065"] = llcForm1065(self.eSession)
         objects["llcFormK1"]   = llcFormK1(self.eSession)
+        objects["llcForm8825"] = llcForm8825(self.eSession)
 
         return objects
 
@@ -905,6 +913,205 @@ class llcMgmt:
                 return jsonify({"ok": True, "data": saved})
 
             return jsonify({"ok": False, "error": f"Unknown command: {cmd}"}), 400
+
+        # ── Book→IRS Aid routes (v0.1) ──────────────────────────────────────
+        # See docs/LLC_BookToIRS_Aid.md and irs/BookToIRS.py.
+        # All write endpoints persist immediately to disk and refresh the
+        # service's cached stmt instances.  Custom-map source surgery
+        # (M4) returns 501 in v0.1.
+        # Per "Tax Bridge" architecture (docs/LLC_AccountingDesign.md §2),
+        # calls route through the Form service, which delegates to BookToIRS.
+        from irs.BookToIRS import BookToIRS
+        from werkzeug.exceptions import HTTPException
+
+        # Forms the Aid is allowed to operate on.  Limited to the
+        # ``PDF_VIEWS`` set so a malicious request can't ask the Aid to
+        # touch arbitrary file names.  Form1065 stays the default for
+        # back-compat with the original v0.1 routes.
+        AID_FORMS = {"Form1065", "Sch_K1", "Form8825", "Form4562"}
+
+        def _aid_form_from_request() -> str:
+            """Resolve the formNm for this request from query string,
+            JSON body, or the Form1065 default.  Validates against
+            AID_FORMS so the Aid cannot be coerced into operating on
+            an unknown / malicious form name."""
+            from flask import request as _req
+            formNm = _req.args.get("formNm")
+            if not formNm and _req.method in ("POST", "PUT", "DELETE"):
+                body = _req.get_json(silent=True) or {}
+                if isinstance(body, dict):
+                    formNm = body.get("formNm")
+            formNm = formNm or "Form1065"
+            if formNm not in AID_FORMS:
+                abort(400, description=f"Unknown formNm: {formNm!r}. Allowed: {sorted(AID_FORMS)}")
+            return formNm
+
+        def _aid() -> "BookToIRS":
+            llc = getattr(self.eSession, "llc", None)
+            if llc is None:
+                abort(404)
+            formNm = _aid_form_from_request()
+            try:
+                import importlib
+                mod = importlib.import_module(f"irs.{formNm}")
+                form_cls = getattr(mod, formNm)
+                form = form_cls(llc)
+                return form.aid()
+            except Exception as err:
+                raise RuntimeError(f"{formNm}: Aid Not Available") from err
+
+        def _aid_err(err: Exception):
+            """Translate an exception raised by an Aid route into a JSON
+            response.  Re-raises ``HTTPException`` so Flask's normal
+            400/404/501 handling fires (rather than swallowing them in a
+            generic 500)."""
+            if isinstance(err, HTTPException):
+                raise err
+            return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/aid/sources")
+        def aid_sources():
+            return jsonify({"sources": _aid().listSources()})
+
+        @app.route("/api/aid/mappings")
+        def aid_mappings():
+            return jsonify({"mappings": _aid().listMappings()})
+
+        @app.route("/api/aid/mapping/<fid>")
+        def aid_mapping(fid):
+            try:
+                return jsonify(_aid().getMapping(fid))
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/aid/fields/<src>")
+        def aid_fields(src):
+            return jsonify({
+                "src":              src,
+                "fids":              _aid().listFields(src),
+                "resolvable_paths":  _aid().listResolvablePaths(src),
+            })
+
+        @app.route("/api/aid/preview")
+        def aid_preview():
+            fid  = request.args.get("fid", "")
+            src  = request.args.get("src")
+            path = request.args.get("path")
+            aid  = _aid()
+            return jsonify({
+                "fid":   fid,
+                "value": aid.previewValue(fid, src, path),
+                "chips": aid.adviseChips(fid, src, path),
+            })
+
+        @app.route("/api/aid/mapping", methods=["POST"])
+        def aid_create():
+            data = request.get_json(silent=True) or {}
+            fid  = data.get("fid", "");  src = data.get("src", ""); path = data.get("path", "")
+            try:
+                row = _aid().createMapping(fid, src, path)
+                return jsonify({"ok": True, "row": row})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/mapping/<fid>", methods=["PUT"])
+        def aid_edit(fid):
+            data = request.get_json(silent=True) or {}
+            src  = data.get("src", ""); path = data.get("path", "")
+            try:
+                row = _aid().editMapping(fid, src, path)
+                return jsonify({"ok": True, "row": row})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/mapping/<fid>", methods=["DELETE"])
+        def aid_delete(fid):
+            try:
+                row = _aid().deleteMapping(fid)
+                return jsonify({"ok": True, "row": row})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/custom", methods=["POST"])
+        def aid_custom_create():
+            data = request.get_json(silent=True) or {}
+            fid  = data.get("fid", ""); src = data.get("src", "")
+            note = data.get("note", "")
+            try:
+                row = _aid().addCustomMap(fid, src, note)
+                return jsonify({"ok": True, "row": row})
+            except NotImplementedError as err:
+                return jsonify({"ok": False, "error": str(err), "todo": "M4"}), 501
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/custom/<fid>", methods=["DELETE"])
+        def aid_custom_delete(fid):
+            data = request.get_json(silent=True) or {}
+            src  = data.get("src", "") or request.args.get("src", "")
+            try:
+                row = _aid().removeCustomMap(fid, src)
+                return jsonify({"ok": True, "row": row})
+            except NotImplementedError as err:
+                return jsonify({"ok": False, "error": str(err), "todo": "M4"}), 501
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/custom/<fid>/relink", methods=["POST"])
+        def aid_custom_relink(fid):
+            data = request.get_json(silent=True) or {}
+            src  = data.get("src", "")
+            try:
+                row = _aid().relinkCustomMap(fid, src)
+                return jsonify({"ok": True, "row": row})
+            except NotImplementedError as err:
+                return jsonify({"ok": False, "error": str(err), "todo": "M4"}), 501
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/chk/<fid>/toggle", methods=["POST"])
+        def aid_chk_toggle(fid):
+            """Toggle ``Profile.<formKey>.chk[]`` membership for ``fid``.
+
+            This is the third source layer (alongside bookNS and
+            <form>_CustomMapDict) — see docs/LLC_BookToIRS_Aid.md and
+            ui/llcBookToIRSAid.py::loadChkArray for the rationale."""
+            try:
+                row, action = _aid().toggleChkArray(fid)
+                return jsonify({"ok": True, "row": row, "action": action})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 400
+
+        @app.route("/api/aid/regenerate", methods=["POST"])
+        def aid_regenerate():
+            try:
+                summary = _aid().regenerate()
+                return jsonify({"ok": True, **summary})
+            except HTTPException:
+                raise
+            except Exception as err:
+                import traceback
+                return jsonify({
+                    "ok":        False,
+                    "error":     str(err),
+                    "traceback": traceback.format_exc(),
+                }), 500
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:

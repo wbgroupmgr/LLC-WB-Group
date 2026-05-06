@@ -7,7 +7,7 @@
 - understand basic accounting lingo : `Book activities`, `Tax Activitiess` and `Book-to-Tax Reconcilation`
 
 
-#### 2. "Tax Bridge" Pattern / Decoupled PDF Logic
+#### 2. "Tax Bridge" Pattern / Decoupled Book::IRS Logic
 - Establish `Uniform Account Namespace` (UAS)
     - Ever account has a multi-node form: "Acct.<acctType>.node1.node2 ... nodeN"
     - where node1 is based on set of COA names per major account types (1000, 2000, etc.)
@@ -19,7 +19,29 @@
 - The src.irs service should use a "Bridge Table" to adjust Book Net Income to Taxable Income (e.g., adding back 50% of non-deductible meals).
 - Minimize annual hardcoding PDF coordinates in your main logic.
 - Use a Mapping Schema (JSON) that links COA account totals to PDF field names/coordinates. This makes it easy to update for the 2026 tax year.
-- 
+- **Decoupling and Scalability**:
+    - Adhere to a model of consumer <- provider decoupling.
+    - Consumers are UI services and IRS form services and are different.
+        - in case of viewing PDF forms, the UI is the consumer of IRS services. 
+    - It is best to use a separate `bridge function`
+        - irs.fromBook class services
+        - ui.fromIRS class services
+           prevents an N x M complexity explosion
+    - **Book (Data) Services**  focus only on retrieving and validating raw data
+    - **IRS (form) Services** focus only on pdf field Namespace and rendering
+    - **UI (views) Services** focus on the UI visual layout of data (not constructing/wrangling data).
+    - **Bridge Service** - the BookToIRS() function acts as the glue, holding the "knowledge" of how to translate one to the other
+- **Maintenance Efficiency**
+    - If a data/UAS field name changes in the Book databases, you only update the Book (llc/stmt) module.
+    - If an IRS Form namespace changes (e.g., a field moves from Page 1 to Page 2), the Book Services remains untouched.
+    - If the UI (stats/tables) visuals/layout changes, the Book Services remain untouched. 
+    - This "separation of concerns" ensures that changes in one domain don't break the other.
+- **Avoiding "God Objects"Options** - encapsulating a bridge function within a provider/consumer.
+    -  Keeping the bridge logic & responsibilities separate allows you to use a Factory Pattern within the bridge module.
+    -  BookToIRS should be dynamically configured to spin N x M up specific mappers, as needed.
+
+
+----------------
 #### 3. Key Components
 - **Persistence**: Flat-file JSON databases in `/Accts/` for portability and version control.
 - **Stateless Logic**: `/Notebooks.ledger/` computes totals on-the-fly to ensure the UI always reflects the current data state.

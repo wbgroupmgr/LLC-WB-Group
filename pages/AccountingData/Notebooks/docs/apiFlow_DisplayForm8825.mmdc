@@ -1,0 +1,85 @@
+%% apiFlow_DisplayForm8825.mmdc
+%% Scenario: User starts the LLC Editor app, navigates to the Form 8825
+%% view, and the FILL.pdf is rendered in an iframe.
+%%
+%% Shows the main functions called within each service layer from
+%% entry to exit (per Francisco's request).  Format follows the
+%% docs/apiFlow.mmdc template.
+%%
+%% Ambiguities / suggestions / insights:
+%%   • [Q1] Form 8825's FILL.pdf is produced by the BookToIRS pipeline
+%%     (regenerate path).  The "Display" scenario itself does NOT
+%%     re-run BookToIRS — it just serves whatever Form8825_FILL.pdf
+%%     exists on disk.  Should the display path opportunistically
+%%     regenerate when the FILL.pdf is older than the bookNS files?
+%%     Currently: NO — operator must click Aid → Commit explicitly.
+%%   • [Q2] /forms/<form_id>.pdf serves the binary directly via
+%%     Flask send_file — no DB hit, no IRS-service hit.  This means
+%%     a stale FILL.pdf on disk renders without warning even after
+%%     bookNS edits.  Suggest: surface a "FILL.pdf is older than
+%%     bookNS_*.json" badge on the IRS Tax view header.
+%%   • [Q3] llcForm8825.stats() reads from stmtIncomeStmt to compute
+%%     Gross Rents / Depreciation / Net.  Those numbers come from the
+%%     ledger directly — they are NOT re-derived from the FILL.pdf.
+%%     Possible drift if BookToIRS changes per-form aggregation rules.
+%%
+sequenceDiagram
+    autonumber
+    participant B as 'UI<br>Browser'
+    participant JS as JavaScript (Frontend)
+    participant API as Flask API (Routes)
+    participant AM as ui.llcMgmt<br>(Middleware/Auth)
+    participant UI as ui.llcForm8825<br>(View)
+    participant Bk as ledger.stmtIncomeStmt<br>(BookSvc — stat chips only)
+    participant IRS as irs.Form8825<br>(Form Processing)
+    participant DB as DB_Json<br>(⛁ OBJs/Profile)
+    participant BookNS as BookNS<br>(⛁ Namespace Control)
+    participant FM as Form8825_FILL.pdf<br>(⛁ namespace/FILL)
+    participant U as Util (Log/Help)
+    participant H as Bookkeeper
+
+    Note over B, U: Request Phase — start app & navigate
+    B->>JS: User starts browser (URL=/)
+    JS->>API: GET /
+    API->>AM: dispatch (home route)
+    AM->>UI: render_template("home.html", VIEW_GROUPS, eSession)
+    UI-->>JS: HTML home page
+    JS->>B: render Home (IRS Tax Aids group lists Form 8825)
+
+    Note over B, U: User clicks Form 8825
+    B->>JS: click /view/llcForm8825
+    JS->>API: GET /view/llcForm8825
+    API->>AM: dispatch view_object("llcForm8825")
+    AM->>AM: _canonical_name("llcForm8825") → "llcForm8825"
+    AM->>UI: manager = self.objects["llcForm8825"]
+    AM->>AM: PDF_VIEWS lookup — skip load, render irs_pdf_view.html
+    AM->>UI: manager.stats()
+    UI->>Bk: stmtIncomeStmt(llc).load()
+    Bk->>DB: read llcAssets / llcExpRev / llcPayables / llcReceivables
+    DB-->>Bk: GL records
+    Bk-->>UI: rows with acctType/acct/Balance
+    UI->>UI: aggregate Gross Rents / Depreciation / Net Rental
+    UI-->>AM: stats dict
+    AM->>UI: manager.meta()
+    UI->>UI: pdf_path() → Forms_IRS/Form8825_FILL.pdf  (existence check)
+    UI-->>AM: meta dict (formId, pdfPath, pdfPresent, sources, note)
+    AM->>AM: render_template("irs_pdf_view.html",<br>pdf_url="/forms/Form8825.pdf", stats, meta)
+    AM-->>JS: HTML page (iframe src=/forms/Form8825.pdf)
+
+    Note over B, U: Browser fetches the embedded PDF
+    JS->>B: parse HTML — iframe issues GET request to /forms/Form8825.pdf
+    B->>API: GET /forms/Form8825.pdf
+    API->>AM: dispatch serve_irs_pdf("Form8825")
+    AM->>AM: validate form_id in PDF_VIEWS
+    AM->>FM: send_file(Forms_IRS/Form8825_FILL.pdf, mimetype=application/pdf)
+    FM-->>AM: PDF bytes
+    AM-->>JS: PDF stream
+
+    Note over B, H: Response Phase — page + PDF rendered
+    JS->>B: iframe renders Form8825_FILL.pdf
+    JS->>B: stat chips (Gross Rents / Depreciation / Net Rental)
+    JS->>B: 🛠 Aid button + inline modal partial loaded (hidden)
+
+    %% Note: irs.Form8825, BookNS, and the Aid service are NOT touched
+    %% in this scenario — they are loaded lazily only when the operator
+    %% clicks the Aid button (see apiFlow_ChangeFieldMap_Form8825.mmdc).

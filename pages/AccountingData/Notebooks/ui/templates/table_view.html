@@ -382,7 +382,9 @@
         flex-direction: column;
         gap: 0;
         padding: 0 !important;
-        overflow: hidden;
+        /* overflow: visible — required so the hamburger Action dropdown
+           (position: absolute) is not clipped to the panel height. */
+        overflow: visible;
     }
     .title-toolbar {
         display: flex;
@@ -392,6 +394,8 @@
         background: #1e40af;
         padding: 12px 16px;
         color: white;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
     }
     /* stats row — second row inside the sticky panel */
     .stats-sub {

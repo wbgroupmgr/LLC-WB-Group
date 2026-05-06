@@ -1,21 +1,24 @@
 '''
 ledger.stmtProfile — Constructed, immutable LLC Profile statement.
 
-Per DataModelGuide § 2:  constructed data object, immutable once instantiated,
-every row has a line number, every column has a columnID, and every cell is
-addressable by (stmtObj / tblID / rowNm / colNm).
+Per DataModelGuide § 2:
+- constructed data object, 
+- immutable once instantiated,
+- every row has a line number, every column has a columnID, and 
+- every cell is addressable by (stmtObj / tblID / rowNm / colNm
 
 Inheritance:    stmtDB → ledger.ledgerDB → ledger.ledgerObject
+                stmtProfile_Tax →  stmtProfile
 
-WHY THIS EXISTS (ProjectLevel3 v0.2.4):
+Deign Notes per ProjectLevel3 v0.2.4):
     The IRS view layer (``ui.llcIRSViewBase``) used to reach directly into
     ``llc.entity`` and ``llc.F1065`` — plain dicts loaded by LLC._Profile().
-    That violates the Architecture Guide, which requires *all* data
-    construction / wrangling / shaping to live in ledger services.
-    stmtProfile encapsulates those two source dicts as a single, immutable,
-    row-addressable table — exactly the same shape as every other stmt*
-    object (BalanceSheet, IncomeStmt, OwnerEquity, etc.) — so every IRS
-    form view can use the uniform Ledger API to pull entity / preparer /
+    * That violates the Architecture Guide, which requires *all* data
+       construction / wrangling / shaping to live in ledger services.
+    * stmtProfile encapsulates those two source dicts witin the LLC profile
+    * All fields within the profile are a single, immutable, row-addressable table
+    * exactly the same shape as every other stmt* object (BalanceSheet, IncomeStmt, OwnerEquity, etc.) 
+    * so every IRS form view can use the uniform Ledger API to pull entity / preparer /
     business-code fields by (tblID, rowNm, colNm) triple.
 
 Columns (beside the _lineNo / _rowNm sentinels added by stmtDB):
@@ -156,6 +159,125 @@ class stmtProfile(stmtDB):
     def f1065_value(self, fNm: str, default: Any = '') -> Any:
         '''Convenience wrapper — fetch F1065.<fNm> via the cell index.'''
         return self.get(f"Profile.F1065.{fNm}", "value", default)
+
+    # ── Tax provisioning (mirrors the stmtOBJ_Tax loadFillDict contract) ─────
+
+    BKNS_PROFILE_FN = 'bookNS_Profile.json'
+
+    def _bkNS_profile_path(self) -> str:
+        '''Resolve <TOP>/<dirAccounting>/<YEAR>/bookNS_Profile.json.'''
+        import os as _os
+        try:
+            top  = _os.path.expanduser(str(getattr(self.llc, 'TOP', '') or ''))
+            acct = getattr(self.llc, 'dirAccounting', '') or ''
+            yr   = (getattr(self.llc, 'YEAR', None)
+                    or getattr(self.llc, 'yr', None))
+            yr   = str(int(yr)) if yr else ''
+            if yr:
+                return _os.path.join(top, acct, yr, self.BKNS_PROFILE_FN)
+            return _os.path.join(top, acct, self.BKNS_PROFILE_FN)
+        except Exception:
+            return ''
+
+    def _bkNS_profile_load(self) -> Dict[str, Any]:
+        import os as _os, json as _json
+        fn = self._bkNS_profile_path()
+        if not fn or not _os.path.exists(fn):
+            return {}
+        try:
+            with open(fn, 'r') as fio:
+                return _json.load(fio)
+        except Exception as err:                            # pragma: no cover
+            print(f"stmtProfile.loadFillDict: could not load {fn}: {err}")
+            return {}
+
+    # Sentinel emitted for fids that should toggle a /Btn ON in the FILL
+    # PDF.  Mirrors irsForm.CHECK_SENTINEL — kept as a string constant so
+    # ledger/ has no irs/ import dependency.
+    CHECK_SENTINEL = 'CHECK'
+
+    def loadFillDict(self, formNm: str) -> Dict[str, Any]:
+        '''
+        Return ``{normalized_fid: fval}`` for the requested IRS form section.
+
+        Same v0.3 contract as ``stmtGL_Tax.loadFillDict``:
+          * fids are normalized to zero-padded ``F###``;
+          * UAS paths starting with ``Cplx`` -> fval = literal 'Complex';
+          * Profile.<...> UAS paths are resolved against this immutable
+            stmtProfile cell index;
+          * any other unresolved entry -> fval = None (BLANK, not Complex).
+
+        Plus, for ``Form1065`` only:
+          * the ``Profile.F1065.chk`` list (in llcProfile_<llc>.json) is
+            interpreted as fid numbers whose AcroForm /Btn checkbox should
+            be toggled ON.  Each integer ``n`` in that list becomes
+            ``F<nnn>: 'CHECK'`` in the returned dict (the sentinel is
+            understood by ``irsForm.saveFILL_FromDF``).
+          * Existing entries authored in bookNS_Profile.json are preserved;
+            chk entries only fill *unmapped* fids — they will not overwrite
+            an explicit text mapping.
+        '''
+        import re
+        bkNS = self._bkNS_profile_load()
+        out: Dict[str, Any] = {}
+        mappings = bkNS.get(formNm, []) or []
+        if not isinstance(mappings, list):
+            return out
+        for pair in mappings:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            fid_raw, acct = pair[0], pair[1]
+            fid = self._normalizeFid(fid_raw)
+            if not fid:
+                continue
+            if isinstance(acct, str) and (acct == 'Cplx' or acct.startswith('Cplx.')):
+                out[fid] = 'Complex'
+                continue
+            if isinstance(acct, str) and acct.startswith('Profile.'):
+                try:
+                    fval = self.get(acct, 'value', None)
+                except Exception:
+                    fval = None
+            else:
+                fval = None
+            out[fid] = fval
+
+        # ── chk array → CHECK sentinels (Form1065 only) ─────────────────
+        if str(formNm) == 'Form1065':
+            try:
+                chk = self.f1065_value('chk', None)
+            except Exception:
+                chk = None
+            if isinstance(chk, (list, tuple)):
+                for n in chk:
+                    try:
+                        idx = int(n)
+                    except Exception:
+                        continue
+                    if idx <= 0:
+                        continue
+                    fid = self._normalizeFid(idx)
+                    if not fid:
+                        continue
+                    # Don't clobber an already-mapped fid (text mapping wins).
+                    cur = out.get(fid, None)
+                    if cur is None or cur == '':
+                        out[fid] = self.CHECK_SENTINEL
+        return out
+
+    @staticmethod
+    def _normalizeFid(fid: Any) -> str:
+        '''Canonical fid form: f1/F1 -> F001; non-numeric tokens pass through.'''
+        import re
+        if fid is None:
+            return ''
+        s = str(fid).strip()
+        if not s:
+            return ''
+        m = re.match(r'^[fF]?(\d+)$', s)
+        if m:
+            return f'F{int(m.group(1)):03d}'
+        return s
 
     # ── ViewBy filter (used by ui/ layer) ────────────────────────────────────
 
