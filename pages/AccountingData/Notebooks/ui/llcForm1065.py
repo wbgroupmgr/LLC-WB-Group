@@ -120,8 +120,8 @@ class llcForm1065:
             return out
 
         try:
-            from ledger.stmtIncomeStmt  import stmtIncomeStmt
-            from ledger.stmtBalanceSheet import stmtBalanceSheet
+            from ledger.stmtIS import stmtIS  as stmtIncomeStmt
+            from ledger.stmtBS import stmtBS  as stmtBalanceSheet
         except ImportError:
             return out
 

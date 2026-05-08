@@ -100,7 +100,7 @@ class llcForm8825:
             return out
 
         try:
-            from ledger.stmtIncomeStmt import stmtIncomeStmt
+            from ledger.stmtIS import stmtIS as stmtIncomeStmt
         except ImportError:
             return out
 

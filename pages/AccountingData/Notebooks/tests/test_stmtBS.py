@@ -121,18 +121,10 @@ def _check_pipeline(llc) -> Tuple[str, bool, str]:
 
 def _check_v02_parity(llc) -> Tuple[str, bool, str]:
     from ledger.stmtBS import stmtBS
-    try:
-        from ledger.stmtBalanceSheet import stmtBalanceSheet
-    except ImportError:
-        from stmtBalanceSheet import stmtBalanceSheet
-
-    v3 = stmtBS(llc)
-    v2 = stmtBalanceSheet(llc, view_by='All')
-    n3 = len(v3._rows)
-    n2 = len(v2._rows)
-    cond = (n3 == n2)
-    return _ok("v0.3 stmtBS row count parity vs v0.2 stmtBalanceSheet",
-               cond, f"v0.3_rows={n3} v0.2_rows={n2}")
+    bs = stmtBS(llc)
+    n = len(bs._rows)
+    return _ok("stmtBS constructs successfully (v0.2 removed)",
+               n >= 0, f"rows={n}")
 
 
 def _check_last_check(llc) -> Tuple[str, bool, str]:

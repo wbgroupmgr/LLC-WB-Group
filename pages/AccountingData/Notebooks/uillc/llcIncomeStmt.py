@@ -9,8 +9,8 @@ shim re-exports the public surface so existing callers importing from
 Timestamp of last change: 2026.04.19
 """
 
-from ui.stmtIncomeStmt import *  # noqa: F401,F403
-from ui import stmtIncomeStmt as _ui_mod
+from ui.stmtIS_View import *  # noqa: F401,F403
+from ui.stmtIS_View import stmtIS_View as _ui_mod
 
 # Re-export the module-level __all__ if the target defined one, so that
 # ``from uillc.stmtIncomeStmt import X`` continues to resolve names the target

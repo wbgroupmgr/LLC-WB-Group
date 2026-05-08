@@ -218,14 +218,14 @@ def _buildDataObjects(llc) -> List[Any]:
 
     # 1. Income Statement (highest authority for P&L lines)
     try:
-        from ledger.stmtIncomeStmt import stmtIncomeStmt
+        from ledger.stmtIS import stmtIS as stmtIncomeStmt
         objs.append(stmtIncomeStmt(llc))
     except Exception as exc:
         print(f"_buildDataObjects: stmtIncomeStmt skipped: {exc}")
 
     # 2. Balance Sheet (authority for assets / liabilities / equity)
     try:
-        from ledger.stmtBalanceSheet import stmtBalanceSheet
+        from ledger.stmtBS import stmtBS as stmtBalanceSheet
         objs.append(stmtBalanceSheet(llc))
     except Exception as exc:
         print(f"_buildDataObjects: stmtBalanceSheet skipped: {exc}")
@@ -249,7 +249,7 @@ def _buildDataObjects(llc) -> List[Any]:
 
     # 6. General Ledger — fallback for anything not claimed above
     try:
-        from ledger.stmtGeneralLedger import stmtGeneralLedger
+        from ledger.stmtGL import stmtGL as stmtGeneralLedger
         objs.append(stmtGeneralLedger(llc))
     except Exception as exc:
         print(f"_buildDataObjects: stmtGeneralLedger skipped: {exc}")

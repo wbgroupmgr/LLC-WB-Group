@@ -81,9 +81,9 @@ def t1_to_df_returns_dataframe(llc) -> bool:
     from ledger.llcPayables     import llcPayables
     from ledger.llcReceivables  import llcReceivables
     from ledger.llcOwners       import llcOwners
-    from ledger.stmtBalanceSheet import stmtBalanceSheet
-    from ledger.stmtIncomeStmt   import stmtIncomeStmt
-    from ledger.stmtGeneralLedger import stmtGeneralLedger
+    from ledger.stmtBS import stmtBS as stmtBalanceSheet
+    from ledger.stmtIS import stmtIS as stmtIncomeStmt
+    from ledger.stmtGL import stmtGL as stmtGeneralLedger
 
     classes = [llcAssets, llcExpRev, llcPayables, llcReceivables, llcOwners,
                stmtBalanceSheet, stmtIncomeStmt, stmtGeneralLedger]
@@ -98,8 +98,8 @@ def t1_to_df_returns_dataframe(llc) -> bool:
 
 @_register("T2 — to_agg() returns {'table','extraFields'} dict")
 def t2_to_agg_contract(llc) -> bool:
-    from ledger.llcAssets        import llcAssets
-    from ledger.stmtBalanceSheet import stmtBalanceSheet
+    from ledger.llcAssets import llcAssets
+    from ledger.stmtBS    import stmtBS as stmtBalanceSheet
     for Cls in (llcAssets, stmtBalanceSheet):
         obj = Cls(llc)
         r = obj.to_agg()
@@ -205,15 +205,13 @@ def t8_to_irs_entities(llc) -> bool:
 
 @_register("T9 — stmt*.to_IRS() returns dict[formNm → dict[logicalKey → value]]")
 def t9_to_irs_stmt(llc) -> bool:
-    from ledger.stmtIncomeStmt import stmtIncomeStmt
+    from ledger.stmtIS import stmtIS as stmtIncomeStmt
     obj = stmtIncomeStmt(llc)
     r = obj.to_IRS()
     assert isinstance(r, dict), f"stmtIncomeStmt.to_IRS() → {type(r)} (want dict)"
-    # stmtIncomeStmt publishes to Form1065 per the PUBLISH_MAP
+    # stmtIS publishes to Form1065 per the PUBLISH_MAP
     if not r:
-        # Empty dict is legal when PUBLISH_MAP is empty, but on this project
-        # stmtIncomeStmt has Form1065 bindings — fail if empty here.
-        raise AssertionError("stmtIncomeStmt.to_IRS() returned empty dict; "
+        raise AssertionError("stmtIS.to_IRS() returned empty dict; "
                              "expected at least 'Form1065' keys.")
     for formNm, payload in r.items():
         assert isinstance(formNm, str), f"form key → {type(formNm)}"
@@ -228,9 +226,9 @@ def t9_to_irs_stmt(llc) -> bool:
 
 @_register("T10 — stmt*.save() raises InvalidRequestError")
 def t10_stmt_save_raises(llc) -> bool:
-    from ledger.ledgerObject     import InvalidRequestError
-    from ledger.stmtBalanceSheet import stmtBalanceSheet
-    from ledger.stmtIncomeStmt   import stmtIncomeStmt
+    from ledger.ledgerObject import InvalidRequestError
+    from ledger.stmtBS       import stmtBS as stmtBalanceSheet
+    from ledger.stmtIS       import stmtIS as stmtIncomeStmt
 
     for Cls in (stmtBalanceSheet, stmtIncomeStmt):
         obj = Cls(llc)
@@ -258,10 +256,10 @@ def t11_tb_totals_match_gl(llc) -> bool:
     in the TB must equal the corresponding sums from the GL (with COA
     seeds included) across the classic A/L/E/I/E buckets.
     '''
-    from ledger.stmtGeneralLedger import stmtGeneralLedger, stmtTrialBalance
+    from ledger.stmtGL import stmtGL as stmtGeneralLedger, stmtTrialBalance
     import pandas as pd
 
-    gl = stmtGeneralLedger(llc, view_by='All', include_coa_seed=True)
+    gl = stmtGeneralLedger(llc)
     gl_df = gl.to_DF()
     if 'acctType' in gl_df.columns and 'aType' in gl_df.columns and 'amt' in gl_df.columns:
         classic = {'Asset', 'Liability', 'Equity', 'Income', 'Expense'}
@@ -290,8 +288,8 @@ def t12_tb_coa_completeness(llc) -> bool:
     account with a classifiable acctType (A/L/E/I/E) must appear as at
     least one TB row (possibly with Debit=Credit=0).
     '''
-    from ledger.stmtGeneralLedger import stmtTrialBalance
-    from ledger.llcCOA            import ChartOfAccounts
+    from ledger.stmtGL import stmtTrialBalance
+    from ledger.llcCOA import ChartOfAccounts
 
     coa = getattr(llc, 'coa', None) or ChartOfAccounts(llc)
     coa_dict = coa.load() or {}

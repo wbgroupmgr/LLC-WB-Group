@@ -153,25 +153,11 @@ def _check_pipeline_with_totals(llc) -> Tuple[str, bool, str]:
 
 
 def _check_v02_parity(llc) -> Tuple[str, bool, str]:
-    '''v0.3 stmtGL row count == v0.2 stmtGeneralLedger (view_by='All',
-    include_coa_seed=True), since stmtGL also seeds COA by default.'''
+    '''stmtGL constructs successfully (v0.2 stmtGeneralLedger removed).'''
     from ledger.stmtGL import stmtGL
-    try:
-        from ledger.stmtGeneralLedger import stmtGeneralLedger
-    except ImportError:
-        from stmtGeneralLedger import stmtGeneralLedger
-
-    v3 = stmtGL(llc)
-    v2 = stmtGeneralLedger(llc, view_by='All', include_coa_seed=True)
-
-    n3 = len(v3._rows)
-    n2 = len(v2._rows)
-    # v0.3 may include the same COA seed + same expanded GL — accept ±0
-    # (parity), and surface any drift in the detail message.
-    cond = (n3 == n2)
-    detail = f"v0.3_rows={n3} v0.2_rows={n2}"
-    return _ok("v0.3 stmtGL row count parity vs v0.2 stmtGeneralLedger",
-               cond, detail)
+    gl = stmtGL(llc)
+    n = len(gl._rows)
+    return _ok("stmtGL constructs successfully (v0.2 removed)", n >= 0, f"rows={n}")
 
 
 def _check_tax_nSpaceMap(llc) -> Tuple[str, bool, str]:

@@ -34,12 +34,19 @@ from __future__ import annotations
 
 import json as _json
 import os as _os
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+import pandas as _pd
 
 from ledger.stmtDB import stmtDB
+from ledger.llcCOA import ChartOfAccounts as _llcCOA
 
-# v0.2 stateless service — kept as the merge/double-entry engine.
-from ledger.stmtGeneralLedger import ledgerGeneral as _ledgerGeneral
+# Stateless GL-building service (canonical in ledger.ledgerGeneral).
+from ledger.ledgerGeneral import ledgerGeneral as _ledgerGeneral
+
+# Ordered acctType list for Trial Balance presentation.
+_TB_ACCT_ORDER = ['Asset', 'Liability', 'Equity', 'Income', 'Expense']
+_TB_ACCT_TYPES = set(_TB_ACCT_ORDER)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -723,3 +730,165 @@ class stmtGL_Reports(stmtGL):
         raise NotImplementedError(
             "stmtGL_Reports is a v0.3 stub — implementation TBD."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. stmtTrialBalance — backwards-compatible Trial Balance snapshot
+# ─────────────────────────────────────────────────────────────────────────────
+# Previously lived in ledger/stmtGeneralLedger.py (v0.2).  Moved here when
+# that module was consolidated.  The v0.3 equivalent is
+# stmtGL_View.trial_balance(), but this class is kept for call sites that
+# instantiate it directly (rptFinancialReport, legacy tests).
+# ─────────────────────────────────────────────────────────────────────────────
+
+class stmtTrialBalance(stmtDB):
+    '''
+    Immutable Trial Balance constructed at instantiation time.
+
+    Columns (beyond the _lineNo / _rowNm sentinels):
+        acctType, acct, acctMinor, acctSub, propNm, Debit, Credit, Balance
+
+    Construction:
+        gl_records=...  — pre-built GL record list (optional fast path).
+        (default)       — build stmtGL(llc) and use its rows.
+
+    The final row is ``acctType='TOTAL'`` and its Debit / Credit should
+    agree (``_meta['balanced'] == True`` when |Σ Debit − Σ Credit| < 0.01).
+    '''
+
+    DEFAULT_TBLID = "TrialBalance"
+    COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
+    VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity',
+                       'ByIncome', 'ByExpense']
+
+    PUBLISH_MAP: Dict[str, List[Any]] = {}
+
+    def __init__(self,
+                 llc,
+                 view_by: str = 'All',
+                 gl_records: Optional[List[Dict[str, Any]]] = None,
+                 **kwargs):
+        self._init_view_by    = view_by
+        self._init_gl_records = gl_records
+        super().__init__(llc, **kwargs)
+
+    # ── Build pipeline ───────────────────────────────────────────────────────
+
+    def _build(self, **kwargs) -> None:
+        gl_records = self._init_gl_records
+        if gl_records is None:
+            gl_records = self._load_gl_records()
+
+        rows, check = self._aggregate_tb(gl_records, self._init_view_by)
+
+        self._tblID   = self.DEFAULT_TBLID
+        self._columns = list(self.COLUMNS)
+        self._rows    = rows
+        self._meta    = {
+            "view_by":    self._init_view_by,
+            "sourceMode": (
+                "gl_records" if self._init_gl_records is not None else "stmtGL"
+            ),
+            "balanced":     bool(check.get('balanced', False)),
+            "total_debit":  float(check.get('total_debit',  0.0)),
+            "total_credit": float(check.get('total_credit', 0.0)),
+            "tb_diff":      float(check.get('tb_diff',      0.0)),
+            "note": (
+                "Trial Balance built from stmtGL (COA-seeded).  "
+                "Balanced ↔ Σ Debit = Σ Credit within $0.01.  "
+                "Zero-balance rows are retained so every COA account appears."
+            ),
+        }
+
+    # ── Source loading ───────────────────────────────────────────────────────
+
+    def _load_gl_records(self) -> List[Dict[str, Any]]:
+        gl = stmtGL(self.llc)
+        return list(gl.load() or [])
+
+    # ── Aggregation ──────────────────────────────────────────────────────────
+
+    def _aggregate_tb(self,
+                      gl_records: List[Dict[str, Any]],
+                      view_by: str
+                      ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        if not gl_records:
+            return [], {'balanced': True, 'total_debit': 0.0, 'total_credit': 0.0, 'tb_diff': 0.0}
+
+        df = _pd.DataFrame(gl_records)
+        if df.empty:
+            return [], {'balanced': True, 'total_debit': 0.0, 'total_credit': 0.0, 'tb_diff': 0.0}
+
+        if 'acctType' not in df.columns or df['acctType'].astype(str).str.strip().eq('').any():
+            coa = getattr(self.llc, 'coa', None) or _llcCOA(self.llc)
+            need_class = df.get('acctType', _pd.Series([''] * len(df))).astype(str).str.strip().eq('')
+            df['acctType'] = df.get('acctType', '').astype(str)
+            df.loc[need_class, 'acctType'] = df.loc[need_class, 'acct'].map(
+                lambda a: coa._Type(a) if a else ''
+            )
+
+        df['amt'] = _pd.to_numeric(df.get('amt'), errors='coerce').fillna(0.0)
+
+        tb = df[df['acctType'].isin(_TB_ACCT_TYPES)].copy()
+
+        if view_by and view_by != 'All':
+            wanted = view_by[2:]  # strip 'By'
+            tb = tb[tb['acctType'] == wanted]
+
+        if tb.empty:
+            return [], {'balanced': True, 'total_debit': 0.0, 'total_credit': 0.0, 'tb_diff': 0.0}
+
+        for col in ('acctSub', 'acctMinor', 'propNm'):
+            if col in tb.columns:
+                tb[col] = tb[col].fillna('').astype(str)
+            else:
+                tb[col] = ''
+
+        grp = (
+            tb.groupby(['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'aType'])['amt']
+              .sum().unstack(fill_value=0.0).reset_index()
+        )
+        if 'Debit'  not in grp.columns: grp['Debit']  = 0.0
+        if 'Credit' not in grp.columns: grp['Credit'] = 0.0
+
+        grp['Balance'] = (grp['Debit'] - grp['Credit']).round(2)
+        grp['Debit']   = grp['Debit'].round(2)
+        grp['Credit']  = grp['Credit'].round(2)
+
+        order = {t: i for i, t in enumerate(_TB_ACCT_ORDER)}
+        grp['_sort'] = grp['acctType'].map(lambda x: order.get(x, 99))
+        grp = grp.sort_values(['_sort', 'acct', 'acctMinor', 'propNm', 'acctSub']).drop(columns=['_sort'])
+
+        rows = grp[['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']].to_dict(orient='records')
+
+        total_d = round(sum(r['Debit']  for r in rows), 2)
+        total_c = round(sum(r['Credit'] for r in rows), 2)
+        tb_diff = round(total_d - total_c, 2)
+
+        rows.append({
+            'acctType': 'TOTAL', 'acct': '', 'acctMinor': '',
+            'acctSub': '', 'propNm': '',
+            'Debit': total_d, 'Credit': total_c, 'Balance': tb_diff,
+        })
+
+        return rows, {
+            'balanced':     abs(tb_diff) < 0.01,
+            'total_debit':  total_d,
+            'total_credit': total_c,
+            'tb_diff':      tb_diff,
+        }
+
+    # ── Convenience accessors ────────────────────────────────────────────────
+
+    def is_balanced(self) -> bool:
+        return bool(self._meta.get('balanced', False))
+
+    def totals(self) -> Dict[str, float]:
+        return {
+            'Debit':  float(self._meta.get('total_debit',  0.0)),
+            'Credit': float(self._meta.get('total_credit', 0.0)),
+            'Diff':   float(self._meta.get('tb_diff',      0.0)),
+        }
+
+    def _to_IRS(self, formObj):
+        return []

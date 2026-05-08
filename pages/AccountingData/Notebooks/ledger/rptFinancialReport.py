@@ -609,7 +609,7 @@ class rptFinancialReport(ledgerObject):
             ``.is_balanced()`` for the zero-sum check, ``.totals()`` for
             the grand totals dict.
         '''
-        from ledger.stmtGeneralLedger import stmtTrialBalance
+        from ledger.stmtGL import stmtTrialBalance
         return stmtTrialBalance(self.llc, view_by=view_by)
 
     def displayTrialBalance(self, view_by: str = 'All'):

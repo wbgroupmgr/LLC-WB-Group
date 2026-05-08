@@ -71,22 +71,16 @@ def _build_source_agg(llc):
 
 
 def _build_gl_agg(llc):
-    '''GL: stmtGeneralLedger rows (no COA seeds), aggregated.'''
-    try:
-        from ledger.stmtGeneralLedger import stmtGeneralLedger
-    except ImportError:
-        from stmtGeneralLedger import stmtGeneralLedger
-    gl = stmtGeneralLedger(llc, view_by='All', include_coa_seed=False)
-    return agg_records(llc, list(gl._rows or []), IS_TYPES)
+    '''GL: stmtGL rows (with COA seed), aggregated.'''
+    from ledger.stmtGL import stmtGL
+    gl = stmtGL(llc)
+    return agg_records(llc, list(gl.load() or []), IS_TYPES)
 
 
 def _build_view_agg(llc):
-    '''View: stmtIncomeStmt rows flattened to (acctMajor, acct, aType) agg.'''
-    try:
-        from ledger.stmtIncomeStmt import stmtIncomeStmt
-    except ImportError:
-        from stmtIncomeStmt import stmtIncomeStmt
-    is_ = stmtIncomeStmt(llc)
+    '''View: stmtIS rows flattened to (acctMajor, acct, aType) agg.'''
+    from ledger.stmtIS import stmtIS
+    is_ = stmtIS(llc)
     return agg_view_rows(llc, list(is_._rows or []), IS_TYPES)
 
 

@@ -29,8 +29,8 @@ except ImportError:
     _PANDAS_OK = False
 
 from ledger.ledgerGeneral import ledgerGeneral
-from ledger.stmtBalanceSheet import stmtBalanceSheet as _stmtBalanceSheet
-from ledger.stmtIncomeStmt   import stmtIncomeStmt   as _stmtIncomeStmt
+from ledger.stmtBS import stmtBS as _stmtBalanceSheet
+from ledger.stmtIS import stmtIS as _stmtIncomeStmt
 
 
 class llcReportEngine:
@@ -123,7 +123,6 @@ class llcReportEngine:
         gl_records = self.getGLList(resolve_dups=True)
         bs = _stmtBalanceSheet(
             self.eSession.llc,
-            view_by=view_by,
             gl_records=gl_records,
         )
         return bs.load(), bs.last_check()
@@ -136,12 +135,9 @@ class llcReportEngine:
         current working-file GL and return (rows, net-income summary).
         '''
         gl_records = self.getGLList(resolve_dups=True)
-        owners     = self.load_owners()
         isstmt = _stmtIncomeStmt(
             self.eSession.llc,
-            view_by=view_by,
             gl_records=gl_records,
-            owners=owners,
         )
         return isstmt.load(), isstmt.last_summary()
 

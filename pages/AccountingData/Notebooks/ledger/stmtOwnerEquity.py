@@ -196,8 +196,8 @@ class stmtOwnerEquity(stmtDB):
         if not gl_records:
             return 0.0
         try:
-            from ledger.stmtIncomeStmt import stmtIncomeStmt as _IS
-            isStmt = _IS(self.llc, view_by='All', gl_records=gl_records)
+            from ledger.stmtIS import stmtIS as _IS
+            isStmt = _IS(self.llc, gl_records=gl_records)
             ni = isStmt.last_summary().get('net_income', 0.0)
             return float(ni or 0.0)
         except Exception as err:

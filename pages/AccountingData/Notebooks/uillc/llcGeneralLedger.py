@@ -9,8 +9,8 @@ shim re-exports the public surface so existing callers importing from
 Timestamp of last change: 2026.04.19
 """
 
-from ui.stmtGeneralLedger import *  # noqa: F401,F403
-from ui import stmtGeneralLedger as _ui_mod
+from ui.stmtGL_View import *  # noqa: F401,F403
+from ui.stmtGL_View import stmtGL_View as _ui_mod
 
 # Re-export the module-level __all__ if the target defined one, so that
 # ``from uillc.stmtGeneralLedger import X`` continues to resolve names the target

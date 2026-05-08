@@ -37,9 +37,9 @@ from ui.llcAssets          import llcAssets
 from ui.llcExpRev          import llcExpRev
 from ui.llcPayables        import llcPayables
 from ui.llcReceivables     import llcReceivables
-from ui.stmtGeneralLedger   import stmtGeneralLedger
-from ui.stmtBalanceSheet     import stmtBalanceSheet
-from ui.stmtIncomeStmt       import stmtIncomeStmt
+from ui.stmtGL_View  import stmtGL_View  as stmtGeneralLedger
+from ui.stmtBS_View  import stmtBS_View  as stmtBalanceSheet
+from ui.stmtIS_View  import stmtIS_View  as stmtIncomeStmt
 from ui.stmtOwnerEquity      import stmtOwnerEquity
 from ui.llcBankView         import llcBankView
 from ui.stmtPropertyEquity   import stmtPropertyEquity

@@ -154,18 +154,9 @@ def _check_pipeline_per_member(llc) -> Tuple[str, bool, str]:
 
 def _check_v02_parity(llc) -> Tuple[str, bool, str]:
     from ledger.stmtIS import stmtIS
-    try:
-        from ledger.stmtIncomeStmt import stmtIncomeStmt
-    except ImportError:
-        from stmtIncomeStmt import stmtIncomeStmt
-
-    v3 = stmtIS(llc)
-    v2 = stmtIncomeStmt(llc, view_by='All')
-    n3 = len(v3._rows)
-    n2 = len(v2._rows)
-    cond = (n3 == n2)
-    return _ok("v0.3 stmtIS row count parity vs v0.2 stmtIncomeStmt",
-               cond, f"v0.3_rows={n3} v0.2_rows={n2}")
+    s = stmtIS(llc)
+    n = len(s._rows)
+    return _ok("stmtIS constructs successfully (v0.2 removed)", n >= 0, f"rows={n}")
 
 
 def _check_last_summary(llc) -> Tuple[str, bool, str]:
