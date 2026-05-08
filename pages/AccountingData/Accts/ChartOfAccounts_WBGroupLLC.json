@@ -1,4 +1,6 @@
-{"coaDict" : {
+{"meta" : {"tip1": "For security/deposits - You do not classify as Acct.Rev, ie.  `own` the money until a tenant moves out and forfeits it for damages. Putting it in an income account will artificially inflate your tax bill."
+          },
+    "coaDict" : {
         "Acct.Cash.Bank": {
             "acctID": "1010",
             "acctDesc": "(Operating Bank Account: Cash )"
@@ -67,25 +69,45 @@
             "acctID": "3100",
             "acctDesc": "Retained Earnings (Cumulative profit or loss from previous years)"
         },
-        "Acct.Rev.Rent": {
+        "Acct.Rev.Ord.Services": {
+            "acctID": "4000",
+            "acctDesc": "ACTIVE (40xx), Non-Rental Ops, Service Revenue: General fees for services provided."
+        },
+        "Acct.Rev.Ord.Tours": {
             "acctID": "4010",
-            "acctDesc": "Rental Income"
+            "acctDesc": "Ord: Ticket sales"
+        },
+        "Acct.Rev.Ord.Sales": {
+            "acctID": "4020",
+            "acctDesc": "Ord: Income from merchandise, hats, t-shirts, or branded gear."
+        },
+        "Acct.Rev.Ord.Commission": {
+            "acctID": "4030",
+            "acctDesc": "Ord: Referral fees (e.g., if you get a kickback for booking a fishing charter for a guest)"
+        },
+        "Acct.Rev.Ord.Other": {
+            "acctID": "4090",
+            "acctDesc": "Ord: Other Ordinary: Small, miscellaneous active income.."
+        },
+        "Acct.Rev.Rent": {
+            "acctID": "4310",
+            "acctDesc": "PASSIVE (43xx), Rental Operations, Real Estate Rental Income"
         },
         "Acct.Rev.Fees.Late": {
-            "acctID": "4020",
-            "acctDesc": "Late Fee Income"
+            "acctID": "4315",
+            "acctDesc": "RE: Rental Income - late fees"
         },
         "Acct.Rev.Fees.Other": {
-            "acctID": "4040",
+            "acctID": "4320",
             "acctDesc": "Non-Refundable Fees (Pets, deposits)/Parking Fees"
         },
-        "Acct.Rev.Services": {
-            "acctID": "4030",
-            "acctDesc": "Laundry/Vending Income"
-        },
         "Acct.Rev.Util": {
-            "acctID": "4050",
+            "acctID": "4330",
             "acctDesc": "Utility Reimbursement (If tenants pay you back for shared utilities)"
+        },
+        "Acct.Rev.Services": {
+            "acctID": "4340",
+            "acctDesc": "Laundry/Vending Income"
         },
         "Acct.Exp.Adv": {
             "acctID": "5010",
@@ -138,6 +160,18 @@
         "Acct.Unrealized.Appreciation": {
             "acctID": "6010",
             "acctDesc": "Unrealized Gains - appreciation"
+        },
+        "Acct.Unrealized.Appreciation": {
+            "acctID": "8000",
+            "acctDesc": "Interest Income"
+        },
+        "Acct.Unrealized.Appreciation": {
+            "acctID": "8010",
+            "acctDesc": "Dividend Income"
+        },
+        "Acct.Unrealized.Appreciation": {
+            "acctID": "8020",
+            "acctDesc": "Sale of Asset, Gain/Loss: if you sell a company vehicle or equipment."
         }
     },
 "nmDict":   {

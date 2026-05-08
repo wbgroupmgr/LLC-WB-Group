@@ -1,53 +1,133 @@
 {
   "_doc": {
     "purpose": "Book NSpace mapping table — IRS form fid → Income-Statement Acct UAS path.",
-    "format":  "[ 'F###', '<Acct UAS>' ]   3-digit zero-padded fid; UAS is either a single COA acct (e.g. 'Acct.Rev.Rent') or a stmtIncomeStmt taxAggregate name prefixed 'IS.' (e.g. 'IS.net_income').",
-    "scope":   "Only fields that are sourced from the Income Statement appear here.  Profile-sourced and Balance-Sheet-sourced fields live in bookNS_Profile.json / bookNS_BS.json.  A single Acct may appear under multiple fids (e.g. Acct.Rev.Rent → F030,F032,F034,F230).",
+    "format": "[ 'F###', '<Acct UAS>' ]   3-digit zero-padded fid; UAS is either a single COA acct (e.g. 'Acct.Rev.Rent') or a stmtIncomeStmt taxAggregate name prefixed 'IS.' (e.g. 'IS.net_income').",
+    "scope": "Only fields that are sourced from the Income Statement appear here.  Profile-sourced and Balance-Sheet-sourced fields live in bookNS_Profile.json / bookNS_BS.json.  A single Acct may appear under multiple fids (e.g. Acct.Rev.Rent → F030,F032,F034,F230).",
     "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' → stmtIncomeStmt row Balance for that COA acct;  acct startswith 'IS.'   → stmtIncomeStmt.taxAggregates()[name];  acct startswith 'Profile.' → stmtProfile cell;  acct startswith 'BS.'   → stmtBalanceSheet.taxAggregates()[name].",
     "perPartner": "Sch_K1 entries are partnership-level totals.  irsForm.savePDF() multiplies them by partner.pct from llcOwners when emitting per-partner FILL pdfs."
   },
-
   "Form1065": [
-    ["F030", "IS.rent_income"],
-    ["F032", "IS.rent_income"],
-    ["F034", "IS.rent_income"],
-    ["F038", "IS.other_income"],
-    ["F039", "IS.total_income"],
-
-    ["F042", "IS.repairs"],
-    ["F045", "IS.taxes_licenses"],
-    ["F046", "IS.interest_expense"],
-    ["F047", "IS.depreciation"],
-    ["F049", "IS.depreciation"],
-    ["F054", "IS.other_deductions"],
-    ["F055", "IS.total_expenses"],
-
-    ["F056", "IS.net_income"],
-
-    ["F229", "IS.net_income"],
-    ["F230", "IS.rent_income"],
-    ["F037", "IS.interest_income"],
-    ["F248", "IS.other_income"],
-    ["F249", "IS.depreciation"],
-    ["F277", "IS.interest_income"],
-    ["F280", "IS.distributions_cash"],
-    ["F282", "IS.interest_income"],
-
-    ["F411", "IS.net_income"],
-    ["F430", "IS.net_income"]
+    [
+      "F038",
+      "IS.other_income"
+    ],
+    [
+      "F039",
+      "IS.total_income"
+    ],
+    [
+      "F042",
+      "IS.repairs"
+    ],
+    [
+      "F045",
+      "IS.taxes_licenses"
+    ],
+    [
+      "F046",
+      "IS.interest_expense"
+    ],
+    [
+      "F047",
+      "IS.depreciation"
+    ],
+    [
+      "F049",
+      "IS.depreciation"
+    ],
+    [
+      "F054",
+      "IS.other_deductions"
+    ],
+    [
+      "F055",
+      "IS.total_expenses"
+    ],
+    [
+      "F056",
+      "IS.net_income"
+    ],
+    [
+      "F228",
+      "IS.net_income"
+    ],
+    [
+      "F230",
+      "Cplx.K2_net_rental"
+    ],
+    [
+      "F247",
+      "IS.other_income"
+    ],
+    [
+      "F248",
+      "IS.depreciation"
+    ],
+    [
+      "F276",
+      "IS.interest_income"
+    ],
+    [
+      "F279",
+      "IS.distributions_cash"
+    ],
+    [
+      "F281",
+      "IS.interest_income"
+    ],
+    [
+      "F410",
+      "IS.net_income"
+    ],
+    [
+      "F429",
+      "IS.net_income"
+    ]
   ],
-
   "Sch_K1": [
-    ["F_K1_1",   "IS.net_income"],
-    ["F_K1_2",   "IS.rent_income"],
-    ["F_K1_5",   "IS.interest_income"],
-    ["F_K1_19a", "IS.distributions_cash"],
-    ["F_K1_L3",  "IS.net_income"]
+    [
+      "F_K1_1",
+      "IS.net_income"
+    ],
+    [
+      "F_K1_2",
+      "IS.rent_income"
+    ],
+    [
+      "F_K1_5",
+      "IS.interest_income"
+    ],
+    [
+      "F_K1_19a",
+      "IS.distributions_cash"
+    ],
+    [
+      "F_K1_L3",
+      "IS.net_income"
+    ]
   ],
-
   "Form4562": [
-    ["F_F4562_19a_depr", "Acct.Exp.Depreciation"],
-    ["F_F4562_22",       "Acct.Exp.Depreciation"],
-    ["F_F4562_42",       "Acct.Exp.Depreciation"]
+    [
+      "F_F4562_19a_depr",
+      "Acct.Exp.Depreciation"
+    ],
+    [
+      "F_F4562_22",
+      "Acct.Exp.Depreciation"
+    ],
+    [
+      "F_F4562_42",
+      "Acct.Exp.Depreciation"
+    ]
+  ],
+  "Form8825": [
+    [
+      "F023",
+      "IS.rent_income"
+    ],
+    [
+      "F071",
+      "IS.depreciation"
+    ]
   ]
 }
