@@ -91,6 +91,7 @@ class stmtIS_View:
         '''
         if view_by == 'PerMember':
             return []
+        self._stmt = None   # always rebuild from live GL on each explicit load
         s = self._ensure_stmt()
         rows = s.view(view_by=view_by, with_totals=True)
         self._summary = s.last_summary()
@@ -106,6 +107,7 @@ class stmtIS_View:
         Each row has Balance + one column per unique propNm.
         '''
         from ledger.stmtIS import _Pipeline
+        self._stmt = None   # always rebuild from live GL on each explicit load
         s = self._ensure_stmt()
         gl_records = getattr(s, '_gl_records', []) or []
         rows, prop_names = _Pipeline._unstack_by_property(gl_records, view_by)
@@ -113,7 +115,8 @@ class stmtIS_View:
         self._summary = summary
         return rows, prop_names, summary
 
-    def load_per_member(self
+    def load_per_member(self,
+                        details: bool = False,
                         ) -> Tuple[List[Dict[str, Any]], List[str],
                                    Dict[str, Any]]:
         '''
@@ -121,10 +124,12 @@ class stmtIS_View:
 
         Returns (rows, owner_names, summary) — same shape the legacy UI
         expected.  Owners come from ``llcReportEngine.load_owners()``.
+        Pass ``details=True`` to keep acctSub rows (PerMemberDetails view).
         '''
+        self._stmt = None   # always rebuild from live GL on each explicit load
         s = self._ensure_stmt()
         owners = self.engine.load_owners()
-        rows, owner_names, summary = s.per_member(owners=owners)
+        rows, owner_names, summary = s.per_member(owners=owners, details=details)
         self._summary = summary
         return rows, owner_names, summary
 

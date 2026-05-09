@@ -86,22 +86,37 @@
         background: #fffbeb; font-style: italic; color: #78350f;
         border-top: 1px solid #fde68a;
     }
-    /* Income SubTotal — green-tinted, bold */
-    .pm-table tr.row-income-subtotal td {
+    /* Rental Income SubTotal — green-tinted, bold */
+    .pm-table tr.row-rental-income-subtotal td {
         background: #f0fdf4; font-weight: 700; color: #166534;
         border-top: 2px solid #86efac;
     }
-    /* Expense SubTotal — rose-tinted, bold */
-    .pm-table tr.row-expense-subtotal td {
+    /* Ordinary Income SubTotal — blue-tinted, lighter */
+    .pm-table tr.row-ordinary-income-subtotal td {
+        background: #f0f9ff; font-weight: 600; color: #0369a1;
+        border-top: 1px solid #bae6fd;
+    }
+    /* Rental Expense SubTotal — rose-tinted, bold */
+    .pm-table tr.row-rental-expense-subtotal td {
         background: #fff1f2; font-weight: 700; color: #9f1239;
         border-top: 2px solid #fda4af;
     }
-    /* Net Income (before depr) — blue tint, bold */
-    .pm-table tr.row-net-income td {
-        background: #eff6ff; font-weight: 800; color: #1e40af;
+    /* Ordinary Expense SubTotal — amber-tinted, lighter */
+    .pm-table tr.row-ordinary-expense-subtotal td {
+        background: #fff7ed; font-weight: 600; color: #9a3412;
+        border-top: 1px solid #fed7aa;
+    }
+    /* Net Ordinary — blue tint, bold */
+    .pm-table tr.row-net-ordinary td {
+        background: #eff6ff; font-weight: 700; color: #1e40af;
+        border-top: 2px solid #93c5fd;
+    }
+    /* Net Rental (before depr) — deeper blue, bold */
+    .pm-table tr.row-net-rental td {
+        background: #dbeafe; font-weight: 800; color: #1e3a8a;
         font-size: 14px; border-top: 3px solid #93c5fd;
     }
-    /* Net Income w/ Depreciation — dark navy, largest — the "bottom line" */
+    /* Total Net Income w/ Depreciation — dark navy, largest — the "bottom line" */
     .pm-table tr.row-net-income-depr td {
         background: #1e3a8a; color: white;
         font-weight: 800; font-size: 14px;
@@ -133,7 +148,7 @@
             </div>
             <span class="title-name">{{ app_title }}</span>
             <span class="title-sep">·</span>
-            <span class="title-sub">📊 {{ view_title }} — Per Member</span>
+            <span class="title-sub">📊 {{ view_title }} — Per Member{% if show_detail %} (Detail){% endif %}</span>
         </div>
         <div class="toolbar-row">
             {% if view_by_options %}
@@ -172,14 +187,17 @@
 </div>
 
 <div class="panel">
-    <h3>{{ view_title }} — Per Member Allocation</h3>
+    {% set show_detail = show_detail if show_detail is defined else false %}
+    <h3>{{ view_title }} — Per Member Allocation{% if show_detail %} (Detail){% endif %}</h3>
     <div class="table-wrap">
         <table class="pm-table">
             <thead>
                 <tr>
                     <th style="width:90px">Type</th>
                     <th>Account</th>
+                    {% if show_detail %}
                     <th style="width:140px">Sub-Account</th>
+                    {% endif %}
                     <th class="num" style="width:110px">Balance</th>
                     {% for nm in owner_names %}
                     <th class="num member-col" style="width:130px">{{ nm }}</th>
@@ -187,6 +205,8 @@
                 </tr>
             </thead>
             <tbody>
+                {% set n_label = 3 if show_detail else 2 %}
+                {% set n_cols  = n_label + 1 + owner_names | length %}
                 {% set ns = namespace(current_type="") %}
                 {% for row in rows %}
                     {% set at       = row.data.get("acctType", "") %}
@@ -198,28 +218,34 @@
                     {# Section header when acctType changes on regular data rows #}
                     {% if rtype == "data" and at and at != ns.current_type %}
                         <tr class="section-header">
-                            <td colspan="{{ 4 + owner_names | length }}">{{ at }}</td>
+                            <td colspan="{{ n_cols }}">{{ at }}</td>
                         </tr>
                         {% set ns.current_type = at %}
-                    {% elif rtype in ("income-subtotal", "expense-subtotal") %}
-                        {# Section divider before income/expense subtotals #}
+                    {% elif rtype in ("rental-income-subtotal", "ordinary-income-subtotal",
+                                       "rental-expense-subtotal", "ordinary-expense-subtotal",
+                                       "net-ordinary", "net-rental") %}
                         {% set ns.current_type = "" %}
                     {% elif rtype not in ("data",) %}
                         {% set ns.current_type = "" %}
                     {% endif %}
 
                     {# Row CSS class by row_type #}
-                    {% if   rtype == "income-subtotal"  %}<tr class="row-income-subtotal">
-                    {% elif rtype == "expense-subtotal" %}<tr class="row-expense-subtotal">
-                    {% elif rtype == "net-income"       %}<tr class="row-net-income">
-                    {% elif rtype == "depreciation"     %}<tr class="row-depreciation">
-                    {% elif rtype == "net-income-depr"  %}<tr class="row-net-income-depr">
-                    {% elif rtype == "distribution"     %}<tr class="row-distribution">
-                    {% else                             %}<tr>
+                    {% if   rtype == "rental-income-subtotal"   %}<tr class="row-rental-income-subtotal">
+                    {% elif rtype == "ordinary-income-subtotal"  %}<tr class="row-ordinary-income-subtotal">
+                    {% elif rtype == "rental-expense-subtotal"   %}<tr class="row-rental-expense-subtotal">
+                    {% elif rtype == "ordinary-expense-subtotal" %}<tr class="row-ordinary-expense-subtotal">
+                    {% elif rtype == "net-ordinary"              %}<tr class="row-net-ordinary">
+                    {% elif rtype == "net-rental"                %}<tr class="row-net-rental">
+                    {% elif rtype == "depreciation"              %}<tr class="row-depreciation">
+                    {% elif rtype == "net-income-depr"           %}<tr class="row-net-income-depr">
+                    {% elif rtype == "distribution"              %}<tr class="row-distribution">
+                    {% else                                      %}<tr>
                     {% endif %}
                         <td>{{ at if rtype == "data" else "" }}</td>
                         <td class="acct-name">{{ acct }}</td>
+                        {% if show_detail %}
                         <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>
+                        {% endif %}
                         <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">
                             {{ "%.2f"|format(bal) }}
                         </td>
@@ -236,7 +262,7 @@
                     </tr>
                 {% endfor %}
                 {% if not rows %}
-                <tr><td colspan="{{ 4 + owner_names|length }}" class="muted">No data available.</td></tr>
+                <tr><td colspan="{{ n_cols }}" class="muted">No data available.</td></tr>
                 {% endif %}
             </tbody>
         </table>

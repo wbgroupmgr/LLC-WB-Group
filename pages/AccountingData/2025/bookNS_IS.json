@@ -121,13 +121,18 @@
     ]
   ],
   "Form8825": [
-    [
-      "F023",
-      "IS.rent_income"
-    ],
-    [
-      "F071",
-      "IS.depreciation"
-    ]
+    ["F023", "IS.rent_income"],
+    ["F027", "Acct.Rev.Fees.Other"],
+    ["F031", "IS.income_subtotal"],
+    ["F067", "Acct.Exp.Repair"],
+    ["F071", "Acct.Exp.Util"],
+    ["F079", "IS.depreciation"],
+    ["F091", "IS.other_expenses"],
+    ["F095", "IS.exp_subtotal"],
+    ["F099", "IS.net_income"],
+    ["F103", "IS.subtotal_rental_income"],
+    ["F104", "IS.subtotal_rental_expense"],
+    ["F106", "IS.net_ordinary"],
+    ["F113", "IS.net_income"]
   ]
 }

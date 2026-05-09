@@ -75,18 +75,35 @@
         font-size: 12px; color: #374151;
         border-top: 2px solid #9ca3af; padding-top: 12px;
     }
-    .pp-table tr.row-income-subtotal td {
+    .pp-table tr.row-rental-income-subtotal td {
         background: #f0fdf4; font-weight: 700; color: #166534;
         border-top: 2px solid #86efac;
     }
-    .pp-table tr.row-expense-subtotal td {
+    .pp-table tr.row-ordinary-income-subtotal td {
+        background: #f0f9ff; font-weight: 600; color: #0369a1;
+        border-top: 1px solid #bae6fd;
+    }
+    .pp-table tr.row-rental-expense-subtotal td {
         background: #fff1f2; font-weight: 700; color: #9f1239;
         border-top: 2px solid #fda4af;
     }
-    .pp-table tr.row-net-income td {
+    .pp-table tr.row-ordinary-expense-subtotal td {
+        background: #fff7ed; font-weight: 600; color: #9a3412;
+        border-top: 1px solid #fed7aa;
+    }
+    .pp-table tr.row-net-ordinary td {
+        background: #eff6ff; font-weight: 700; color: #1e40af;
+        border-top: 2px solid #93c5fd;
+    }
+    .pp-table tr.row-net-rental td {
         background: #1e3a8a; color: white;
         font-weight: 800; font-size: 14px;
         border-top: 3px solid #1e3a8a;
+    }
+    .pp-table tr.row-total-net td {
+        background: #0f172a; color: white;
+        font-weight: 800; font-size: 14px;
+        border-top: 3px solid #0f172a;
     }
     .amt-pos { color: #166534; }
     .amt-neg { color: #991b1b; }
@@ -183,10 +200,15 @@
                     {% endif %}
 
                     {# Row styling by row_type #}
-                    {% if   rtype == "income-subtotal"  %}<tr class="row-income-subtotal">
-                    {% elif rtype == "expense-subtotal" %}<tr class="row-expense-subtotal">
-                    {% elif rtype == "net-income"       %}<tr class="row-net-income">
-                    {% else                             %}<tr>
+                    {% set is_net = rtype in ("net-rental", "total-net") %}
+                    {% if   rtype == "rental-income-subtotal"   %}<tr class="row-rental-income-subtotal">
+                    {% elif rtype == "ordinary-income-subtotal"  %}<tr class="row-ordinary-income-subtotal">
+                    {% elif rtype == "rental-expense-subtotal"   %}<tr class="row-rental-expense-subtotal">
+                    {% elif rtype == "ordinary-expense-subtotal" %}<tr class="row-ordinary-expense-subtotal">
+                    {% elif rtype == "net-ordinary"              %}<tr class="row-net-ordinary">
+                    {% elif rtype == "net-rental"                %}<tr class="row-net-rental">
+                    {% elif rtype == "total-net"                 %}<tr class="row-total-net">
+                    {% else                                      %}<tr>
                     {% endif %}
                         <td>{{ at if rtype == "data" else "" }}</td>
                         <td class="acct-name">{{ acct }}</td>
@@ -195,12 +217,12 @@
                         <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.data.get("acctSub", "") }}</td>
                         {% endif %}
                         <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">
-                            {{ "%.2f"|format(bal) }}
+                            {% if is_net and bal < 0 %}({{ "%.2f"|format(bal|abs) }}){% else %}{{ "%.2f"|format(bal) }}{% endif %}
                         </td>
                         {% for pnm in prop_names %}
                             {% set pv = row.data.get(pnm, 0) | float %}
                             <td class="num {% if pv > 0 %}amt-pos{% elif pv < 0 %}amt-neg{% endif %}">
-                                {{ "%.2f"|format(pv) if pv != 0 else "" }}
+                                {% if is_net and pv < 0 %}({{ "%.2f"|format(pv|abs) }}){% elif pv != 0 %}{{ "%.2f"|format(pv) }}{% endif %}
                             </td>
                         {% endfor %}
                     </tr>
