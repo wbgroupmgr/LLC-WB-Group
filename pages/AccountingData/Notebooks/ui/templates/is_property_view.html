@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const CURRENT_VIEW_BY = {{ view_by|tojson }};
+
+    function applyViewBy(selectEl) {
+        const vb = selectEl.value;
+        const params = new URLSearchParams();
+        if (vb && vb !== "All") params.set("viewBy", vb);
+        const q = params.toString();
+        window.location.href = `/view/${OBJ_TYPE}${q ? "?" + q : ""}`;
+    }
+    function toggleJsonPane() {
+        const pane = document.getElementById("jsonPane");
+        pane.open = !pane.open;
+        if (pane.open) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+</script>
+
+<style>
+    .title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 18px; border-radius: 10px;
+        display: flex; flex-direction: column; gap: 0;
+        padding: 0 !important; overflow: visible;
+    }
+    .title-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
+        background: #1e40af; padding: 12px 16px; color: white;
+        border-top-left-radius: 10px; border-top-right-radius: 10px; }
+    .stats-sub     { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .meta-row      { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
+    .title-left    { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep  { color: #93c5fd; font-size: 15px; }
+    .title-sub  { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
+    }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    .json-pane summary, .meta-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+
+    /* ── Property IS Table ── */
+    .pp-table { border-collapse: collapse; width: 100%; }
+    .pp-table th {
+        background: #1f2937; color: white;
+        padding: 10px 12px; text-align: left; font-size: 13px;
+        white-space: nowrap;
+    }
+    .pp-table th.num { text-align: right; }
+    .pp-table td { padding: 7px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .pp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pp-table tr:hover td { background: #f9fafb; }
+
+    .pp-table tr.section-header td {
+        background: #f3f4f6; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        font-size: 12px; color: #374151;
+        border-top: 2px solid #9ca3af; padding-top: 12px;
+    }
+    .pp-table tr.row-income-subtotal td {
+        background: #f0fdf4; font-weight: 700; color: #166534;
+        border-top: 2px solid #86efac;
+    }
+    .pp-table tr.row-expense-subtotal td {
+        background: #fff1f2; font-weight: 700; color: #9f1239;
+        border-top: 2px solid #fda4af;
+    }
+    .pp-table tr.row-net-income td {
+        background: #1e3a8a; color: white;
+        font-weight: 800; font-size: 14px;
+        border-top: 3px solid #1e3a8a;
+    }
+    .amt-pos { color: #166534; }
+    .amt-neg { color: #991b1b; }
+    .acct-name { font-family: monospace; font-size: 12px; color: #4b5563; }
+    .pp-table th.prop-col { background: #1e3a8a; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">📊 {{ view_title }} — By Property</span>
+        </div>
+        <div class="toolbar-row">
+            {% if view_by_options %}
+            <label for="viewBySelect"><strong>ViewBy</strong></label>
+            <select id="viewBySelect" onchange="applyViewBy(this)">
+                {% for opt in view_by_options %}
+                <option value="{{ opt }}" {% if view_by == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <button class="btn btn-secondary" onclick="window.location.href='/view/'+OBJ_TYPE+'?viewBy='+CURRENT_VIEW_BY">Refresh</button>
+            <button class="btn btn-warning" onclick="toggleJsonPane()">JSON</button>
+        </div>
+    </div>
+
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">No stats available.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary>🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+<div class="panel">
+    {% set show_detail = view_by == 'ByPropertyDetails' %}
+    <h3>{{ view_title }} — By Property{% if show_detail %} (Detail){% endif %}</h3>
+    <div class="table-wrap">
+        <table class="pp-table">
+            <thead>
+                <tr>
+                    <th style="width:90px">Type</th>
+                    <th>Account</th>
+                    {% if show_detail %}
+                    <th style="width:140px">Minor</th>
+                    <th style="width:160px">Sub-Account</th>
+                    {% endif %}
+                    <th class="num" style="width:120px">Balance</th>
+                    {% for pnm in prop_names %}
+                    <th class="num prop-col" style="width:150px">{{ pnm }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% set n_label = (4 if show_detail else 2) %}
+                {% set n_cols  = n_label + 1 + prop_names | length %}
+                {% set ns = namespace(current_type="") %}
+                {% for row in rows %}
+                    {% set at     = row.data.get("acctType", "") %}
+                    {% set acct   = row.data.get("acct", "") %}
+                    {% set bal    = row.data.get("Balance", 0) | float %}
+                    {% set rtype  = row.data.get("row_type", "data") %}
+
+                    {# Section header when acctType changes on data rows #}
+                    {% if rtype == "data" and at and at != ns.current_type %}
+                        <tr class="section-header">
+                            <td colspan="{{ n_cols }}">{{ at }}</td>
+                        </tr>
+                        {% set ns.current_type = at %}
+                    {% endif %}
+
+                    {# Row styling by row_type #}
+                    {% if   rtype == "income-subtotal"  %}<tr class="row-income-subtotal">
+                    {% elif rtype == "expense-subtotal" %}<tr class="row-expense-subtotal">
+                    {% elif rtype == "net-income"       %}<tr class="row-net-income">
+                    {% else                             %}<tr>
+                    {% endif %}
+                        <td>{{ at if rtype == "data" else "" }}</td>
+                        <td class="acct-name">{{ acct }}</td>
+                        {% if show_detail %}
+                        <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.data.get("acctMinor", "") }}</td>
+                        <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.data.get("acctSub", "") }}</td>
+                        {% endif %}
+                        <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">
+                            {{ "%.2f"|format(bal) }}
+                        </td>
+                        {% for pnm in prop_names %}
+                            {% set pv = row.data.get(pnm, 0) | float %}
+                            <td class="num {% if pv > 0 %}amt-pos{% elif pv < 0 %}amt-neg{% endif %}">
+                                {{ "%.2f"|format(pv) if pv != 0 else "" }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+                {% if not rows %}
+                <tr><td colspan="{{ n_cols }}" class="muted">No data available.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary>💾 Raw Data</summary>
+        <pre>{{ raw_rows | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

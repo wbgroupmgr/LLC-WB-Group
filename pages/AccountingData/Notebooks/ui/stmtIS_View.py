@@ -96,6 +96,23 @@ class stmtIS_View:
         self._summary = s.last_summary()
         return rows
 
+    def load_by_property(self,
+                         view_by: str = 'ByProperty'
+                         ) -> 'Tuple[List[Dict], List[str], Dict]':
+        '''
+        Property-unstacked IS: propNm values become column headers.
+
+        Returns (rows, prop_names, summary) — same shape as load_per_member().
+        Each row has Balance + one column per unique propNm.
+        '''
+        from ledger.stmtIS import _Pipeline
+        s = self._ensure_stmt()
+        gl_records = getattr(s, '_gl_records', []) or []
+        rows, prop_names = _Pipeline._unstack_by_property(gl_records, view_by)
+        summary = s.last_summary()
+        self._summary = summary
+        return rows, prop_names, summary
+
     def load_per_member(self
                         ) -> Tuple[List[Dict[str, Any]], List[str],
                                    Dict[str, Any]]:
