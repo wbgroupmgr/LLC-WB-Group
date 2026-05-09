@@ -195,12 +195,12 @@
                         <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.data.get("acctSub", "") }}</td>
                         {% endif %}
                         <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">
-                            {{ "%.2f"|format(bal) }}
+                            {% if rtype == "net-income" and bal < 0 %}({{ "%.2f"|format(bal|abs) }}){% else %}{{ "%.2f"|format(bal) }}{% endif %}
                         </td>
                         {% for pnm in prop_names %}
                             {% set pv = row.data.get(pnm, 0) | float %}
                             <td class="num {% if pv > 0 %}amt-pos{% elif pv < 0 %}amt-neg{% endif %}">
-                                {{ "%.2f"|format(pv) if pv != 0 else "" }}
+                                {% if rtype == "net-income" and pv < 0 %}({{ "%.2f"|format(pv|abs) }}){% elif pv != 0 %}{{ "%.2f"|format(pv) }}{% endif %}
                             </td>
                         {% endfor %}
                     </tr>

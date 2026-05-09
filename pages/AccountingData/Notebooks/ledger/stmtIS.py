@@ -500,13 +500,16 @@ class stmtIS_Tax(stmtIS):
         and assigned columns in that order.
 
         Account-to-line mapping (Form 8825 line numbers):
-            Acct.Rev.Rent         → Line 2a (F023) Gross rents
-            Acct.Rev.Fees.Other   → Line 2b (F027) Other income
-            Acct.Exp.Repair       → Line 11 (F067) Repairs
-            Acct.Exp.Util         → Line 12 (F071) Utilities
-            Acct.Exp.Depreciation → Line 14 (F079) Depreciation
-            Acct.Exp.Operating    → Line 15 (F083) Other (operating)
-            Acct.Exp.Other        → Line 17 (F091) Other expenses
+            Acct.Rev.Rent         → Line 2a  (F023) Gross rents
+            Acct.Rev.Fees.Other   → Line 2b  (F027) Other income
+                                  → Line 2c  (F031) Income subtotal (computed)
+            Acct.Exp.Repair       → Line 11  (F067) Repairs
+            Acct.Exp.Util         → Line 12  (F071) Utilities
+            Acct.Exp.Depreciation → Line 14  (F079) Depreciation
+            Acct.Exp.Operating  ↘ → Line 17  (F091) Other (summed together)
+            Acct.Exp.Other      ↗
+                                  → Line 18  (F095) Expense subtotal (computed)
+                                  → Line 19a (F099) Net income/loss (computed)
 
         Field numbering:
             Page 1 (props A-D): base_fid + col_offset (0-3)
@@ -520,26 +523,29 @@ class stmtIS_Tax(stmtIS):
 
         # base fid for the first property column (Col_a) of each line, per page
         _P1: Dict[str, int] = {
-            'gross_rents':  23,   # Line 2a  F023
-            'other_income': 27,   # Line 2b  F027
-            'repairs':      67,   # Line 11  F067
-            'utilities':    71,   # Line 12  F071
-            'depreciation': 79,   # Line 14  F079
-            'operating':    83,   # Line 15  F083
-            'other':        91,   # Line 17  F091
+            'gross_rents':      23,   # Line 2a  F023
+            'other_income':     27,   # Line 2b  F027
+            'income_subtotal':  31,   # Line 2c  F031 (computed)
+            'repairs':          67,   # Line 11  F067
+            'utilities':        71,   # Line 12  F071
+            'depreciation':     79,   # Line 14  F079
+            'other':            91,   # Line 17  F091 (Operating + Other summed)
+            'exp_subtotal':     95,   # Line 18  F095 (computed)
+            'net_income':       99,   # Line 19a F099 (computed)
         }
         _P2: Dict[str, int] = {k: v + 119 for k, v in _P1.items()}
 
         # account → (line_key, negate)
         # Income: Balance is negative (credit), negate to get positive display value
         # Expense: Balance is positive (debit), use as-is
+        # Acct.Exp.Operating and Acct.Exp.Other both fold into 'other' (F091, summed)
         _ACCT_LINE: Dict[str, tuple] = {
             'Acct.Rev.Rent':       ('gross_rents',  True),
             'Acct.Rev.Fees.Other': ('other_income', True),
             DEPR_ACCT:             ('depreciation', False),
             'Acct.Exp.Repair':     ('repairs',      False),
             'Acct.Exp.Util':       ('utilities',    False),
-            'Acct.Exp.Operating':  ('operating',    False),
+            'Acct.Exp.Operating':  ('other',        False),
             'Acct.Exp.Other':      ('other',        False),
         }
 
@@ -560,6 +566,13 @@ class stmtIS_Tax(stmtIS):
 
         if not prop_vals:
             return {}
+
+        # Compute derived subtotals per property
+        for pv in prop_vals.values():
+            pv['income_subtotal'] = pv.get('gross_rents', 0.0) + pv.get('other_income', 0.0)
+            pv['exp_subtotal']    = (pv.get('repairs', 0.0) + pv.get('utilities', 0.0) +
+                                     pv.get('depreciation', 0.0) + pv.get('other', 0.0))
+            pv['net_income']      = pv['income_subtotal'] - pv['exp_subtotal']
 
         out: Dict[str, Any] = {}
         for i, propNm in enumerate(sorted(prop_vals.keys())):
@@ -856,9 +869,11 @@ class _Pipeline:
                 r[pnm] = round(per_prop.get(pnm, 0.0), 2)
             return r
 
-        net_bal  = {p: round(income_bal.get(p, 0) + expense_bal.get(p, 0), 2)
+        # Net income = Revenue − Expenses (income_bal is negative by convention,
+        # since income accounts have Credit > Debit; negate to get positive revenue)
+        net_bal  = {p: round(-income_bal.get(p, 0) - expense_bal.get(p, 0), 2)
                     for p in prop_names}
-        net_total = round(income_total + expense_total, 2)
+        net_total = round(-income_total - expense_total, 2)
 
         result.append(_summary_row('SubTotal Income',  'income-subtotal',
                                    income_total,  income_bal))
