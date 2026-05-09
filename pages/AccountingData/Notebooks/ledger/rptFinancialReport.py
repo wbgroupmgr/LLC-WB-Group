@@ -46,7 +46,7 @@ class rptFinancialReport(ledgerObject):
     # ----------------- ledgerObject overlay
 
     def _loadGL(self):
-        from ledger.ledgerGeneral import ledgerGeneral
+        from ledger.stmtGL import ledgerGeneral
         return ledgerGeneral(self.llc)
 
     def load(self, **kwargs):
@@ -56,7 +56,7 @@ class rptFinancialReport(ledgerObject):
         - ledgerGeneral is a single account per transaction ledger
         '''
         
-        from ledger.ledgerGeneral import ledgerGeneral
+        from ledger.stmtGL import ledgerGeneral
         from ledger.llcExpRev import llcExpRev
         from ledger.llcAssets import llcAssets
         

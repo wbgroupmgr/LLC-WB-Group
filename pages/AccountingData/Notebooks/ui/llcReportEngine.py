@@ -28,7 +28,7 @@ try:
 except ImportError:
     _PANDAS_OK = False
 
-from ledger.ledgerGeneral import ledgerGeneral
+from ledger.stmtGL import ledgerGeneral
 from ledger.stmtBS import stmtBS as _stmtBalanceSheet
 from ledger.stmtIS import stmtIS as _stmtIncomeStmt
 

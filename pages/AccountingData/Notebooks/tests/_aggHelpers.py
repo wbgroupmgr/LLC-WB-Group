@@ -39,10 +39,7 @@ def expand_source(llc, source_records: List[Dict[str, Any]]
     records (one row per side of the double entry).  Delegates to
     ``ledger.ledgerGeneral.toDoubleEntry`` so this matches production.
     '''
-    try:
-        from ledger.ledgerGeneral import ledgerGeneral
-    except ImportError:
-        from ledgerGeneral import ledgerGeneral
+    from ledger.stmtGL import ledgerGeneral
     return ledgerGeneral(llc).toDoubleEntry(source_records or []) or []
 
 

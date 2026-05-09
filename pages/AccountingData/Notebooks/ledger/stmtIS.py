@@ -184,7 +184,7 @@ class stmtIS(stmtDB):
                                ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         '''Pandas-free aggregator — same shape as the pandas path.'''
         try:
-            from ledger.ledgerGeneral import ledgerGeneral
+            from ledger.stmtGL import ledgerGeneral
             gl = ledgerGeneral(self.llc)
             classify = lambda v: gl.coa._Type(v)
         except Exception:
