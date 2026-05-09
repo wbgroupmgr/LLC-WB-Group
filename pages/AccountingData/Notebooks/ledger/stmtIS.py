@@ -353,7 +353,7 @@ class stmtIS(stmtDB):
         total_income    = rev(lambda r: r.get('acctType') == 'Income')
 
         depreciation     = exp(lambda r: r.get('acct') == DEPR_ACCT)
-        repairs          = exp(lambda r: starts(r, 'Acct.Exp.Repairs'))
+        repairs          = exp(lambda r: starts(r, 'Acct.Exp.Repair'))
         salaries         = exp(lambda r: starts(r, 'Acct.Exp.Salaries'))
         taxes_licenses   = exp(lambda r: starts(r, 'Acct.Exp.Taxes')
                                        or starts(r, 'Acct.Exp.Licenses'))
@@ -462,13 +462,14 @@ class stmtIS_Tax(stmtIS):
         '''
         Return ``{normalized_fid: fval}`` for the requested IRS form section.
 
-        See ``stmtGL_Tax.loadFillDict`` for the v0.3 contract — same shape
-        for all stmtOBJ_Tax/stmtProfile classes:
-          * fids are normalized to zero-padded ``F###``;
-          * UAS paths starting with ``Cplx`` -> fval = literal 'Complex';
-          * other unresolved entries -> fval = None (BLANK, not Complex).
+        Form8825 uses a dynamic per-property builder (``_build_f8825_filldict``)
+        instead of the static bookNS_IS.json mapping, because the form has one
+        column per rental property and the number/names of properties vary.
+
+        All other forms use the static bookNS_IS.json mapping.
         '''
-        import re
+        if formNm == 'Form8825':
+            return self._build_f8825_filldict()
         bkNS = self._bkNS_load()
         mappings = bkNS.get(formNm, []) or []
         out: Dict[str, Any] = {}
@@ -488,6 +489,91 @@ class stmtIS_Tax(stmtIS):
                 out[fid] = self._resolve_acct(acct)
             except Exception:
                 out[fid] = None
+        return out
+
+    def _build_f8825_filldict(self) -> Dict[str, Any]:
+        '''
+        Build a Form 8825 fill dict dynamically from IS ByProperty data.
+
+        Form 8825 has one column per rental property (A-D on page 1,
+        E-H on page 2).  Properties are sorted alphabetically by propNm
+        and assigned columns in that order.
+
+        Account-to-line mapping:
+            Acct.Rev.Rent         → Line 2a  (Gross rents; negated for display)
+            Acct.Exp.Repair       → Line 12  (Repairs)
+            Acct.Exp.Util         → Line 15  (Utilities)
+            Acct.Exp.Depreciation → Line 17  (Depreciation)
+            Acct.Exp.Operating,
+            Acct.Exp.Other        → Line 18  (Other expenses; accumulated)
+
+        Field numbering:
+            Page 1 (props A-D): base_fid + col_offset (0-3)
+            Page 2 (props E-H): same pattern starting at higher base fids
+        '''
+        gl_records = getattr(self, '_gl_records', []) or []
+        if not gl_records:
+            return {}
+
+        rows = _Pipeline._aggregate_by_property(gl_records, 'ByProperty')
+
+        # base fid for the first property column of each line, per page
+        _P1: Dict[str, int] = {
+            'gross_rents':  23,   # Line 2a
+            'repairs':      71,   # Line 12
+            'utilities':    83,   # Line 15
+            'depreciation': 91,   # Line 17
+            'other':        95,   # Line 18
+        }
+        _P2: Dict[str, int] = {
+            'gross_rents':  142,
+            'repairs':      190,
+            'utilities':    202,
+            'depreciation': 210,
+            'other':        214,
+        }
+
+        # account → (line_key, negate)
+        # Income: Balance is negative (credit), negate to get positive display value
+        # Expense: Balance is positive (debit), use as-is
+        _ACCT_LINE: Dict[str, tuple] = {
+            'Acct.Rev.Rent':      ('gross_rents', True),
+            DEPR_ACCT:            ('depreciation', False),
+            'Acct.Exp.Repair':    ('repairs', False),
+            'Acct.Exp.Util':      ('utilities', False),
+            'Acct.Exp.Operating': ('other', False),
+            'Acct.Exp.Other':     ('other', False),
+        }
+
+        prop_vals: Dict[str, Dict[str, float]] = {}
+        for r in rows:
+            if r.get('acctType') not in IS_TYPES:
+                continue
+            propNm = str(r.get('propNm', '') or '')
+            acct   = str(r.get('acct',   '') or '')
+            if not propNm or acct not in _ACCT_LINE:
+                continue
+            balance = float(r.get('Balance', 0) or 0)
+            line_key, negate = _ACCT_LINE[acct]
+            val = -balance if negate else balance
+            if propNm not in prop_vals:
+                prop_vals[propNm] = {}
+            prop_vals[propNm][line_key] = prop_vals[propNm].get(line_key, 0.0) + val
+
+        if not prop_vals:
+            return {}
+
+        out: Dict[str, Any] = {}
+        for i, propNm in enumerate(sorted(prop_vals.keys())):
+            if i >= 8:
+                break
+            base_map = _P1 if i < 4 else _P2
+            col = i if i < 4 else i - 4
+            for line_key, base_fid in base_map.items():
+                val = prop_vals[propNm].get(line_key, 0.0)
+                if val == 0.0:
+                    continue
+                out[f'F{base_fid + col:03d}'] = round(val, 2)
         return out
 
     @staticmethod
