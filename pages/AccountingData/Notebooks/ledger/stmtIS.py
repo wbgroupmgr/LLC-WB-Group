@@ -499,17 +499,18 @@ class stmtIS_Tax(stmtIS):
         E-H on page 2).  Properties are sorted alphabetically by propNm
         and assigned columns in that order.
 
-        Account-to-line mapping:
-            Acct.Rev.Rent         → Line 2a  (Gross rents; negated for display)
-            Acct.Exp.Repair       → Line 12  (Repairs)
-            Acct.Exp.Util         → Line 15  (Utilities)
-            Acct.Exp.Depreciation → Line 17  (Depreciation)
-            Acct.Exp.Operating,
-            Acct.Exp.Other        → Line 18  (Other expenses; accumulated)
+        Account-to-line mapping (Form 8825 line numbers):
+            Acct.Rev.Rent         → Line 2a (F023) Gross rents
+            Acct.Rev.Fees.Other   → Line 2b (F027) Other income
+            Acct.Exp.Repair       → Line 11 (F067) Repairs
+            Acct.Exp.Util         → Line 12 (F071) Utilities
+            Acct.Exp.Depreciation → Line 14 (F079) Depreciation
+            Acct.Exp.Operating    → Line 15 (F083) Other (operating)
+            Acct.Exp.Other        → Line 17 (F091) Other expenses
 
         Field numbering:
             Page 1 (props A-D): base_fid + col_offset (0-3)
-            Page 2 (props E-H): same pattern starting at higher base fids
+            Page 2 (props E-H): Page 1 base + 119
         '''
         gl_records = getattr(self, '_gl_records', []) or []
         if not gl_records:
@@ -517,32 +518,29 @@ class stmtIS_Tax(stmtIS):
 
         rows = _Pipeline._aggregate_by_property(gl_records, 'ByProperty')
 
-        # base fid for the first property column of each line, per page
+        # base fid for the first property column (Col_a) of each line, per page
         _P1: Dict[str, int] = {
-            'gross_rents':  23,   # Line 2a
-            'repairs':      71,   # Line 12
-            'utilities':    83,   # Line 15
-            'depreciation': 91,   # Line 17
-            'other':        95,   # Line 18
+            'gross_rents':  23,   # Line 2a  F023
+            'other_income': 27,   # Line 2b  F027
+            'repairs':      67,   # Line 11  F067
+            'utilities':    71,   # Line 12  F071
+            'depreciation': 79,   # Line 14  F079
+            'operating':    83,   # Line 15  F083
+            'other':        91,   # Line 17  F091
         }
-        _P2: Dict[str, int] = {
-            'gross_rents':  142,
-            'repairs':      190,
-            'utilities':    202,
-            'depreciation': 210,
-            'other':        214,
-        }
+        _P2: Dict[str, int] = {k: v + 119 for k, v in _P1.items()}
 
         # account → (line_key, negate)
         # Income: Balance is negative (credit), negate to get positive display value
         # Expense: Balance is positive (debit), use as-is
         _ACCT_LINE: Dict[str, tuple] = {
-            'Acct.Rev.Rent':      ('gross_rents', True),
-            DEPR_ACCT:            ('depreciation', False),
-            'Acct.Exp.Repair':    ('repairs', False),
-            'Acct.Exp.Util':      ('utilities', False),
-            'Acct.Exp.Operating': ('other', False),
-            'Acct.Exp.Other':     ('other', False),
+            'Acct.Rev.Rent':       ('gross_rents',  True),
+            'Acct.Rev.Fees.Other': ('other_income', True),
+            DEPR_ACCT:             ('depreciation', False),
+            'Acct.Exp.Repair':     ('repairs',      False),
+            'Acct.Exp.Util':       ('utilities',    False),
+            'Acct.Exp.Operating':  ('operating',    False),
+            'Acct.Exp.Other':      ('other',        False),
         }
 
         prop_vals: Dict[str, Dict[str, float]] = {}

@@ -122,9 +122,11 @@
   ],
   "Form8825": [
     ["F023", "IS.rent_income"],
-    ["F071", "Acct.Exp.Repair"],
-    ["F083", "Acct.Exp.Util"],
-    ["F091", "IS.depreciation"],
-    ["F095", "Acct.Exp.Other"]
+    ["F027", "Acct.Rev.Fees.Other"],
+    ["F067", "Acct.Exp.Repair"],
+    ["F071", "Acct.Exp.Util"],
+    ["F079", "IS.depreciation"],
+    ["F083", "Acct.Exp.Operating"],
+    ["F091", "Acct.Exp.Other"]
   ]
 }
