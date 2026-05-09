@@ -673,6 +673,118 @@ class _Pipeline:
         return sorted([dict(r) for r in rows], key=_sk)
 
     @staticmethod
+    def _unstack_by_property(gl_records: List[Dict[str, Any]],
+                             view_by: str
+                             ) -> 'Tuple[List[Dict[str, Any]], List[str]]':
+        '''
+        Pivot GL records so each unique propNm becomes a column.
+
+        Returns (rows, prop_names) where every row has:
+            acctType, acct, [acctMinor, acctSub for Details], Balance,
+            <propNm1>, <propNm2>, ...
+        Plus Income-Subtotal, Expense-Subtotal, and Net-Income summary rows.
+        '''
+        from collections import defaultdict
+
+        def _acct_minor(acct: str) -> str:
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+
+        prop_names = sorted({
+            str(r.get('propNm', '') or '')
+            for r in gl_records
+            if r.get('acctType') in IS_TYPES and float(r.get('amt', 0) or 0) != 0
+            and str(r.get('propNm', '') or '')
+        })
+
+        # row_key → propNm → {Debit, Credit}
+        by_key: Dict[tuple, Dict[str, Dict[str, float]]] = defaultdict(
+            lambda: defaultdict(lambda: {'Debit': 0.0, 'Credit': 0.0})
+        )
+        for r in gl_records:
+            at = r.get('acctType', '')
+            if at not in IS_TYPES:
+                continue
+            acct    = str(r.get('acct', '') or '')
+            prop_nm = str(r.get('propNm', '') or '')
+            try:
+                amt = float(r.get('amt', 0) or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if amt == 0.0:
+                continue
+            atype = str(r.get('aType', 'Debit')).strip()
+            if view_by == 'ByProperty':
+                key = (at, acct, '', '')
+            else:
+                key = (at, acct, _acct_minor(acct), str(r.get('acctSub', '') or ''))
+            is_credit = atype in ('Credit', 'Cr', 'CR', 'C')
+            by_key[key][prop_nm]['Credit' if is_credit else 'Debit'] += amt
+
+        order = {t: i for i, t in enumerate(IS_ORDER)}
+        sort_key = (lambda item: (order.get(item[0][0], 99), item[0][1])
+                    if view_by == 'ByProperty'
+                    else lambda item: (order.get(item[0][0], 99), item[0][1], item[0][2], item[0][3]))
+
+        def _prop_balance(prop_data: Dict, pnm: str) -> float:
+            pd = prop_data.get(pnm, {'Debit': 0.0, 'Credit': 0.0})
+            return round(pd['Debit'] - pd['Credit'], 2)
+
+        result: List[Dict[str, Any]] = []
+        income_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
+        income_total = 0.0
+        expense_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
+        expense_total = 0.0
+
+        for key, prop_data in sorted(by_key.items(), key=sort_key):
+            at, acct, acct_minor, acct_sub = key
+            total_d = sum(v['Debit'] for v in prop_data.values())
+            total_c = sum(v['Credit'] for v in prop_data.values())
+            balance = round(total_d - total_c, 2)
+            row: Dict[str, Any] = {
+                'acctType':  at, 'acct': acct,
+                'acctMinor': acct_minor, 'acctSub': acct_sub,
+                'Balance':   balance,
+                'row_type':  'data',
+            }
+            for pnm in prop_names:
+                pb = _prop_balance(prop_data, pnm)
+                row[pnm] = pb
+                if at == 'Income':
+                    income_bal[pnm] = income_bal.get(pnm, 0.0) + pb
+                else:
+                    expense_bal[pnm] = expense_bal.get(pnm, 0.0) + pb
+            if at == 'Income':
+                income_total += balance
+            else:
+                expense_total += balance
+            result.append(row)
+
+        # ── Summary rows ──
+        def _summary_row(label: str, rtype: str,
+                         bal: float, per_prop: Dict[str, float]) -> Dict[str, Any]:
+            r: Dict[str, Any] = {
+                'acctType': '', 'acct': label, 'acctMinor': '', 'acctSub': '',
+                'Balance': round(bal, 2), 'row_type': rtype,
+            }
+            for pnm in prop_names:
+                r[pnm] = round(per_prop.get(pnm, 0.0), 2)
+            return r
+
+        net_bal  = {p: round(income_bal.get(p, 0) + expense_bal.get(p, 0), 2)
+                    for p in prop_names}
+        net_total = round(income_total + expense_total, 2)
+
+        result.append(_summary_row('SubTotal Income',  'income-subtotal',
+                                   income_total,  income_bal))
+        result.append(_summary_row('SubTotal Expense', 'expense-subtotal',
+                                   expense_total, expense_bal))
+        result.append(_summary_row(f'Net Income: {net_total:,.2f}', 'net-income',
+                                   net_total, net_bal))
+
+        return result, prop_names
+
+    @staticmethod
     def _aggregate_by_property(gl_records: List[Dict[str, Any]],
                                view_by: str) -> List[Dict[str, Any]]:
         '''

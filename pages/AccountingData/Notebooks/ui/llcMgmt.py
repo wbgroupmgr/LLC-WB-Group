@@ -683,6 +683,30 @@ class llcMgmt:
             # ── Financial Statement views ─────────────────────────────────────
             if obj_type in self.FINANCIAL_VIEWS:
 
+                # ── IS ByProperty / ByPropertyDetails: unstacked property view ──
+                if obj_type == "stmtIncomeStmt" and view_by in ("ByProperty", "ByPropertyDetails"):
+                    bp_rows, prop_names, bp_summary = manager.load_by_property(view_by=view_by)
+                    bp_stats = {
+                        'Income':     bp_summary.get('income',     0),
+                        'Expense':    bp_summary.get('expense',    0),
+                        'Net Income': bp_summary.get('net_income', 0),
+                        'Properties': len(prop_names),
+                    }
+                    return render_template(
+                        "is_property_view.html",
+                        title=self.title,
+                        obj_type=obj_type,
+                        view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                        rows=self._view_rows(bp_rows),
+                        raw_rows=bp_rows,
+                        prop_names=prop_names,
+                        stats=bp_stats,
+                        stats_labels=self._stats_labels(bp_stats),
+                        meta=meta,
+                        view_by=view_by,
+                        view_by_options=view_by_options,
+                    )
+
                 # ── IS Per-Member view: separate template ─────────────────────
                 if obj_type == "stmtIncomeStmt" and view_by == "PerMember":
                     pm_rows, owner_names, pm_summary = manager.load_per_member()
