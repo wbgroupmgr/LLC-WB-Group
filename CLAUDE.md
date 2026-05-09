@@ -6,6 +6,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 LLC accounting and IRS tax management system for **W&B Group, LLC** — a multi-member real estate investment LLC. It manages a double-entry ledger, generates financial statements (BS, IS, GL), produces IRS Form 1065 / Schedule K-1 PDFs, and provides a Flask web editor for data entry.
 
+### 1.1 Claude Development Guidelines
+
+
+#### Github Mgmt
+
+- The github is always on `*main` -- this is the dev environment, just as it is for cowork.
+- When a minor/major release is tested, we will push the code to a release/vMajor.Minor, currently working on Major:0 and Minor 3+
+- Claude can work in its own worktree but when the fixes/enhancement are done, the changes should be put into `*main`
+- At the end of every session, commit all changed source files (Python, JSON, HTML, Markdown — NOT .gdoc, .DS_Store, or binary PDFs) and merge the worktree branch into main with `--no-ff` so the user can test.
+
+#### Design Workflow
+
+- when doing `enhancements` / `major refactoring` we will discuss the issues and goals, then we'll work together to developed a multi-task plan.
+- After review and approval of a task, a GO will be given - and I expect claude to make the changes with NO PROMPTs (see permissions below).
+- With the GO, claude is authorized to make any/all changes.   NO PROMPTs. 
+
+#### Fix/Test Workflow
+
+- When fixing bugs, fix the root cause — don't bypass hooks or add workarounds.
+- When unsure about a design decision, state the tradeoff in 2 sentences and ask before implementing.
+- Run the relevant test suite (test_stmtIS, test_stmtBS, test_stmtGL) before merging to main. All tests must pass.
+
+#### Permissions & Tool Behavior
+
+- Bash read-only commands (find, grep, ls, cat, head, tail, python3 -c for inspection) are pre-approved — do not prompt.
+- Reading any file under `pages/AccountingData/` is pre-approved.
+- Writing Python source files under `pages/AccountingData/Notebooks/` is pre-approved.
+- JSON data file writes under `pages/AccountingData/2025/` require confirmation only if destructive (overwrite without backup).
+
+#### Coding Style
+
+- No docstrings or multi-line comment blocks. One short inline comment only when the WHY is non-obvious.
+- No trailing summaries in responses — I can read the diff.
+- Prefer editing existing files over creating new ones.
+- No backwards-compatibility shims for removed code.
+
 ---
 
 ## 2. Running the Application
