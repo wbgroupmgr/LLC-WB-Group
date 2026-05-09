@@ -1,0 +1,116 @@
+%% apiFlow_BookToIRS.mmdc
+%% Scenario: User on an IRS form view (e.g. Form 8825) clicks the
+%% "Commit (Regenerate FILL.pdf)" button inside the 🛠 Aid dialog.
+%% The diagram traces every service call from that click to the moment
+%% the new FILL.pdf lands on disk and the iframe is refreshed.
+%%
+%% Entry:  Browser → POST /api/aid/regenerate?formNm=Form8825
+%% Exit:   Form8825_FILL.pdf written; JS refreshes iframe with cache-buster.
+%%
+%% Notes / Insights:
+%%   • [N1] _aid() is a llcMgmt closure that instantiates the IRS form
+%%     class (irs.Form8825) dynamically via importlib, then calls
+%%     form.aid() which returns BookToIRS(llc, "Form8825").  The IRS
+%%     form class is the gateway — BookToIRS is never called directly
+%%     from the route.
+%%   • [N2] BookToIRS.regenerate() processes all four sources in fixed
+%%     priority order: Profile > BS > IS > GL.  Each source calls its
+%%     own stmt*_Tax.loadFillDict("Form8825") which reads bookNS_{src}.json
+%%     plus the live ledger DBs.  Only the highest-priority filled value
+%%     for each fid survives the pandas dedup step.
+%%   • [N3] form.loadFieldsDF() reads the IRS template namespace JSON
+%%     (Form8825_namespace.json).  If the namespace JSON is absent it
+%%     builds one live from the IRS template PDF — expensive, so the
+%%     file should always be pre-generated.
+%%   • [N4] saveFILL_FromDF() opens the blank IRS template PDF
+%%     (Form8825_IRS.pdf), stamps field values (text /Tx or checkbox
+%%     /Btn toggle), and writes Form8825_FILL.pdf atomically.  The
+%%     namespace JSON is NOT re-written in this path — only the FILL.pdf.
+%%   • [N5] The FILL.pdf is the only persistent output of this pipeline.
+%%     The df_book / df merge lives only in memory; no intermediate JSON
+%%     is written (unlike the older saveFILL path which wrote fillDict JSON).
+%%   • [N6] Custom (Cplx) map values appear in stmtIS_Tax.loadFillDict
+%%     as the sentinel string "Complex" — they pass through regenerate()
+%%     unchanged and render as blank in the PDF (no value stamped).
+%%     The operator must complete M4 source surgery to replace them.
+%%
+sequenceDiagram
+    autonumber
+    participant B  as 'UI<br>Browser'
+    participant JS as JavaScript (Frontend)
+    participant API as Flask API (Routes)
+    participant AM  as ui.llcMgmt<br>(Middleware/Auth)
+    participant UI  as irs.Form{N}<br>(IRS Form Service)
+    participant Bk2Tx as irs.BookToIRS<br>(Bridge)
+    participant Bk  as ledger.stmt{SRC}_Tax<br>(BookSvc × 4 sources)
+    participant DB  as DB_Json<br>(⛁ OBJs / Profile)
+    participant BookNS as bookNS_{SRC}.json<br>(⛁ Namespace Control)
+    participant NS  as Form{N}_namespace.json<br>(⛁ IRS Field Namespace)
+    participant FM  as Form{N}_FILL.pdf<br>(⛁ IRS Template + Output)
+
+    Note over B, FM: Phase 1 — User triggers Commit in the Aid dialog
+    B->>JS: click "Commit (Regenerate FILL.pdf)" → aidRegenerate()
+    JS->>API: POST /api/aid/regenerate?formNm=Form8825
+
+    Note over B, FM: Phase 2 — Route resolves Aid service via IRS form gateway
+    API->>AM: dispatch aid_regenerate()
+    AM->>AM: _aid_form_from_request() → formNm = "Form8825"
+    AM->>AM: _aid(): importlib.import_module("irs.Form8825") → Form8825 class
+    AM->>UI: Form8825(llc) instantiate
+    AM->>UI: form.aid()
+    UI->>Bk2Tx: return BookToIRS(llc, formNm="Form8825")
+    AM->>Bk2Tx: BookToIRS.regenerate()
+
+    Note over B, FM: Phase 3 — Refresh all cached state before pipeline runs
+    Bk2Tx->>Bk2Tx: _refreshStmtInstances() — clear stmt cache
+    Bk2Tx->>DB: llc._Profile() — reload LLC profile from disk
+    DB-->>Bk2Tx: fresh entity / F1065 / chk[] data
+    Bk2Tx->>Bk2Tx: _namespace_cache = None — force namespace re-read
+
+    Note over B, FM: Phase 4 — Load IRS field namespace (all fillable fids)
+    Bk2Tx->>UI: Form8825(llc).loadFieldsDF()
+    UI->>NS: read Form8825_namespace.json
+    NS-->>UI: {fields: {f1…f221}} — fid meta (pdfField, fType, page, checkedValue)
+    UI->>FM: PdfReader(Form8825_IRS.pdf).get_fields() — real AcroForm /FT per fid
+    FM-->>UI: {pdfField → {/FT, /V, …}}
+    UI-->>Bk2Tx: df_fields (221 rows × fid, pdfField, fType, pdfFT, page, checkedValue)
+
+    Note over B, FM: Phase 5 — Collect live values from all four BookSvc sources
+    loop for each src in [Profile, BS, IS, GL]
+        Bk2Tx->>Bk: _stmtInstance(src) — instantiate stmt{SRC}_Tax(llc)
+        Bk->>BookNS: read bookNS_{src}.json → [[fid, UAS_path], …]
+        BookNS-->>Bk: fid→path mapping table for Form8825 section
+        Bk->>DB: read live ledger DBs (llcAssets, llcExpRev, llcPayables, llcReceivables)
+        DB-->>Bk: GL records / profile fields / BS / IS balances
+        Bk->>Bk: resolve each bookNS path → scalar value<br>(Acct.* → IS/BS balance; IS.* → taxAggregate; Profile.* → entity field)
+        Bk-->>Bk2Tx: {fid → value} dict for this source<br>(Cplx paths → "Complex" sentinel; chk[] → "CHECK" sentinel)
+    end
+
+    Note over B, FM: Phase 6 — Build merged DataFrame and assign field status
+    Bk2Tx->>Bk2Tx: build df_book from all source rows<br>rows = [{fid, fval, source}, …]
+    Bk2Tx->>Bk2Tx: priority-sort by (fid, has_val DESC, prio ASC)<br>Profile=0 > BS=1 > IS=2 > GL=3
+    Bk2Tx->>Bk2Tx: drop_duplicates("fid", keep="first") — highest-priority wins
+    Bk2Tx->>Bk2Tx: df = df_fields.merge(df_book, on="fid", how="left")<br>left join — all IRS fids kept, unmatched → fval=NaN
+    Bk2Tx->>Bk2Tx: df["status"] = filled | check | complex | blank
+    Bk2Tx->>Bk2Tx: df["value"]  = str(fval) | CHECK | Complex | None
+
+    Note over B, FM: Phase 7 — Stamp values into IRS template → FILL.pdf
+    Bk2Tx->>UI: form.saveFILL_FromDF(df)
+    UI->>FM: PdfReader(Form8825_IRS.pdf) — open blank IRS template
+    loop for each df row where value is not None
+        UI->>FM: /Tx field  → writer.update_page_form_field_values(pdfField, value)
+        UI->>FM: /Btn field + value==CHECK → toggle checkedValue ON ("/1")
+    end
+    UI->>FM: PdfWriter.write(Form8825_FILL.pdf) — atomic write to disk
+    FM-->>UI: out_path (Forms_IRS/Form8825_FILL.pdf)
+    UI-->>Bk2Tx: out_path
+
+    Note over B, FM: Phase 8 — Return summary and refresh UI
+    Bk2Tx-->>AM: {fill_path, pdf_fields, filled, check, complex, blank, ts}
+    AM-->>API: jsonify({ok:True, fill_path, totals})
+    API-->>JS: {ok:True, filled:N, blank:M, ts:unix}
+    JS->>JS: iframe.src += "?ts=<unix>" — cache-buster forces re-fetch
+    JS->>API: GET /forms/Form8825.pdf?ts=<unix>
+    API->>FM: send_file(Form8825_FILL.pdf)
+    FM-->>JS: PDF bytes (refreshed)
+    JS->>B: iframe renders updated FILL.pdf
