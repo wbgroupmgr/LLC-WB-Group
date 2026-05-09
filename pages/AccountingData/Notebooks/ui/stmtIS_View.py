@@ -115,7 +115,8 @@ class stmtIS_View:
         self._summary = summary
         return rows, prop_names, summary
 
-    def load_per_member(self
+    def load_per_member(self,
+                        details: bool = False,
                         ) -> Tuple[List[Dict[str, Any]], List[str],
                                    Dict[str, Any]]:
         '''
@@ -123,11 +124,12 @@ class stmtIS_View:
 
         Returns (rows, owner_names, summary) — same shape the legacy UI
         expected.  Owners come from ``llcReportEngine.load_owners()``.
+        Pass ``details=True`` to keep acctSub rows (PerMemberDetails view).
         '''
         self._stmt = None   # always rebuild from live GL on each explicit load
         s = self._ensure_stmt()
         owners = self.engine.load_owners()
-        rows, owner_names, summary = s.per_member(owners=owners)
+        rows, owner_names, summary = s.per_member(owners=owners, details=details)
         self._summary = summary
         return rows, owner_names, summary
 

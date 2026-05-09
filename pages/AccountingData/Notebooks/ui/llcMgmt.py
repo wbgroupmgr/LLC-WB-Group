@@ -153,7 +153,7 @@ class llcMgmt:
     VIEW_BY_OPTIONS: Dict[str, List[str]] = {
         'stmtGeneralLedger': ['All', 'By Dups', 'ByAsset', 'ByLiability', 'ByEquity', 'ByIncome', 'ByExpense'],
         'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity'],
-        'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember'],
+        'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember', 'PerMemberDetails'],
         # IRS Form 1065 / Sch K-1 are now PDF-embed views (v0.2.4.7) — no
         # row-level publish filter at the view layer; the publish flag is
         # baked into the underlying FILL.pdf.
@@ -708,8 +708,9 @@ class llcMgmt:
                     )
 
                 # ── IS Per-Member view: separate template ─────────────────────
-                if obj_type == "stmtIncomeStmt" and view_by == "PerMember":
-                    pm_rows, owner_names, pm_summary = manager.load_per_member()
+                if obj_type == "stmtIncomeStmt" and view_by in ("PerMember", "PerMemberDetails"):
+                    is_details = view_by == "PerMemberDetails"
+                    pm_rows, owner_names, pm_summary = manager.load_per_member(details=is_details)
                     pm_stats = {
                         'Income':      pm_summary.get('income_subtotal',     0),
                         'Expense':     pm_summary.get('expense_subtotal',    0),
@@ -731,6 +732,7 @@ class llcMgmt:
                         meta=meta,
                         view_by=view_by,
                         view_by_options=view_by_options,
+                        show_detail=is_details,
                     )
 
                 # For Balance Sheet: also pass the accounting-equation check

@@ -60,6 +60,11 @@ IS_ORDER = ['Income', 'Expense']
 
 DEPR_ACCT = 'Acct.Exp.Depreciation'
 
+# Ordinary income accounts — acct starts with this prefix (COA acctIDs 4000-4090).
+# All other Income accounts are treated as Rental income.
+# Ordinary Expense accounts (Acct.Exp.Ord.*) don't exist in the COA yet → subtotal = 0.
+ORDINARY_INCOME_PREFIX = 'Acct.Rev.Ord.'
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. stmtIS — core data only (aggregated IS rows, no view/agg/tax overlay)
@@ -175,8 +180,8 @@ class stmtIS(stmtDB):
         result = grp[['acctType', 'acct', 'acctSub',
                       'Debit', 'Credit', 'Balance']].to_dict(orient='records')
 
-        summary, total_row = self._summarise_and_total(result)
-        result.append(total_row)
+        summary = stmtIS._compute_summary(result)
+        result.extend(stmtIS._make_summary_rows(result))
         return result, summary
 
     def _aggregate_is_fallback(self,
@@ -218,36 +223,107 @@ class stmtIS(stmtDB):
             result.append({'acctType': at, 'acct': acct, 'acctSub': acct_sub,
                            'Debit': d, 'Credit': c, 'Balance': round(d - c, 2)})
 
-        summary, total_row = self._summarise_and_total(result)
-        result.append(total_row)
+        summary = stmtIS._compute_summary(result)
+        result.extend(stmtIS._make_summary_rows(result))
         return result, summary
+
+    @staticmethod
+    def _compute_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        '''
+        Compute the enriched IS summary from data rows (no TOTAL/summary rows).
+        Income credits are negative-balance; we negate so summary values read
+        as positive amounts.  Ordinary income = Acct.Rev.Ord.* accounts.
+        '''
+        def _is_ord(r: Dict[str, Any]) -> bool:
+            return str(r.get('acct') or '').startswith(ORDINARY_INCOME_PREFIX)
+
+        rental_income    = round(sum(-r['Balance'] for r in rows
+                                     if r.get('acctType') == 'Income' and not _is_ord(r)), 2)
+        ordinary_income  = round(sum(-r['Balance'] for r in rows
+                                     if r.get('acctType') == 'Income' and _is_ord(r)), 2)
+        rental_expense   = round(sum( r['Balance'] for r in rows
+                                     if r.get('acctType') == 'Expense'), 2)
+        ordinary_expense = 0.0   # no Acct.Exp.Ord.* accounts in COA yet
+        net_ordinary     = round(ordinary_income  - ordinary_expense, 2)
+        net_rental       = round(rental_income    - rental_expense,   2)
+        net_income       = round(net_ordinary + net_rental, 2)
+        return {
+            # backward-compat keys
+            'income':    round(rental_income + ordinary_income, 2),
+            'expense':   round(rental_expense + ordinary_expense, 2),
+            'net_income': net_income,
+            # new detail keys
+            'subtotal_rental_income':    rental_income,
+            'subtotal_ordinary_income':  ordinary_income,
+            'subtotal_rental_expense':   rental_expense,
+            'subtotal_ordinary_expense': ordinary_expense,
+            'net_ordinary': net_ordinary,
+            'net_rental':   net_rental,
+        }
+
+    @staticmethod
+    def _make_summary_rows(rows: List[Dict[str, Any]],
+                           view_by: str = 'All') -> List[Dict[str, Any]]:
+        '''
+        Build IS summary rows for appending after the data rows.
+        All rows carry acctType='TOTAL' so the template routes them through
+        the TOTAL block; row_type disambiguates styling and semantics.
+
+        view_by='ByIncome'  → only income subtotals
+        view_by='ByExpense' → only expense subtotals
+        otherwise           → all 7 rows (6 subtotals/nets + grand-total)
+        '''
+        s  = stmtIS._compute_summary(rows)
+        td = round(sum(r.get('Debit',  0) for r in rows), 2)
+        tc = round(sum(r.get('Credit', 0) for r in rows), 2)
+
+        def _srow(label: str, rtype: str, balance: float) -> Dict[str, Any]:
+            return {
+                'acctType': 'TOTAL', 'acct': label, 'acctSub': '',
+                'Debit': 0.0, 'Credit': 0.0, 'Balance': balance,
+                'row_type': rtype,
+            }
+
+        if view_by == 'ByIncome':
+            return [
+                _srow('SubTotal Rental Income',   'rental-income-subtotal',   s['subtotal_rental_income']),
+                _srow('SubTotal Ordinary Income', 'ordinary-income-subtotal', s['subtotal_ordinary_income']),
+            ]
+        if view_by == 'ByExpense':
+            return [
+                _srow('SubTotal Rental Expense',   'rental-expense-subtotal',   s['subtotal_rental_expense']),
+                _srow('SubTotal Ordinary Expense', 'ordinary-expense-subtotal', s['subtotal_ordinary_expense']),
+            ]
+        return [
+            _srow('SubTotal Rental Income',    'rental-income-subtotal',    s['subtotal_rental_income']),
+            _srow('SubTotal Ordinary Income',  'ordinary-income-subtotal',  s['subtotal_ordinary_income']),
+            _srow('SubTotal Rental Expense',   'rental-expense-subtotal',   s['subtotal_rental_expense']),
+            _srow('SubTotal Ordinary Expense', 'ordinary-expense-subtotal', s['subtotal_ordinary_expense']),
+            _srow('Net Ordinary Income/Loss',  'net-ordinary',              s['net_ordinary']),
+            _srow('Net Rental Income/Loss',    'net-rental',                s['net_rental']),
+            {
+                'acctType': 'TOTAL', 'acct': 'Total Net Income/Loss', 'acctSub': '',
+                'Debit': td, 'Credit': tc, 'Balance': s['net_income'],
+                'row_type': 'total-net',
+            },
+        ]
 
     @staticmethod
     def _summarise_and_total(rows: List[Dict[str, Any]]
                              ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        '''
-        Compute the (income, expense, net_income) summary and the TOTAL
-        row.  Income credits are negative-balance by convention; we flip
-        the sign so summary['income'] reads as a positive amount.
-        '''
-        income_net  = round(sum(-(r['Balance']) for r in rows
-                                if r['acctType'] == 'Income'), 2)
-        expense_net = round(sum(  r['Balance']  for r in rows
-                                if r['acctType'] == 'Expense'), 2)
-        net_income  = round(income_net - expense_net, 2)
-        td = round(sum(r['Debit']  for r in rows), 2)
-        tc = round(sum(r['Credit'] for r in rows), 2)
+        '''Thin backward-compat wrapper — returns (summary, single grand-total row).'''
+        summary = stmtIS._compute_summary(rows)
+        td = round(sum(r.get('Debit',  0) for r in rows), 2)
+        tc = round(sum(r.get('Credit', 0) for r in rows), 2)
         total_row = {
             'acctType': 'TOTAL',
-            'acct':     f'Net Income: {net_income:,.2f}',
+            'acct':     f'Total Net Income/Loss: {summary["net_income"]:,.2f}',
             'acctSub':  '',
             'Debit':    td,
             'Credit':   tc,
-            'Balance':  net_income,
+            'Balance':  summary['net_income'],
+            'row_type': 'total-net',
         }
-        summary = {'income': income_net,
-                   'expense': expense_net,
-                   'net_income': net_income}
         return summary, total_row
 
     # ── Row-name override ────────────────────────────────────────────────
@@ -365,6 +441,12 @@ class stmtIS(stmtDB):
 
         net_income = round(total_income - total_expenses, 2)
 
+        # No Acct.Rev.Ord.* accounts in COA yet → ordinary = 0, rental = total.
+        subtotal_rental_income = total_income
+        subtotal_ordinary_income = 0.0
+        net_ordinary = 0.0
+        net_rental   = net_income
+
         # distributions_cash isn't on the IS — we expose 0.0 here so IRS
         # form publishers that consult this layer get a non-None value.
         return {
@@ -381,6 +463,13 @@ class stmtIS(stmtDB):
             'total_expenses':    total_expenses,
             'net_income':        net_income,
             'distributions_cash': 0.0,
+            # Rental / Ordinary split (Form 8825 aggregate fids)
+            'subtotal_rental_income':    subtotal_rental_income,
+            'subtotal_ordinary_income':  subtotal_ordinary_income,
+            'subtotal_rental_expense':   total_expenses,
+            'subtotal_ordinary_expense': 0.0,
+            'net_ordinary':              net_ordinary,
+            'net_rental':                net_rental,
         }
 
     def last_summary(self) -> Dict[str, Any]:
@@ -585,6 +674,15 @@ class stmtIS_Tax(stmtIS):
                 if val == 0.0:
                     continue
                 out[f'F{base_fid + col:03d}'] = round(val, 2)
+
+        # Aggregate totals across all properties
+        total_rental_income = round(sum(pv.get('income_subtotal', 0.0) for pv in prop_vals.values()), 2)
+        total_rental_expense = round(sum(pv.get('exp_subtotal', 0.0) for pv in prop_vals.values()), 2)
+        total_net = round(sum(pv.get('net_income', 0.0) for pv in prop_vals.values()), 2)
+        if total_rental_income: out['F103'] = total_rental_income
+        if total_rental_expense: out['F104'] = total_rental_expense
+        # F106 = net ordinary income (0 — no ordinary income accounts yet)
+        if total_net: out['F113'] = total_net
         return out
 
     @staticmethod
@@ -703,8 +801,7 @@ class _Pipeline:
             gl_records = getattr(self._parent, '_gl_records', []) or []
             rows = self._aggregate_by_property(gl_records, self._view_by)
             if self._totals_row:
-                _, total_row = stmtIS._summarise_and_total(rows)
-                rows = list(rows) + [total_row]
+                rows = list(rows) + stmtIS._make_summary_rows(rows, view_by=self._view_by or 'All')
             return rows
 
         rows = self._apply_view_by(self._rows0, self._view_by)
@@ -715,8 +812,7 @@ class _Pipeline:
         if self._owners is not None:
             rows = self._apply_per_member(rows, self._owners)
         if self._totals_row:
-            _, total_row = stmtIS._summarise_and_total(rows)
-            rows = list(rows) + [total_row]
+            rows = list(rows) + stmtIS._make_summary_rows(rows, view_by=self._view_by or 'All')
         return rows
 
     # ── Stage implementations ────────────────────────────────────────────
@@ -829,8 +925,10 @@ class _Pipeline:
             return round(pd['Debit'] - pd['Credit'], 2)
 
         result: List[Dict[str, Any]] = []
-        income_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
-        income_total = 0.0
+        rental_income_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
+        ord_income_bal:    Dict[str, float] = {p: 0.0 for p in prop_names}
+        rental_income_total = 0.0
+        ord_income_total    = 0.0
         expense_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
         expense_total = 0.0
 
@@ -849,38 +947,60 @@ class _Pipeline:
                 pb = _prop_balance(prop_data, pnm)
                 row[pnm] = pb
                 if at == 'Income':
-                    income_bal[pnm] = income_bal.get(pnm, 0.0) + pb
+                    if acct.startswith(ORDINARY_INCOME_PREFIX):
+                        ord_income_bal[pnm] = ord_income_bal.get(pnm, 0.0) + pb
+                    else:
+                        rental_income_bal[pnm] = rental_income_bal.get(pnm, 0.0) + pb
                 else:
                     expense_bal[pnm] = expense_bal.get(pnm, 0.0) + pb
             if at == 'Income':
-                income_total += balance
+                if acct.startswith(ORDINARY_INCOME_PREFIX):
+                    ord_income_total += balance
+                else:
+                    rental_income_total += balance
             else:
                 expense_total += balance
             result.append(row)
 
-        # ── Summary rows ──
+        # ── Summary rows (7 rows) ──
+        # Income balances are Debit-Credit (negative for credits); negate for display.
         def _summary_row(label: str, rtype: str,
                          bal: float, per_prop: Dict[str, float]) -> Dict[str, Any]:
+            safe = lambda v: round(v, 2) or 0.0   # collapse -0.0 → 0.0
             r: Dict[str, Any] = {
                 'acctType': '', 'acct': label, 'acctMinor': '', 'acctSub': '',
-                'Balance': round(bal, 2), 'row_type': rtype,
+                'Balance': safe(bal), 'row_type': rtype,
             }
             for pnm in prop_names:
-                r[pnm] = round(per_prop.get(pnm, 0.0), 2)
+                r[pnm] = safe(per_prop.get(pnm, 0.0))
             return r
 
-        # Net income = Revenue − Expenses (income_bal is negative by convention,
-        # since income accounts have Credit > Debit; negate to get positive revenue)
-        net_bal  = {p: round(-income_bal.get(p, 0) - expense_bal.get(p, 0), 2)
-                    for p in prop_names}
-        net_total = round(-income_total - expense_total, 2)
+        _zero = {p: 0.0 for p in prop_names}
+        rental_inc_disp  = {p: -rental_income_bal[p] for p in prop_names}
+        ord_inc_disp     = {p: -ord_income_bal[p]    for p in prop_names}
+        net_rental_bal   = {p: round(-rental_income_bal[p] - expense_bal[p], 2)
+                            for p in prop_names}
+        net_total_bal    = {p: round(net_rental_bal[p] - ord_income_bal[p], 2)
+                            for p in prop_names}
 
-        result.append(_summary_row('SubTotal Income',  'income-subtotal',
-                                   income_total,  income_bal))
-        result.append(_summary_row('SubTotal Expense', 'expense-subtotal',
-                                   expense_total, expense_bal))
-        result.append(_summary_row(f'Net Income: {net_total:,.2f}', 'net-income',
-                                   net_total, net_bal))
+        net_rental_total  = round(-rental_income_total - expense_total, 2)
+        net_ord_total     = round(-ord_income_total, 2)
+        net_total         = round(net_rental_total + net_ord_total, 2)
+
+        result.append(_summary_row('SubTotal Rental Income',   'rental-income-subtotal',
+                                   -rental_income_total,  rental_inc_disp))
+        result.append(_summary_row('SubTotal Ordinary Income', 'ordinary-income-subtotal',
+                                   -ord_income_total,     ord_inc_disp))
+        result.append(_summary_row('SubTotal Rental Expense',  'rental-expense-subtotal',
+                                   expense_total,          expense_bal))
+        result.append(_summary_row('SubTotal Ordinary Expense','ordinary-expense-subtotal',
+                                   0.0,                    _zero))
+        result.append(_summary_row('Net Ordinary Income/Loss', 'net-ordinary',
+                                   net_ord_total,          _zero))
+        result.append(_summary_row('Net Rental Income/Loss',   'net-rental',
+                                   net_rental_total,       net_rental_bal))
+        result.append(_summary_row('Total Net Income/Loss',    'total-net',
+                                   net_total,              net_total_bal))
 
         return result, prop_names
 
@@ -1021,7 +1141,8 @@ class stmtIS_View(stmtIS_Agg):
     # ── PerMember view (Sch_K_1 row schema) ──────────────────────────────
 
     def per_member(self,
-                   owners: Optional[List[Dict[str, Any]]] = None
+                   owners: Optional[List[Dict[str, Any]]] = None,
+                   details: bool = False,
                    ) -> Tuple[List[Dict[str, Any]], List[str], Dict[str, Any]]:
         '''
         v0.2-compatible per-member output:
@@ -1086,37 +1207,58 @@ class stmtIS_View(stmtIS_Agg):
 
         result: List[Dict[str, Any]] = []
 
+        def _emit_rows(bucket: List[Tuple[Dict[str, Any], float]]) -> None:
+            if details:
+                for row, eb in bucket:
+                    result.append(_make_row(row.get('acctType', ''),
+                                            row.get('acct', ''),
+                                            row.get('acctSub', ''),
+                                            eb, 'data'))
+            else:
+                # Aggregate by acct — collapse multiple acctSub rows
+                seen: Dict[str, float] = {}
+                seen_at: Dict[str, str] = {}
+                order: List[str] = []
+                for row, eb in bucket:
+                    key = row.get('acct', '')
+                    if key not in seen:
+                        seen[key] = 0.0
+                        seen_at[key] = row.get('acctType', '')
+                        order.append(key)
+                    seen[key] = round(seen[key] + eb, 2)
+                for key in order:
+                    result.append(_make_row(seen_at[key], key, '', seen[key], 'data'))
+
         # Income section
-        for row, eff_bal in income_rows:
-            result.append(_make_row(row.get('acctType', ''),
-                                    row.get('acct', ''),
-                                    row.get('acctSub', ''),
-                                    eff_bal, 'data'))
+        _emit_rows(income_rows)
         income_total = round(sum(eb for _, eb in income_rows), 2)
-        result.append(_make_row('', 'SubTotal Income', '',
-                                income_total, 'income-subtotal'))
+        result.append(_make_row('', 'SubTotal Rental Income', '',
+                                income_total, 'rental-income-subtotal'))
+        result.append(_make_row('', 'SubTotal Ordinary Income', '',
+                                0.0, 'ordinary-income-subtotal'))
 
         # Expense section (depreciation moved below)
-        for row, eff_bal in expense_rows:
-            result.append(_make_row(row.get('acctType', ''),
-                                    row.get('acct', ''),
-                                    row.get('acctSub', ''),
-                                    eff_bal, 'data'))
+        _emit_rows(expense_rows)
         expense_total = round(sum(eb for _, eb in expense_rows), 2)
         result.append(_make_row(
-            '', 'SubTotal Expense (excl. Depreciation)', '',
-            expense_total, 'expense-subtotal'))
+            '', 'SubTotal Rental Expense (excl. Depr)', '',
+            expense_total, 'rental-expense-subtotal'))
+        result.append(_make_row('', 'SubTotal Ordinary Expense', '',
+                                0.0, 'ordinary-expense-subtotal'))
+
+        result.append(_make_row('', 'Net Ordinary Income/Loss', '',
+                                0.0, 'net-ordinary'))
 
         ni_before = round(income_total + expense_total, 2)
-        result.append(_make_row('', 'Net Income (before Depreciation)', '',
-                                ni_before, 'net-income'))
+        result.append(_make_row('', 'Net Rental Income/Loss (before Depr)', '',
+                                ni_before, 'net-rental'))
 
         depr_eff = round(-deprec_val, 2)
         result.append(_make_row('', 'Acct.Exp.Depreciation', '',
                                 depr_eff, 'depreciation'))
 
         ni_with_depr = round(ni_before + depr_eff, 2)
-        result.append(_make_row('', 'Net Income (w/ Depreciation)', '',
+        result.append(_make_row('', 'Total Net Income/Loss (w/ Depr)', '',
                                 ni_with_depr, 'net-income-depr'))
 
         # Distribution row — clamp to zero per CPA convention.
