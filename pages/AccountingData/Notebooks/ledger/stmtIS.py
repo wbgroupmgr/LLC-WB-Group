@@ -564,7 +564,8 @@ class _Pipeline:
                                   rows verbatim.
     '''
 
-    IS_VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense', 'PerMember']
+    IS_VIEW_BY_OPTIONS = ['All', 'ByIncome', 'ByExpense',
+                          'ByProperty', 'ByPropertyDetails', 'PerMember']
 
     def __init__(self, rows: List[Dict[str, Any]],
                  columns: List[str], parent: stmtDB):
@@ -601,6 +602,14 @@ class _Pipeline:
         return self
 
     def load(self) -> List[Dict[str, Any]]:
+        if self._view_by in ('ByProperty', 'ByPropertyDetails'):
+            gl_records = getattr(self._parent, '_gl_records', []) or []
+            rows = self._aggregate_by_property(gl_records, self._view_by)
+            if self._totals_row:
+                _, total_row = stmtIS._summarise_and_total(rows)
+                rows = list(rows) + [total_row]
+            return rows
+
         rows = self._apply_view_by(self._rows0, self._view_by)
         if self._group_by:
             rows = self._apply_group_by(rows, self._group_by)
@@ -664,6 +673,68 @@ class _Pipeline:
         return sorted([dict(r) for r in rows], key=_sk)
 
     @staticmethod
+    def _aggregate_by_property(gl_records: List[Dict[str, Any]],
+                               view_by: str) -> List[Dict[str, Any]]:
+        '''
+        Re-aggregate raw GL records by property for ByProperty / ByPropertyDetails.
+
+        ByProperty:        group key = (acctType, acct, propNm)
+        ByPropertyDetails: group key = (acctType, acct, acctMinor, acctSub, propNm)
+        '''
+        from collections import defaultdict
+
+        def _acct_minor(acct: str) -> str:
+            parts = str(acct or '').split('.')
+            return '.'.join(parts[2:]) if len(parts) > 2 else ''
+
+        buckets: Dict[tuple, Dict[str, float]] = defaultdict(
+            lambda: {'Debit': 0.0, 'Credit': 0.0}
+        )
+        for r in gl_records:
+            at = r.get('acctType', '')
+            if at not in IS_TYPES:
+                continue
+            acct      = str(r.get('acct', '') or '')
+            acct_sub  = str(r.get('acctSub',  '') or '')
+            prop_nm   = str(r.get('propNm',   '') or '')
+            try:
+                amt = float(r.get('amt', 0) or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if amt == 0.0:
+                continue
+            atype = str(r.get('aType', 'Debit')).strip()
+            if view_by == 'ByProperty':
+                key = (at, acct, '', '', prop_nm)
+            else:
+                key = (at, acct, _acct_minor(acct), acct_sub, prop_nm)
+            is_credit = atype in ('Credit', 'Cr', 'CR', 'C')
+            buckets[key]['Credit' if is_credit else 'Debit'] += amt
+
+        order = {t: i for i, t in enumerate(IS_ORDER)}
+        if view_by == 'ByProperty':
+            sort_key = lambda x: (order.get(x[0][0], 99), x[0][1], x[0][4])
+        else:
+            sort_key = lambda x: (order.get(x[0][0], 99), x[0][1], x[0][2], x[0][4], x[0][3])
+
+        result: List[Dict[str, Any]] = []
+        for (at, acct, acct_minor, acct_sub, prop_nm), s in sorted(
+                buckets.items(), key=sort_key):
+            d = round(s['Debit'],  2)
+            c = round(s['Credit'], 2)
+            result.append({
+                'acctType':  at,
+                'acct':      acct,
+                'acctMinor': acct_minor,
+                'acctSub':   acct_sub,
+                'propNm':    prop_nm,
+                'Debit':     d,
+                'Credit':    c,
+                'Balance':   round(d - c, 2),
+            })
+        return result
+
+    @staticmethod
     def _apply_per_member(rows: List[Dict[str, Any]],
                           owners: List[Dict[str, Any]]
                           ) -> List[Dict[str, Any]]:
@@ -718,7 +789,7 @@ class stmtIS_View(stmtIS_Agg):
     distribution rows) for the legacy IS member template.
     '''
 
-    VIEW_BY_OPTIONS = list(_Pipeline.IS_VIEW_BY_OPTIONS)
+    VIEW_BY_OPTIONS = list(_Pipeline.IS_VIEW_BY_OPTIONS)  # includes ByProperty/ByPropertyDetails
 
     # ── Default IS view (Frame 1) ────────────────────────────────────────
 

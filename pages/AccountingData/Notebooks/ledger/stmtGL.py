@@ -277,7 +277,7 @@ class stmtGL(stmtDB):
 
     DEFAULT_TBLID = "GeneralLedger"
     COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt',
-               'desc', 'acctSub', 'refDB', 'tID']
+               'desc', 'acctSub', 'propNm', 'refDB', 'tID']
     COA_SEED_REFDB = 'COA'
 
     # PUBLISH_MAP intentionally empty for v0.3 — IRS publication is a
@@ -344,6 +344,7 @@ class stmtGL(stmtDB):
             'amt':      amt,
             'desc':     r.get('desc',     '') or '',
             'acctSub':  r.get('acctSub',  '') or '',
+            'propNm':   str(r.get('propNm', '') or ''),
             'refDB':    r.get('refDB',    '') or '',
             'tID':      r.get('tID',      '') or '',
         }
