@@ -238,7 +238,7 @@
     <div class="table-wrap">
         {# ── Column visibility flags ── #}
         {% set show_minor      = view_by not in ('ByProperty',) %}
-        {% set show_acct_subs  = view_by in ('ByProperty', 'ByPropertyDetails') %}
+        {% set show_acct_subs  = false %}
         {% set n_cols          = 8 if show_minor else 6 %}
         {% set label_cols      = 5 if show_minor else 3 %}
         <table class="fin-table">
