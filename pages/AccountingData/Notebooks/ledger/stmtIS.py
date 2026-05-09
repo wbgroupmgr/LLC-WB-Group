@@ -722,9 +722,10 @@ class _Pipeline:
             by_key[key][prop_nm]['Credit' if is_credit else 'Debit'] += amt
 
         order = {t: i for i, t in enumerate(IS_ORDER)}
-        sort_key = (lambda item: (order.get(item[0][0], 99), item[0][1])
-                    if view_by == 'ByProperty'
-                    else lambda item: (order.get(item[0][0], 99), item[0][1], item[0][2], item[0][3]))
+        if view_by == 'ByProperty':
+            sort_key = lambda item: (order.get(item[0][0], 99), item[0][1])
+        else:
+            sort_key = lambda item: (order.get(item[0][0], 99), item[0][1], item[0][2], item[0][3])
 
         def _prop_balance(prop_data: Dict, pnm: str) -> float:
             pd = prop_data.get(pnm, {'Debit': 0.0, 'Credit': 0.0})
