@@ -86,6 +86,7 @@ class stmtBS_View:
             AggBy().ViewBy(view_by).SortBy(['acctType','acct','acctSub'])
                    .WithTotals(True).load()
         '''
+        self._stmt = None   # always rebuild from live GL on each explicit load
         s = self._ensure_stmt()
         rows = s.view(view_by=view_by, with_totals=True)
         # Refresh cached check (reflects this stmt instance).
