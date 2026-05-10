@@ -551,10 +551,14 @@ class BookToIRS:
     def regenerate(self) -> Dict:
         """Re-run the BookToIRS pipeline against the current on-disk
         bookNS / CustomMapDict state for ``self.formNm``.  Returns
-        ``{ fill_path, pdf_fields, filled, check, complex, blank, ts }``.
+        ``{ fill_path, pdf_fields, filled, check, complex, blank, ts }``
+        for single-form modes, or ``{ partners, paths, ts }`` for Sch_K1.
         """
         self._refreshStmtInstances()
         self._namespace_cache = None
+
+        if self.formNm == "Sch_K1":
+            return self._regenerate_k1()
 
         # Lazy imports — these pull pandas which is heavy.
         import pandas as pd
@@ -628,6 +632,86 @@ class BookToIRS:
             "blank":      int((df["status"] == "blank"  ).sum()),
             "ts":         int(time.time()),
         }
+
+    # ── Per-partner K-1 pipeline ───────────────────────────────
+    def _loadOwnersForK1(self) -> List[Dict]:
+        """Load llcOwners JSON list for the current LLC."""
+        top     = os.path.expanduser(getattr(self.llc, "TOP", "") or "")
+        acct    = getattr(self.llc, "dirAccounting", "") or ""
+        llcName = getattr(self.llc, "objName", "") or ""
+        fn      = Path(top) / acct / "Accts" / f"llcOwners_{llcName}.json"
+        if not fn.exists():
+            return []
+        try:
+            return json.loads(fn.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+    def _regenerate_k1(self) -> Dict:
+        """Generate one Sch_K1_FILL_{oID}.pdf per partner.
+
+        Returns ``{ partners: [{oID, fill_path, filled, blank}], paths, ts }``.
+        Uses ``stmtIS_TaxMember`` for direct fid-keyed fill values,
+        bypassing Sch_K1_namespace.json's blank logicalKey index.
+        """
+        import pandas as pd
+        from ledger.stmtIS import stmtIS_TaxMember
+        import importlib
+
+        owners = self._loadOwnersForK1()
+        if not owners:
+            return {"partners": [], "paths": [], "ts": int(time.time())}
+
+        mod       = importlib.import_module("irs.Sch_K1")
+        formClass = getattr(mod, "Sch_K1")
+        form      = formClass(llc=self.llc)
+        df_fields = form.loadFieldsDF()
+
+        results: List[Dict] = []
+        paths:   List[str]  = []
+
+        for i, owner in enumerate(owners):
+            oID = owner.get("oID", f"p{i}")
+
+            stmt     = stmtIS_TaxMember(self.llc, partner_idx=i)
+            fid_vals = stmt.loadFillDict("Sch_K1")
+
+            rows = [{"fid": fid, "fval": fval, "source": "IS"}
+                    for fid, fval in fid_vals.items()]
+            df_book = pd.DataFrame(rows, columns=["fid", "fval", "source"]) \
+                      if rows else pd.DataFrame(columns=["fid", "fval", "source"])
+
+            df = df_fields.merge(df_book, on="fid", how="left")
+
+            def _status(v):
+                if v is None:
+                    return "blank"
+                try:
+                    if pd.isna(v):
+                        return "blank"
+                except Exception:
+                    pass
+                if isinstance(v, str) and v == "":
+                    return "blank"
+                return "filled"
+
+            def _value(row):
+                if row["status"] == "filled":
+                    v = row["fval"]
+                    return v if isinstance(v, str) else str(v)
+                return None
+
+            df["status"] = df["fval"].apply(_status)
+            df["value"]  = df.apply(_value, axis=1)
+
+            out_path = form.saveFILL_FromDF(df, suffix=f"_{oID}")
+            filled   = int((df["status"] == "filled").sum())
+            blank    = int((df["status"] == "blank" ).sum())
+            results.append({"oID": oID, "fill_path": str(out_path),
+                             "filled": filled, "blank": blank})
+            paths.append(str(out_path))
+
+        return {"partners": results, "paths": paths, "ts": int(time.time())}
 
     # ── Advisory chips (§7) ────────────────────────────────────
     def adviseChips(self,

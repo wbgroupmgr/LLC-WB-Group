@@ -85,27 +85,13 @@
     ]
   ],
   "Sch_K1": [
-    [
-      "F_K1_1",
-      "IS.net_income"
-    ],
-    [
-      "F_K1_2",
-      "IS.rent_income"
-    ],
-    [
-      "F_K1_5",
-      "IS.interest_income"
-    ],
-    [
-      "F_K1_19a",
-      "IS.distributions_cash"
-    ],
-    [
-      "F_K1_L3",
-      "IS.net_income"
-    ]
+    ["F035", "IS.net_ordinary"],
+    ["F036", "IS.net_rental"],
+    ["F041", "IS.interest_income"],
+    ["F028", "IS.distributions_cash"],
+    ["F029", "IS.net_income"]
   ],
+  "_Sch_K1_note": "Runtime values are provided by stmtIS_TaxMember._build_k1_filldict() which multiplies by partner.pct and keys by namespace fid directly. Entries above are documentation-only; they are NOT resolved by stmtIS_Tax.loadFillDict() at runtime.",
   "Form4562": [
     [
       "F_F4562_19a_depr",
