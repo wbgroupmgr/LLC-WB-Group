@@ -1,9 +1,14 @@
 {% extends "base.html" %}
-{# v0.2.4.7 — IRS PDF embed view.
+{# v0.4 — IRS PDF embed view.
    Replaces the bespoke per-form Pg1/Pg2/Pg3/… constructed views.  The page
    now embeds the canonical FILL.pdf produced by irs.<Form>.saveFILL() in an
    <iframe>, with a small stat-chip header and a download/open-in-new-tab
-   toolbar.  No row tables; no nSpaceMap; no view-layer data wrangling. #}
+   toolbar.  No row tables; no nSpaceMap; no view-layer data wrangling.
+
+   v0.4 additions:
+     - K-1 member selector dropdown (shown when meta.owners is set)
+     - Namespace PDF button (shown when ns_pdf_url is set)
+#}
 
 {% block head_extra %}
 <style>
@@ -38,12 +43,44 @@
     }
     .pdf-toolbar .source-tag {
         font-family: 'SFMono-Regular', Consolas, monospace;
-        font-size: 12px; color: #6b7280; margin-left: auto;
+        font-size: 12px; color: #6b7280;
+    }
+    .pdf-toolbar .ns-link {
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 11px; color: #9ca3af; text-decoration: none;
+    }
+    .pdf-toolbar .ns-link:hover { color: #4b5563; text-decoration: underline; }
+    .pdf-toolbar .meta-group {
+        margin-left: auto; display: flex; flex-direction: column;
+        align-items: flex-end; gap: 2px;
     }
     .missing-pdf {
         background: #fef3c7; border: 1px solid #f59e0b;
         color: #78350f; padding: 16px; border-radius: 8px;
         font-size: 14px;
+    }
+    /* ── Member selector (K-1 only) ─────────────────────────────────── */
+    .member-bar {
+        display: flex; align-items: center; gap: 10px;
+        background: #f8fafc; border: 1px solid #e2e8f0;
+        border-radius: 8px; padding: 8px 14px;
+        margin-bottom: 12px;
+    }
+    .member-bar label {
+        font-size: 13px; font-weight: 600; color: #374151;
+        white-space: nowrap;
+    }
+    .member-bar select {
+        font-size: 13px; padding: 4px 8px;
+        border: 1px solid #d1d5db; border-radius: 6px;
+        background: white; color: #111827; cursor: pointer;
+        min-width: 240px;
+    }
+    .member-bar select:focus { outline: 2px solid #6366f1; }
+    .member-badge {
+        font-size: 11px; color: #6b7280;
+        background: #e5e7eb; border-radius: 4px;
+        padding: 2px 7px; white-space: nowrap;
     }
 </style>
 {% endblock %}
@@ -69,26 +106,54 @@
     </div>
     {% endif %}
 
+    {# K-1 member selector ─────────────────────────────────────────────── #}
+    {% if meta.owners %}
+    <div class="member-bar">
+        <label for="memberSelect">Partner K-1:</label>
+        <select id="memberSelect" onchange="k1MemberChanged(this.value)">
+            <option value="">— Partnership Totals —</option>
+            {% for o in meta.owners %}
+            <option value="{{ o.oID }}"
+                    {% if not o.fill_exists %}disabled title="PDF not yet generated — click Aid → Commit"{% endif %}>
+                {{ o.name }} · {{ o.oID }}{% if not o.fill_exists %} ⚠{% endif %}
+            </option>
+            {% endfor %}
+        </select>
+        <span class="member-badge" id="memberBadge">Partnership Total</span>
+    </div>
+    {% endif %}
+
     {# Toolbar #}
     <div class="pdf-toolbar">
         {% if meta.pdfPresent %}
-            <a class="btn btn-primary" href="{{ pdf_url }}" target="_blank" rel="noopener">
+            <a class="btn btn-primary" id="pdfOpenBtn"
+               href="{{ pdf_url }}" target="_blank" rel="noopener">
                 Open in new tab
             </a>
-            <a class="btn btn-secondary" href="{{ pdf_url }}?download=1" download>
+            <a class="btn btn-secondary" id="pdfDlBtn"
+               href="{{ pdf_url }}?download=1" download>
                 Download
             </a>
         {% endif %}
         {# Book→IRS Aid (v0.1) — opens an inline modal scoped to one fid. #}
         <button type="button" class="btn btn-warning" onclick="aidOpen()"
                 title="Open the Book→IRS Mapping Aid">🛠 Aid</button>
-        <span class="source-tag">{{ meta.formId }}_FILL.pdf</span>
+
+        <div class="meta-group">
+            <span class="source-tag" id="fillFileLabel">{{ meta.formId }}_FILL.pdf</span>
+            {% if ns_pdf_url %}
+            <a class="ns-link" href="{{ ns_pdf_url }}" target="_blank"
+               rel="noopener" title="View AcroForm field namespace reference PDF">
+                {{ meta.formId }}_namespace.pdf ↗
+            </a>
+            {% endif %}
+        </div>
     </div>
 
     {# Embed #}
     <div class="pdf-wrap">
         {% if meta.pdfPresent %}
-        <iframe class="pdf-frame"
+        <iframe id="pdfFrame" class="pdf-frame"
                 src="{{ pdf_url }}"
                 title="{{ view_title }}"></iframe>
         {% else %}
@@ -108,4 +173,57 @@
 
 {# Book→IRS Aid inline modal (v0.1) — see ui/templates/_aid_dialog.html. #}
 {% include '_aid_dialog.html' %}
+
+{% if meta.owners %}
+<script>
+(function () {
+    const BASE_URL  = "{{ pdf_url }}";  // /forms/Sch_K1.pdf
+    const frame     = document.getElementById("pdfFrame");
+    const badge     = document.getElementById("memberBadge");
+    const openBtn   = document.getElementById("pdfOpenBtn");
+    const dlBtn     = document.getElementById("pdfDlBtn");
+    const fileLabel = document.getElementById("fillFileLabel");
+
+    function buildUrl(oID, ts) {
+        let url = BASE_URL;
+        if (oID) url += "?member=" + encodeURIComponent(oID);
+        if (ts)  url += (oID ? "&" : "?") + "ts=" + ts;
+        return url;
+    }
+
+    window.k1MemberChanged = function (oID) {
+        const ts = Date.now();
+        const src = buildUrl(oID, ts);
+
+        if (frame)     frame.src = src;
+        if (openBtn)   openBtn.href = buildUrl(oID, null);
+        if (dlBtn)     dlBtn.href   = buildUrl(oID, null) + (oID ? "&" : "?") + "download=1";
+
+        const lbl = oID
+            ? "Sch_K1_" + oID + "_FILL.pdf"
+            : "Sch_K1_FILL.pdf";
+        if (fileLabel) fileLabel.textContent = lbl;
+
+        const sel = document.getElementById("memberSelect");
+        const nm  = sel && oID
+            ? (sel.options[sel.selectedIndex].text.split("·")[0].trim())
+            : "Partnership Total";
+        if (badge) badge.textContent = nm;
+    };
+
+    // aidRegenerate refreshes iframe — preserve the current member selection.
+    const _origRegenerate = window.aidRegenerate;
+    if (typeof _origRegenerate === "function") {
+        window.aidRegenerate = async function () {
+            await _origRegenerate();
+            // Re-apply member selection after regenerate resets the iframe.
+            const sel = document.getElementById("memberSelect");
+            if (sel && sel.value) {
+                frame.src = buildUrl(sel.value, Date.now());
+            }
+        };
+    }
+})();
+</script>
+{% endif %}
 {% endblock %}

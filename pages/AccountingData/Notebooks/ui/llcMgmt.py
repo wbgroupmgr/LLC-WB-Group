@@ -527,7 +527,14 @@ class llcMgmt:
                 irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
             except Exception:
                 abort(404)
-            pdf_path = irs_dir / f"{form_id}_FILL.pdf"
+            # K-1 per-partner: ?member=oID serves Sch_K1_{oID}_FILL.pdf
+            member = request.args.get("member", "").strip()
+            if form_id == "Sch_K1" and member:
+                pdf_path = irs_dir / f"Sch_K1_{member}_FILL.pdf"
+                dl_name  = f"Sch_K1_{member}_FILL.pdf"
+            else:
+                pdf_path = irs_dir / f"{form_id}_FILL.pdf"
+                dl_name  = f"{form_id}_FILL.pdf"
             if not pdf_path.exists():
                 abort(404)
             as_attachment = request.args.get("download", "0") == "1"
@@ -535,7 +542,29 @@ class llcMgmt:
                 str(pdf_path),
                 mimetype="application/pdf",
                 as_attachment=as_attachment,
-                download_name=f"{form_id}_FILL.pdf",
+                download_name=dl_name,
+            )
+
+        @app.route("/forms/<form_id>_NS.pdf")
+        def serve_irs_ns_pdf(form_id: str):
+            """Serve the AcroForm namespace reference PDF for any IRS form."""
+            allowed = set(self.PDF_VIEWS.values())
+            if form_id not in allowed:
+                abort(404)
+            llc = getattr(self.eSession, "llc", None)
+            if llc is None:
+                abort(404)
+            try:
+                irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+            except Exception:
+                abort(404)
+            pdf_path = irs_dir / f"{form_id}_namespace.pdf"
+            if not pdf_path.exists():
+                abort(404)
+            return send_file(
+                str(pdf_path),
+                mimetype="application/pdf",
+                download_name=f"{form_id}_namespace.pdf",
             )
 
         # ── Home ──────────────────────────────────────────────────────────────
@@ -616,15 +645,30 @@ class llcMgmt:
             changed_ids = self._parse_changed_ids()
 
             if obj_type in self.PDF_VIEWS:
+                form_nm  = self.PDF_VIEWS[obj_type]
+                mgr_meta = manager.meta()
+                # Namespace PDF — check file existence here so all form
+                # wrappers benefit without each needing to implement it.
+                ns_pdf_url = None
+                try:
+                    _llc = getattr(self.eSession, "llc", None)
+                    if _llc:
+                        _ns = (Path(_llc.acctDir(dirName="ye"))
+                               / "Forms_IRS" / f"{form_nm}_namespace.pdf")
+                        if _ns.exists():
+                            ns_pdf_url = f"/forms/{form_nm}_NS.pdf"
+                except Exception:
+                    pass
                 return render_template(
                     "irs_pdf_view.html",
                     title=self.title,
                     obj_type=obj_type,
                     view_title=self.VIEW_TITLES.get(obj_type, obj_type),
-                    pdf_url=f"/forms/{self.PDF_VIEWS[obj_type]}.pdf",
+                    pdf_url=f"/forms/{form_nm}.pdf",
+                    ns_pdf_url=ns_pdf_url,
                     stats=manager.stats(),
                     stats_labels=self._stats_labels(manager.stats()),
-                    meta=manager.meta(),
+                    meta=mgr_meta,
                 )
 
             if obj_type in self.READ_ONLY_VIEWS and obj_type not in self.BANK_VIEWS:
