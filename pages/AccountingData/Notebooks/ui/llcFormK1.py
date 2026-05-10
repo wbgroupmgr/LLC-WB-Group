@@ -84,16 +84,48 @@ class llcFormK1:
 
     # ── Public interface ────────────────────────────────────────────────────
 
-    def pdf_path(self) -> Optional[Path]:
+    def _irs_dir(self) -> Optional[Path]:
         llc = self._llc()
         if llc is None:
             return None
         try:
-            irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+            return Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
         except Exception:
             return None
-        p = irs_dir / f"{self.FORM_ID}_FILL.pdf"
+
+    def pdf_path(self, oID: str = "") -> Optional[Path]:
+        irs_dir = self._irs_dir()
+        if irs_dir is None:
+            return None
+        stem = f"{self.FORM_ID}_{oID}_FILL.pdf" if oID else f"{self.FORM_ID}_FILL.pdf"
+        p = irs_dir / stem
         return p if p.exists() else None
+
+    def owners(self):
+        """List of {oID, name, fill_exists} for all K-1 partners."""
+        llc = self._llc()
+        if llc is None:
+            return []
+        try:
+            import json
+            top     = getattr(llc, 'TOP', '') or ''
+            acct    = getattr(llc, 'dirAccounting', '') or ''
+            llcName = getattr(llc, 'objName', '') or ''
+            fn = Path(top) / acct / 'Accts' / f'llcOwners_{llcName}.json'
+            if not fn.exists():
+                return []
+            raw     = json.loads(fn.read_text(encoding='utf-8'))
+            irs_dir = self._irs_dir()
+            result  = []
+            for o in raw:
+                oID  = o.get('oID', '')
+                nm   = o.get('nm', [])
+                name = nm[0] if isinstance(nm, list) and nm else str(oID)
+                fill_exists = bool(irs_dir and (irs_dir / f"Sch_K1_{oID}_FILL.pdf").exists())
+                result.append({'oID': oID, 'name': name, 'fill_exists': fill_exists})
+            return result
+        except Exception:
+            return []
 
     def stats(self) -> Dict[str, Any]:
         out = {
@@ -126,13 +158,18 @@ class llcFormK1:
         return out
 
     def meta(self) -> Dict[str, Any]:
-        prof = self._stmt_profile()
-        pdf  = self.pdf_path()
+        prof    = self._stmt_profile()
+        pdf     = self.pdf_path()
+        owners  = self.owners()
+        irs_dir = self._irs_dir()
+        ns_present = bool(irs_dir and (irs_dir / f"{self.FORM_ID}_namespace.pdf").exists())
         return {
-            'objectName': self.object_name(),
-            'formId':     self.FORM_ID,
-            'pdfPath':    str(pdf) if pdf else '',
-            'pdfPresent': pdf is not None,
+            'objectName':   self.object_name(),
+            'formId':       self.FORM_ID,
+            'pdfPath':      str(pdf) if pdf else '',
+            'pdfPresent':   pdf is not None,
+            'owners':       owners,        # per-partner K-1 selector data
+            'nsPdfPresent': ns_present,
             'sources': {
                 'pdf':     'irs.Sch_K1.saveFILL() → Forms_IRS/Sch_K1_FILL.pdf',
                 'stats':   'ledger.stmtIncomeStmt + ledger.stmtProfile',
