@@ -161,8 +161,25 @@ class BookToIRS:
                 self._namespace_cache = j.get("fields", {}) if isinstance(j, dict) else {}
         return self._namespace_cache
 
+    # ── Source helpers ────────────────────────────────────────────
+    @staticmethod
+    def _src_base(src: str) -> str:
+        """Normalize virtual sources to their bookNS source.
+        'Profile.Form8825' and any 'Profile.*' map to 'Profile'.
+        """
+        if isinstance(src, str) and src.startswith("Profile."):
+            return "Profile"
+        return src
+
     def listSources(self) -> List[str]:
-        return list(AID_SOURCES)
+        """Return Aid source list including virtual form-scoped sources.
+        'Profile.Form8825' appears after 'Profile' so the operator can
+        browse only Form8825-relevant profile fields.
+        """
+        out = list(AID_SOURCES)             # Profile, BS, IS, GL
+        idx = out.index("Profile") + 1 if "Profile" in out else 1
+        out.insert(idx, "Profile.Form8825") # always show; paths filtered in listAllPathsWithValues
+        return out
 
     def loadBookNS(self, src: str) -> List[List[str]]:
         """Form1065 ``[[fid, path], …]`` rows from ``bookNS_<src>.json``."""
@@ -291,15 +308,118 @@ class BookToIRS:
             return []
 
     def listResolvablePaths(self, src: str) -> List[str]:
-        """Distinct UAS paths declared in ``bookNS_<src>.json`` —
-        these are the paths the operator can pick from when authoring
-        a new mapping (along with free-form entry).
+        """Legacy shim — returns path strings only.  Use listAllPathsWithValues()."""
+        return [x["path"] for x in self.listAllPathsWithValues(src)]
+
+    @staticmethod
+    def _fmt_val(v) -> str:
+        """Format a resolved value for Aid display (cap at 60 chars)."""
+        if v is None:
+            return ""
+        if isinstance(v, float):
+            return f"{v:,.2f}"
+        if isinstance(v, (int, bool)):
+            return str(v)
+        s = str(v).strip()
+        return s[:60] if len(s) > 60 else s
+
+    def listAllPathsWithValues(self, src: str) -> List[Dict]:
+        """Full universe of UAS paths available from ``src`` with live values.
+
+        Returns [{path, value, label}] covering:
+          IS   — all IS.* taxAggregates + Acct.* COA rows live in the IS
+          BS   — all BS.* taxAggregates + Acct.* COA rows live in the BS
+          GL   — all Acct.* COA rows in the GL
+          Profile          — all Profile.entity.* + Profile.F1065.* rows
+          Profile.Form8825 — Profile.entity.* + Form8825-bookNS profile rows
+
+        Paths already declared in bookNS for this src+form are appended if
+        not already covered (handles Cplx.* and sentinel paths).
         """
-        seen: List[str] = []
-        for _fid, p in self.loadBookNS(src):
-            if isinstance(p, str) and p not in seen:
-                seen.append(p)
-        return sorted(seen)
+        base = self._src_base(src)
+        out: List[Dict] = []
+
+        def _entry(path, v=None):
+            vstr = self._fmt_val(v)
+            return {"path": path, "value": vstr,
+                    "label": f"{path}  ({vstr})" if vstr else path}
+
+        if base == "IS":
+            stmt = self._stmtInstance("IS")
+            if stmt is not None:
+                agg = stmt.taxAggregates() if hasattr(stmt, "taxAggregates") else {}
+                for k in sorted(agg):
+                    out.append(_entry(f"IS.{k}", agg[k]))
+                try:
+                    seen: set = set()
+                    for r in stmt._rows:
+                        a = r.get("acct", "")
+                        if a.startswith("Acct.") and a not in seen:
+                            seen.add(a)
+                            out.append(_entry(a, stmt._resolve_acct(a)))
+                except Exception:
+                    pass
+
+        elif base == "BS":
+            stmt = self._stmtInstance("BS")
+            if stmt is not None:
+                agg = stmt.taxAggregates() if hasattr(stmt, "taxAggregates") else {}
+                for k in sorted(agg):
+                    out.append(_entry(f"BS.{k}", agg[k]))
+                try:
+                    seen = set()
+                    for r in stmt._rows:
+                        a = r.get("acct", "")
+                        if a.startswith("Acct.") and a not in seen:
+                            seen.add(a)
+                            out.append(_entry(a, stmt._resolve_acct(a)))
+                except Exception:
+                    pass
+
+        elif base == "GL":
+            stmt = self._stmtInstance("GL")
+            if stmt is not None:
+                try:
+                    seen = set()
+                    for r in stmt._rows:
+                        a = r.get("acct", "")
+                        if a.startswith("Acct.") and a not in seen:
+                            seen.add(a)
+                            v = stmt._resolve_acct(a) if hasattr(stmt, "_resolve_acct") else None
+                            out.append(_entry(a, v))
+                except Exception:
+                    pass
+
+        elif base == "Profile":
+            stmt = self._stmtInstance("Profile")
+            if stmt is not None:
+                try:
+                    for r in stmt.load():
+                        nm = r.get("_rowNm", "")
+                        if not nm:
+                            continue
+                        # Profile.Form8825 virtual source: entity fields only
+                        # (form-8825-specific bookNS rows added from bookNS below)
+                        if src == "Profile.Form8825" and not nm.startswith("Profile.entity."):
+                            continue
+                        out.append(_entry(nm, r.get("value")))
+                except Exception:
+                    pass
+
+        # Append bookNS paths not yet covered (Cplx.*, novel paths, etc.)
+        existing_paths = {x["path"] for x in out}
+        for _fid, p in self.loadBookNS(base):
+            if p and p not in existing_paths:
+                vstr = ""
+                try:
+                    vstr = self.previewValue("", base, p)
+                except Exception:
+                    pass
+                out.append({"path": p, "value": vstr,
+                            "label": f"{p}  ({vstr})" if vstr else p})
+                existing_paths.add(p)
+
+        return sorted(out, key=lambda x: x["path"])
 
     def previewValue(self, fid: str,
                      src: Optional[str] = None,
@@ -459,6 +579,7 @@ class BookToIRS:
 
     # ── Write — bookNS ─────────────────────────────────────────
     def createMapping(self, fid: str, src: str, path: str) -> Dict:
+        src = self._src_base(src)   # normalize Profile.Form8825 → Profile
         if src not in AID_SOURCES:
             raise ValueError(f"unknown source: {src!r}")
         fid = self._normalizeFid(fid)
@@ -472,6 +593,7 @@ class BookToIRS:
 
     def editMapping(self, fid: str, src: str, path: str) -> Dict:
         """Delete-then-create across all sources (§5.3)."""
+        src = self._src_base(src)
         fid = self._normalizeFid(fid)
         for s in AID_SOURCES:
             existing = self.loadBookNS(s)

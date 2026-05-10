@@ -1058,10 +1058,11 @@ class llcMgmt:
 
         @app.route("/api/aid/fields/<src>")
         def aid_fields(src):
+            aid = _aid()
             return jsonify({
-                "src":              src,
-                "fids":              _aid().listFields(src),
-                "resolvable_paths":  _aid().listResolvablePaths(src),
+                "src":             src,
+                "fids":            aid.listFields(src),
+                "resolvable_paths": aid.listAllPathsWithValues(src),
             })
 
         @app.route("/api/aid/preview")
