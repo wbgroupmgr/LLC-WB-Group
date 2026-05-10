@@ -125,11 +125,19 @@ no validation gate, output type derived read-only from namespace.fType.
         <select id="aidSrc" onchange="aidSrcChanged()"></select>
 
         <label for="aidPath">Path</label>
-        <select id="aidPath" onchange="aidPathChanged()"></select>
+        <select id="aidPath" onchange="aidPathChanged()">
+          <option value="">— pick or type below —</option>
+        </select>
 
-        <label for="aidPathFree">… or path (free)</label>
-        <input id="aidPathFree" type="text" placeholder="e.g. IS.repairs"
-               oninput="aidPreview()">
+        <label for="aidPathFree">… path (free / new)</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input id="aidPathFree" type="text" list="aidPathDatalist"
+                 placeholder="e.g. IS.net_rental  or  Acct.Exp.Util"
+                 oninput="aidPreview()" style="flex:1;">
+          <datalist id="aidPathDatalist"></datalist>
+          <span id="aidPathVal"
+                style="font-size:11px; color:#16a34a; white-space:nowrap; min-width:80px;"></span>
+        </div>
       </div>
 
       <div class="aid-chips" id="aidChips"></div>
@@ -194,14 +202,19 @@ no validation gate, output type derived read-only from namespace.fType.
         $('aidState').style.display = 'none';
         if (!SOURCES.length) {
             const r = await aidJSON('GET', '/api/aid/sources');
-            SOURCES = r.json.sources || ['Profile','BS','IS','GL'];
+            SOURCES = r.json.sources || ['Profile','Profile.Form8825','BS','IS','GL'];
             const sel = $('aidSrc');
             sel.innerHTML = '';
             SOURCES.forEach(s => {
                 const o = document.createElement('option');
-                o.value = s; o.text = s; sel.appendChild(o);
+                o.value = s;
+                // Display virtual sources clearly
+                o.text = s === 'Profile.Form8825' ? 'Profile · Form8825 fields' : s;
+                sel.appendChild(o);
             });
         }
+        // Clear path cache so re-opening picks up any regenerated values.
+        Object.keys(PATH_CACHE).forEach(k => delete PATH_CACHE[k]);
         if (fid) { $('aidFidInput').value = fid; aidLookup(); }
         else     { $('aidFidInput').focus(); }
     };
@@ -316,37 +329,79 @@ no validation gate, output type derived read-only from namespace.fType.
     };
 
     window.aidSrcChanged = async function() {
+        $('aidPathFree').value = '';
+        $('aidPathVal').textContent = '';
         await populatePathDropdown();
         aidPreview();
     };
 
+    // PATH_CACHE[src] = [{path, value, label}, ...] — populated by populatePathDropdown.
+    const PATH_CACHE = {};
+
     async function populatePathDropdown() {
-        const src = $('aidSrc').value;
-        const r = await aidJSON('GET', `/api/aid/fields/${src}`);
+        const src  = $('aidSrc').value;
+        if (!src) return;
+
+        // Fetch full path universe from backend (cached per src).
+        if (!PATH_CACHE[src]) {
+            const r = await aidJSON('GET', `/api/aid/fields/${encodeURIComponent(src)}`);
+            // resolvable_paths is [{path, value, label}] or legacy [string]
+            const raw = r.json.resolvable_paths || [];
+            PATH_CACHE[src] = raw.map(x =>
+                typeof x === 'string' ? {path: x, value: '', label: x} : x
+            );
+        }
+
+        const paths = PATH_CACHE[src];
+
+        // ── Select dropdown: shows path + value for quick picking ──
         const sel = $('aidPath');
         sel.innerHTML = '';
         const seed = document.createElement('option');
         seed.value = ''; seed.text = '— pick a path —'; sel.appendChild(seed);
-        const paths = (r.json.resolvable_paths || []).slice();
         paths.forEach(p => {
             const o = document.createElement('option');
-            o.value = p; o.text = p; sel.appendChild(o);
+            o.value = p.path;
+            o.text  = p.label || p.path;
+            sel.appendChild(o);
+        });
+
+        // ── Datalist on free field: autocomplete while typing ──────
+        const dl = $('aidPathDatalist');
+        dl.innerHTML = '';
+        paths.forEach(p => {
+            const o = document.createElement('option');
+            o.value = p.path;
+            o.label = p.label || p.path;
+            dl.appendChild(o);
         });
     }
 
     window.aidPathChanged = function() {
         const v = $('aidPath').value;
-        if (v) $('aidPathFree').value = v;
+        if (v) {
+            $('aidPathFree').value = v;
+            // Show the cached value inline next to the free field.
+            const src = $('aidSrc').value;
+            const item = (PATH_CACHE[src] || []).find(x => x.path === v);
+            $('aidPathVal').textContent = item && item.value ? `= ${item.value}` : '';
+        }
         aidPreview();
     };
 
     window.aidPreview = async function() {
         if (!CURRENT) return;
         const src  = $('aidSrc').value;
-        const path = $('aidPathFree').value || $('aidPath').value;
+        const path = ($('aidPathFree').value || $('aidPath').value).trim();
         if (!src || !path) {
             $('aidChips').innerHTML = '';
+            $('aidPathVal').textContent = '';
             return;
+        }
+        // Show inline cached value while waiting for the server round-trip.
+        const cached = (PATH_CACHE[src] || []).find(x => x.path === path);
+        if (cached && cached.value) {
+            $('aidPathVal').textContent = `= ${cached.value}`;
         }
         const r = await aidJSON('GET',
             `/api/aid/preview?fid=${encodeURIComponent(CURRENT.fid)}&src=${encodeURIComponent(src)}&path=${encodeURIComponent(path)}`);
@@ -355,6 +410,7 @@ no validation gate, output type derived read-only from namespace.fType.
             const chips = (r.json.chips || []).map(c =>
                 `<span class="aid-chip ${c.level}">${c.text}</span>`).join('');
             $('aidChips').innerHTML = chips;
+            if (r.json.value) $('aidPathVal').textContent = `= ${r.json.value}`;
         }
     };
 
