@@ -1309,7 +1309,139 @@ class stmtIS_View(stmtIS_Agg):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. stmtIS_Reports — stub
+# 6. stmtIS_TaxMember — per-partner Sch_K1 provisioning
+# ─────────────────────────────────────────────────────────────────────────────
+class stmtIS_TaxMember(stmtIS_Tax):
+    '''Per-partner K-1 provisioning view of the IS.
+
+    Inherits stmtIS_Tax for taxAggregates() and acct_balance().
+    loadFillDict('Sch_K1') returns {normalized_fid: value} keyed directly
+    on Sch_K1_namespace.json fid numbers — bypasses blank logicalKeys.
+
+    All other formNm values delegate to stmtIS_Tax.loadFillDict().
+    '''
+
+    def __init__(self, llc, partner_idx: int = 0):
+        # Must set before super().__init__ freezes the object.
+        object.__setattr__(self, '_partner_idx', partner_idx)
+        super().__init__(llc)
+
+    def _load_owners(self) -> List[Dict[str, Any]]:
+        top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
+        acct = getattr(self.llc, 'dirAccounting', '') or ''
+        llcName = getattr(self.llc, 'objName', '') or ''
+        fn = _os.path.join(top, acct, 'Accts', f'llcOwners_{llcName}.json')
+        if not _os.path.exists(fn):
+            return []
+        try:
+            with open(fn, 'r') as fh:
+                return _json.load(fh)
+        except Exception:
+            return []
+
+    def _partner(self) -> Dict[str, Any]:
+        owners = self._load_owners()
+        if self._partner_idx < len(owners):
+            return owners[self._partner_idx]
+        return {}
+
+    def _partner_contributions(self, pct: float) -> float:
+        # Sum Acct.Equity.* Debit records from llcAssets × pct.
+        # Placeholder — reflects closing-cost equity credits only until
+        # proper capital contribution records are added to llcAssets.
+        top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
+        acct = getattr(self.llc, 'dirAccounting', '') or ''
+        llcName = getattr(self.llc, 'objName', '') or ''
+        fn = _os.path.join(top, acct, 'Accts', f'llcAssets_{llcName}.json')
+        try:
+            with open(fn, 'r') as fh:
+                data = _json.load(fh)
+            recs = data if isinstance(data, list) else data.get('records', [])
+            total = sum(
+                float(r.get('amt', 0) or 0)
+                for r in recs
+                if str(r.get('acct', '')).startswith('Acct.Equity')
+                and r.get('aType') == 'Debit'
+            )
+            return round(total * pct, 2)
+        except Exception:
+            return 0.0
+
+    def loadFillDict(self, formNm: str) -> Dict[str, Any]:
+        if formNm == 'Sch_K1':
+            return self._build_k1_filldict()
+        return super().loadFillDict(formNm)
+
+    def _build_k1_filldict(self) -> Dict[str, Any]:
+        partner = self._partner()
+        if not partner:
+            return {}
+
+        pct      = float(partner.get('pct', 0) or 0)
+        oID      = partner.get('oID', '')
+        nm_list  = partner.get('nm') or []
+        name     = nm_list[0] if nm_list else str(oID)
+        addr     = partner.get('addr', '') or ''
+        pct_str  = f'{pct * 100:.1f}%'
+
+        agg         = self.taxAggregates()
+        net_rental  = float(agg.get('net_rental', 0) or 0)
+        interest    = float(agg.get('interest_income', 0) or 0)
+
+        partner_ni      = round(net_rental * pct, 2)
+        partner_int     = round(interest * pct, 2)
+        partner_distrib = round(max(0.0, net_rental) * pct, 2)
+        partner_contrib = self._partner_contributions(pct)
+        partner_cap_end = round(partner_contrib + partner_ni - partner_distrib, 2)
+
+        entity      = getattr(self.llc, 'entity', {}) or {}
+        entity_ein  = entity.get('ein', '')
+        entity_name = entity.get('entity_name', '')
+        entity_addr = entity.get('address', '')
+
+        def _fmt(v: Any) -> str:
+            if v is None:
+                return ''
+            if isinstance(v, float):
+                return f'{v:,.2f}' if v != 0.0 else ''
+            if isinstance(v, int):
+                return str(v) if v != 0 else ''
+            return str(v).strip()
+
+        out: Dict[str, Any] = {}
+
+        # Partnership identification (LeftCol header fields)
+        if entity_ein:   out['F007'] = entity_ein    # f7 — Partnership EIN
+        if entity_name:  out['F009'] = entity_name   # f9 — Partnership name
+        if entity_addr:  out['F010'] = entity_addr   # f10 — Partnership address
+
+        # Partner identification
+        if name:         out['F012'] = name           # f12 — Partner name
+        if addr:         out['F013'] = addr           # f13 — Partner address
+
+        # Box J — profit/loss/capital % end of year (f16, f18, f20)
+        out['F016'] = pct_str   # Profit % end
+        out['F018'] = pct_str   # Loss % end
+        out['F020'] = pct_str   # Capital % end
+
+        # Box L — capital account analysis (LineLTable rows f27-f32)
+        # Row1 (f27) = beginning capital — blank, prior-year data unavailable
+        if partner_contrib: out['F028'] = _fmt(partner_contrib)   # Row2 contributions
+        if partner_ni:      out['F029'] = _fmt(partner_ni)        # Row3 current NI/loss
+        if partner_distrib: out['F031'] = _fmt(partner_distrib)   # Row5 distributions
+        out['F032'] = _fmt(partner_cap_end)                        # Row6 ending capital
+
+        # Box 2 — net rental real estate income/loss (RightCol1 f36)
+        if partner_ni:  out['F036'] = _fmt(partner_ni)
+
+        # Box 5 — interest income (RightCol1 f41)
+        if partner_int: out['F041'] = _fmt(partner_int)
+
+        return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. stmtIS_Reports — stub
 # ─────────────────────────────────────────────────────────────────────────────
 class stmtIS_Reports(stmtIS):
     '''Reports consumer — stub for v0.3.  Implementation TBD.'''

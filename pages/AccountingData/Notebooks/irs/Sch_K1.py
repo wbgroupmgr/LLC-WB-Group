@@ -162,6 +162,11 @@ class Sch_K1(Form1065):
     _FILL_MAP  = _FILL_MAP_K1      # override parent's Form1065 map
     _CPA_NOTES = _CPA_NOTES_K1     # override parent's CPA notes
 
+    def aid(self) -> "BookToIRS":
+        """Factory for the BookToIRS bridge service for per-partner K-1 PDFs."""
+        from irs.BookToIRS import BookToIRS
+        return BookToIRS(self.llc, "Sch_K1")
+
     # ── IRS template filename override ────────────────────────────────────
     def FN(self) -> str:
         for name in ("Sch_K1_IRS.pdf", "Schedule_K_1-IRS.pdf",
