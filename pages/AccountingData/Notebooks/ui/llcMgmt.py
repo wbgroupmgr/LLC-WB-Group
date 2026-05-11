@@ -1169,6 +1169,134 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 400
 
+        @app.route("/api/aid/literal", methods=["POST"])
+        def aid_literal_save():
+            """Save a user-defined named literal: {src, path, value}.
+
+            Upserts ``["path", "value"]`` into the ``BookVal`` section of
+            ``bookNS_{src}.json``.  The resolver then exposes the value via
+            the UAS path ``{src}.BookVal.{path}``, e.g. ``IS.BookVal.full_address``.
+            Returns the updated BookVal list for the source.
+            """
+            try:
+                body  = request.get_json(force=True) or {}
+                src   = (body.get("src") or "").strip()
+                path  = (body.get("path") or "").strip()  # may include src. prefix
+                value = body.get("value", "")
+                if not src or not path:
+                    return jsonify({"ok": False, "error": "src and path are required"}), 400
+                # Normalise: strip leading "{src}.BookVal." or "{src}." prefix if the
+                # caller sent the full UAS path (e.g. "IS.BookVal.full_address" → "full_address").
+                # Priority: check the longer BookVal prefix first so we don't leave
+                # "BookVal.full_address" as the suffix.
+                bkv_pfx = src + ".BookVal."
+                src_pfx = src + "."
+                if path.startswith(bkv_pfx):
+                    suffix = path[len(bkv_pfx):]
+                elif path.startswith(src_pfx):
+                    suffix = path[len(src_pfx):]
+                else:
+                    suffix = path
+                if not suffix:
+                    return jsonify({"ok": False, "error": "path suffix must not be empty"}), 400
+                aid = _aid()
+                aid.saveLiteral(src, suffix, str(value))
+                return jsonify({"ok": True, "src": src, "suffix": suffix,
+                                "value": value, "literals": aid.loadLiterals(src)})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/aid/verify_field", methods=["POST"])
+        def aid_verify_field():
+            """Pre-commit sanity check: build the merged filldict and confirm
+            that the requested fid resolves to a non-blank value.
+
+            Body: {fid, expected_value (optional)}
+
+            Returns:
+              {ok, fid, resolved_value, status, sources_checked,
+               error (if blank or mismatch)}
+            """
+            try:
+                body     = request.get_json(force=True) or {}
+                fid_raw  = (body.get("fid") or "").strip()
+                expected = body.get("expected_value")   # None means "any non-blank"
+                if not fid_raw:
+                    return jsonify({"ok": False, "error": "fid is required"}), 400
+
+                aid  = _aid()
+                fid  = aid._normalizeFid(fid_raw)
+                sources_detail = []
+
+                for src in ("Profile", "BS", "IS", "GL"):
+                    stmt = aid._stmtInstance(src)
+                    if stmt is None:
+                        continue
+                    try:
+                        d = stmt.loadFillDict(aid.formNm) or {}
+                        v = d.get(fid)
+                        sources_detail.append({
+                            "src":   src,
+                            "value": str(v) if v is not None else None,
+                        })
+                    except Exception as e:
+                        sources_detail.append({"src": src, "value": None, "error": str(e)})
+
+                # Find the first non-blank value (priority order).
+                resolved = None
+                for s in sources_detail:
+                    v = s.get("value")
+                    if v is not None and v != "":
+                        resolved = v
+                        break
+
+                if resolved is None:
+                    return jsonify({
+                        "ok":              False,
+                        "fid":             fid,
+                        "resolved_value":  None,
+                        "status":          "blank",
+                        "sources_checked": sources_detail,
+                        "error": (
+                            f"Field {fid} is still blank after saving. "
+                            "The mapping or literal may not have been written correctly. "
+                            "Check bookNS_IS.json → Form mapping and BookVal sections."
+                        ),
+                    }), 200   # HTTP 200 so aidDone can read the body; ok=False signals failure
+
+                if expected is not None and str(resolved) != str(expected):
+                    return jsonify({
+                        "ok":              False,
+                        "fid":             fid,
+                        "resolved_value":  resolved,
+                        "status":          "mismatch",
+                        "sources_checked": sources_detail,
+                        "error": (
+                            f"Field {fid} resolved to \"{resolved}\" "
+                            f"but expected \"{expected}\". "
+                            "Regeneration aborted — check the mapping."
+                        ),
+                    }), 200
+
+                return jsonify({
+                    "ok":              True,
+                    "fid":             fid,
+                    "resolved_value":  resolved,
+                    "status":          "filled",
+                    "sources_checked": sources_detail,
+                })
+            except HTTPException:
+                raise
+            except Exception as err:
+                import traceback
+                return jsonify({
+                    "ok":        False,
+                    "error":     str(err),
+                    "traceback": traceback.format_exc(),
+                }), 500
+
         @app.route("/api/aid/regenerate", methods=["POST"])
         def aid_regenerate():
             try:
