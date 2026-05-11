@@ -85,11 +85,26 @@
     ]
   ],
   "Sch_K1": [
-    ["F035", "IS.net_ordinary"],
-    ["F036", "IS.net_rental"],
-    ["F041", "IS.interest_income"],
-    ["F028", "IS.distributions_cash"],
-    ["F029", "IS.net_income"]
+    [
+      "F035",
+      "IS.net_ordinary"
+    ],
+    [
+      "F036",
+      "IS.net_rental"
+    ],
+    [
+      "F041",
+      "IS.interest_income"
+    ],
+    [
+      "F028",
+      "IS.distributions_cash"
+    ],
+    [
+      "F029",
+      "IS.net_income"
+    ]
   ],
   "_Sch_K1_note": "Runtime values are provided by stmtIS_TaxMember._build_k1_filldict() which multiplies by partner.pct and keys by namespace fid directly. Entries above are documentation-only; they are NOT resolved by stmtIS_Tax.loadFillDict() at runtime.",
   "Form4562": [
@@ -107,18 +122,139 @@
     ]
   ],
   "Form8825": [
-    ["F023", "IS.rent_income"],
-    ["F027", "Acct.Rev.Fees.Other"],
-    ["F031", "IS.income_subtotal"],
-    ["F067", "Acct.Exp.Repair"],
-    ["F071", "Acct.Exp.Util"],
-    ["F079", "IS.depreciation"],
-    ["F091", "IS.other_expenses"],
-    ["F095", "IS.exp_subtotal"],
-    ["F099", "IS.net_income"],
-    ["F103", "IS.subtotal_rental_income"],
-    ["F104", "IS.subtotal_rental_expense"],
-    ["F106", "IS.net_ordinary"],
-    ["F113", "IS.net_income"]
+    [
+      "F003",
+      "IS.BookVal.full_address"
+    ],
+    [
+      "F004",
+      "IS.BookVal.Prop.Type"
+    ],
+    [
+      "F005",
+      "IS.BookVal.Prop.Type1c"
+    ],
+    [
+      "F006",
+      "IS.BookVal.RentalDays.H_805HighMesa"
+    ],
+    [
+      "F007",
+      "IS.BookVal.RentPersonal.H_805HighMesa"
+    ],
+    [
+      "F008",
+      "IS.BookVal.Prop2.full_address"
+    ],
+    [
+      "F009",
+      "IS.BookVal.Prop2.Type"
+    ],
+    [
+      "F010",
+      "IS.BookVal.Prop2.Type1c"
+    ],
+    [
+      "F011",
+      "IS.BookVal.RentalDays.RV_RV1"
+    ],
+    [
+      "F012",
+      "IS.BookVal.RentPersonal.RV_RV1"
+    ],
+    [
+      "F023",
+      "IS.rent_income"
+    ],
+    [
+      "F027",
+      "Acct.Rev.Fees.Other"
+    ],
+    [
+      "F031",
+      "IS.income_subtotal"
+    ],
+    [
+      "F067",
+      "Acct.Exp.Repair"
+    ],
+    [
+      "F071",
+      "Acct.Exp.Util"
+    ],
+    [
+      "F079",
+      "IS.depreciation"
+    ],
+    [
+      "F091",
+      "IS.other_expenses"
+    ],
+    [
+      "F095",
+      "IS.exp_subtotal"
+    ],
+    [
+      "F099",
+      "IS.net_income"
+    ],
+    [
+      "F103",
+      "IS.subtotal_rental_income"
+    ],
+    [
+      "F104",
+      "IS.total_expenses"
+    ],
+    [
+      "F106",
+      "IS.net_income"
+    ],
+    [
+      "F113",
+      "IS.net_income"
+    ]
+  ],
+  "BookVal": [
+    [
+      "Prop.Type",
+      "1"
+    ],
+    [
+      "Prop.Type1c",
+      "C"
+    ],
+    [
+      "Prop2.Type",
+      "8"
+    ],
+    [
+      "Prop2.Type1c",
+      "D"
+    ],
+    [
+      "Prop2.full_address",
+      "177 Kingsway Dr, Wimberley Tx 78676 (RV_RV1, Inactive)"
+    ],
+    [
+      "RentPersonal.H_805HighMesa",
+      "0"
+    ],
+    [
+      "RentPersonal.RV_RV1",
+      "0"
+    ],
+    [
+      "RentalDays.H_805HighMesa",
+      "92"
+    ],
+    [
+      "RentalDays.RV_RV1",
+      "0"
+    ],
+    [
+      "full_address",
+      "805 High Mesa Dr, Wimberley Tx 78676 (H_805HighMesa,Active)"
+    ]
   ]
 }
