@@ -300,6 +300,17 @@
         renderState(CURRENT);
         $('aidState').style.display = '';
         await populatePathDropdown();
+
+        // If the existing mapping is a BookVal literal path, auto-open the
+        // literal panel pre-filled with the current key + value so the user
+        // can edit it directly without hunting for "➕ New path + value…".
+        if (CURRENT.bookNS) {
+            const bkvPfx = CURRENT.bookNS.source + '.BookVal.';
+            if (CURRENT.bookNS.path.startsWith(bkvPfx)) {
+                _showLiteralPanel(CURRENT.bookNS.source, CURRENT.bookNS.path);
+            }
+        }
+
         aidPreview();
     };
 
@@ -445,11 +456,17 @@
             return;
         }
 
-        // Normal path selected.
+        // Normal path (or BookVal literal path) selected.
         _resetPendingState();
         if (v) {
             $('aidPathFree').value = v;
-            const src  = $('aidSrc').value;
+            const src    = $('aidSrc').value;
+            const bkvPfx = src + '.BookVal.';
+            if (v.startsWith(bkvPfx)) {
+                // BookVal literal selected from dropdown → open literal panel pre-filled.
+                _showLiteralPanel(src, v);
+                return;   // preview handled inside _showLiteralPanel
+            }
             const item = (PATH_CACHE[src] || []).find(x => x.path === v);
             $('aidPathVal').textContent = item && item.value ? `= ${item.value}` : '';
         }
@@ -673,21 +690,77 @@
 
     window.aidDelete = async function() {
         if (!CURRENT) return;
-        const inChk = !!(CURRENT.chk_array && CURRENT.chk_array.in_array);
-        const msg   = `Remove mapping for ${CURRENT.fid}?\n\n`
-            + (CURRENT.bookNS ? `bookNS: ${CURRENT.bookNS.source} → ${CURRENT.bookNS.path}\n` : '')
-            + (inChk ? `chk[]: fid #${CURRENT.chk_array.fid_number}\n` : '')
+        const inChk   = !!(CURRENT.chk_array && CURRENT.chk_array.in_array);
+
+        // Capture BookVal metadata before we mutate CURRENT.
+        const bvSrc = CURRENT.bookNS ? CURRENT.bookNS.source : null;
+        const bvPath = CURRENT.bookNS ? CURRENT.bookNS.path  : null;
+        const bkvPfx = bvSrc ? bvSrc + '.BookVal.' : null;
+        const isBookVal = !!(bvPath && bkvPfx && bvPath.startsWith(bkvPfx));
+        const bvKey = isBookVal ? bvPath.slice(bkvPfx.length) : null;
+
+        const msg = `Remove mapping for ${CURRENT.fid}?\n\n`
+            + (CURRENT.bookNS ? `Mapping: ${bvSrc} → ${bvPath}\n` : '')
+            + (isBookVal      ? `⚠ This also deletes the literal value "${bvKey}" from BookVal.\n` : '')
+            + (inChk          ? `chk[]: fid #${CURRENT.chk_array.fid_number}\n` : '')
             + '\nThis cannot be undone from the UI.';
         if (!confirm(msg)) return;
+
+        // 1. Delete the fid→path mapping from bookNS Form section.
         const r = await aidJSON('DELETE', `/api/aid/mapping/${encodeURIComponent(CURRENT.fid)}`);
         if (!r.ok) { flashErr(r.json.error || 'Delete failed'); return; }
         CURRENT = r.json.row;
+
+        // 2. If it was a BookVal literal, also remove the entry from BookVal section.
+        if (isBookVal && bvSrc && bvKey) {
+            const dr = await aidJSON('DELETE', '/api/aid/literal', { src: bvSrc, key: bvKey });
+            if (!dr.ok) {
+                // Non-fatal: mapping is gone; warn but continue.
+                flashOK(`Mapping deleted. ⚠ BookVal cleanup for "${bvKey}" failed: ${dr.json.error || 'unknown'}`);
+            } else {
+                delete PATH_CACHE[bvSrc];   // invalidate so next open reflects the deletion
+            }
+        }
+
         _resetPendingState();
         renderState(CURRENT);
-        flashOK(`Mapping for ${CURRENT.fid} deleted. Click Done to regenerate, or Cancel to exit.`);
+        flashOK(`Mapping for ${CURRENT.fid} deleted.`);
     };
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Open the literal panel pre-filled for a BookVal path.
+     * src  — source key, e.g. "IS"
+     * path — full UAS path, e.g. "IS.BookVal.full_address"
+     *
+     * The current value is read from PATH_CACHE (populated by populatePathDropdown).
+     * Resets any prior pending state before entering literal-panel mode.
+     */
+    function _showLiteralPanel(src, path) {
+        const bkvPfx = src + '.BookVal.';
+        const key    = path.startsWith(bkvPfx) ? path.slice(bkvPfx.length) : path;
+        const item   = (PATH_CACHE[src] || []).find(x => x.path === path);
+        const val    = item ? item.value : '';
+
+        _resetPendingState();   // clear any prior state first
+
+        $('aidLiteralPanel').classList.add('visible');
+        $('aidLiteralPath').value        = key;
+        $('aidLiteralVal').value         = val;
+        $('aidLiteralHint').textContent  = val
+            ? `bookNS_${src}.json → BookVal["${key}"] = "${val}"  (edit value above to update)`
+            : `bookNS_${src}.json → BookVal["${key}"] — currently blank`;
+        $('aidPathFree').value           = path;
+        $('aidPathVal').textContent      = val ? `= ${val}` : '';
+        $('aidLive').textContent         = val || '(blank)';
+        $('aidChips').innerHTML          = val
+            ? `<span class="aid-chip info">BookVal literal — current: "${val}"</span>`
+            : `<span class="aid-chip warn">BookVal literal — no value stored yet</span>`;
+
+        LITERAL_PENDING     = { suffix: key, value: val };
+        LITERAL_PENDING_VAL = val || null;
+    }
 
     /** Reset all pending action state and hide sub-panels. */
     function _resetPendingState() {

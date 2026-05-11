@@ -72,6 +72,66 @@ class BookToIRS:
     def _bookNSPath(self, src: str) -> Path:
         return self._accountingDir() / f"bookNS_{src}.json"
 
+    def loadLiterals(self, src: str) -> List[List[str]]:
+        """Return ``[[key, value], …]`` rows from the ``BookVal`` section of
+        ``bookNS_{src}.json``.  Returns ``[]`` if absent."""
+        fp = self._bookNSPath(src)
+        if not fp.exists():
+            return []
+        try:
+            d = json.loads(fp.read_text(encoding='utf-8'))
+            rows = d.get('BookVal', []) or []
+            return [[str(r[0]), str(r[1])] for r in rows
+                    if isinstance(r, (list, tuple)) and len(r) >= 2]
+        except Exception:
+            return []
+
+    def saveLiteral(self, src: str, key: str, value: str) -> None:
+        """Upsert one entry in the ``BookVal`` section of ``bookNS_{src}.json``.
+
+        ``key`` is the bare path segment, e.g. ``"full_address"``.
+        The resolver will expose it as ``{src}.BookVal.{key}``, e.g.
+        ``IS.BookVal.full_address``.
+        """
+        fp = self._bookNSPath(src)
+        self._backupBookNS(src)          # always backup before mutating
+        d: Dict = {}
+        if fp.exists():
+            try:
+                d = json.loads(fp.read_text(encoding='utf-8')) or {}
+            except Exception:
+                d = {}
+        bookval: List = d.get('BookVal', []) or []
+        # Remove any existing row with the same key.
+        bookval = [r for r in bookval
+                   if not (isinstance(r, (list, tuple)) and len(r) >= 2 and r[0] == key)]
+        bookval.append([key, value])
+        bookval.sort(key=lambda r: str(r[0]))
+        d['BookVal'] = bookval
+        self._atomicWriteJSON(fp, d)
+
+    def deleteLiteral(self, src: str, key: str) -> bool:
+        """Remove one entry from the ``BookVal`` section of ``bookNS_{src}.json``.
+
+        ``key`` is the bare path segment, e.g. ``"full_address"``.
+        Returns True if the key was found and removed, False if it was not present.
+        """
+        fp = self._bookNSPath(src)
+        if not fp.exists():
+            return False
+        self._backupBookNS(src)
+        try:
+            d: Dict = json.loads(fp.read_text(encoding='utf-8')) or {}
+        except Exception:
+            return False
+        bookval: List = d.get('BookVal', []) or []
+        before = len(bookval)
+        bookval = [r for r in bookval
+                   if not (isinstance(r, (list, tuple)) and len(r) >= 2 and r[0] == key)]
+        d['BookVal'] = bookval
+        self._atomicWriteJSON(fp, d)
+        return len(bookval) < before
+
     def _backupDir(self) -> Path:
         return self._accountingDir() / ".bookNS_backups"
 
@@ -419,6 +479,16 @@ class BookToIRS:
                             "label": f"{p}  ({vstr})" if vstr else p})
                 existing_paths.add(p)
 
+        # Append user-defined named literals from bookNS_{src}.json BookVal section.
+        # Exposed as {src}.BookVal.{key} so the resolver can identify them.
+        for key, val in self.loadLiterals(base):
+            full_path = f"{base}.BookVal.{key}"
+            if full_path not in existing_paths:
+                vstr = str(val) if val else ""
+                out.append({"path": full_path, "value": vstr,
+                            "label": f"{full_path}  ({vstr})" if vstr else full_path})
+                existing_paths.add(full_path)
+
         return sorted(out, key=lambda x: x["path"])
 
     def previewValue(self, fid: str,
@@ -439,6 +509,10 @@ class BookToIRS:
         fid = self._normalizeFid(fid)
 
         if src and path:
+            # ── Val.<literal> — return the suffix as the preview value immediately.
+            if isinstance(path, str) and path.startswith("Val."):
+                return path[4:]
+
             # ── Sentinel paths first — match loadFillDict semantics so the
             # dialog shows 'Complex' / 'CHECK' instead of '(blank)'.
             if path == CHECK_SENTINEL or path == "CHECK":
@@ -464,8 +538,7 @@ class BookToIRS:
             if stmt is None:
                 return ""
 
-            # ── Hypothetical path: try _resolve_acct (works for
-            # IS / BS / GL).
+            # ── Hypothetical path: try _resolve_acct (works for IS / BS / GL).
             try:
                 if hasattr(stmt, "_resolve_acct"):
                     v = stmt._resolve_acct(path)
@@ -473,6 +546,16 @@ class BookToIRS:
                         return str(v)
             except Exception:
                 pass
+
+            # ── Named literal: check BookVal section of bookNS_{src}.json.
+            # Path format: IS.BookVal.{key}
+            base    = self._src_base(src)
+            bkv_pfx = f"{base}.BookVal."
+            if isinstance(path, str) and path.startswith(bkv_pfx):
+                key = path[len(bkv_pfx):]
+                for k, v in self.loadLiterals(base):
+                    if k == key:
+                        return str(v)
 
             # ── Fallback: look up the fid in this source's loadFillDict.
             try:

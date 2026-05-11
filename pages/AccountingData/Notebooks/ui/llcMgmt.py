@@ -1208,6 +1208,39 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        @app.route("/api/aid/literal", methods=["DELETE"])
+        def aid_literal_delete():
+            """Delete a named literal from the BookVal section of bookNS_{src}.json.
+
+            Body: {src, key}  where key is the bare path segment (e.g. "full_address").
+            Also accepts key as the full UAS path (e.g. "IS.BookVal.full_address") and
+            strips the prefix automatically.
+            Returns {ok, src, key, found, literals}.
+            """
+            try:
+                body = request.get_json(force=True) or {}
+                src  = (body.get("src") or "").strip()
+                key  = (body.get("key") or "").strip()
+                if not src or not key:
+                    return jsonify({"ok": False, "error": "src and key are required"}), 400
+                # Normalise: strip any UAS prefix the caller may have included.
+                bkv_pfx = src + ".BookVal."
+                src_pfx = src + "."
+                if key.startswith(bkv_pfx):
+                    key = key[len(bkv_pfx):]
+                elif key.startswith(src_pfx):
+                    key = key[len(src_pfx):]
+                if not key:
+                    return jsonify({"ok": False, "error": "key must not be empty"}), 400
+                aid   = _aid()
+                found = aid.deleteLiteral(src, key)
+                return jsonify({"ok": True, "src": src, "key": key,
+                                "found": found, "literals": aid.loadLiterals(src)})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
         @app.route("/api/aid/verify_field", methods=["POST"])
         def aid_verify_field():
             """Pre-commit sanity check: build the merged filldict and confirm
