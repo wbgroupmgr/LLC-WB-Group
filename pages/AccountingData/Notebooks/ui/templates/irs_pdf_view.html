@@ -187,8 +187,6 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="text-muted small">Fields below require CPA review before filing.
-        They are not auto-filled by the BookToIRS pipeline.</p>
         <div id="cpaReviewBody">
           <div class="text-center text-muted py-3">Loading…</div>
         </div>
@@ -200,6 +198,12 @@
   </div>
 </div>
 <script>
+const _STATUS_BADGE = {
+    "auto": '<span class="badge bg-success">auto-filled</span>',
+    "zero": '<span class="badge bg-secondary">$0 / blank</span>',
+    "cpa":  '<span class="badge bg-warning text-dark">CPA review</span>',
+};
+
 function cpaReviewOpen() {
     const formNm = "{{ meta.formId }}";
     document.getElementById("cpaFormNm").textContent = formNm;
@@ -215,22 +219,73 @@ function cpaReviewOpen() {
                     '<div class="text-danger">Error: ' + (data.error || "unknown") + '</div>';
                 return;
             }
-            const fields = data.fields || [];
-            if (!fields.length) {
-                document.getElementById("cpaReviewBody").innerHTML =
-                    '<div class="text-success">No CPA-review fields defined for this form.</div>';
-                return;
+            let html = '';
+
+            // ── Part I–VI Disposition summaries ────────────────────────────
+            const parts = data.parts || [];
+            if (parts.length) {
+                html += '<h6 class="mt-1 mb-2 fw-semibold">Form Parts — Disposition</h6>'
+                      + '<table class="table table-sm table-bordered mb-3"><thead>'
+                      + '<tr><th style="width:30%">Part</th><th style="width:12%">Status</th>'
+                      + '<th>Synopsis</th></tr></thead><tbody>';
+                parts.forEach(p => {
+                    const badge   = _STATUS_BADGE[p.status] || '';
+                    const detail  = p.detail
+                        ? `<div class="text-muted small mt-1" style="white-space:pre-wrap">${p.detail}</div>`
+                        : '';
+                    html += `<tr><td class="fw-semibold small">${p.part}</td>`
+                          + `<td>${badge}</td>`
+                          + `<td class="small">${p.summary}${detail}</td></tr>`;
+                });
+                html += '</tbody></table>';
             }
-            let html = '<table class="table table-sm table-bordered"><thead>'
-                + '<tr><th>Field</th><th>Location</th><th>Note</th></tr></thead><tbody>';
-            fields.forEach(f => {
-                const lbl  = f.label || f.logicalKey;
-                const loc  = f.location || '';
-                const note = f.note || '';
-                html += `<tr><td><code>${lbl}</code></td><td class="text-muted small">${loc}</td>`
-                      + `<td class="small">${note}</td></tr>`;
-            });
-            html += '</tbody></table>';
+
+            // ── Depreciation Reconciliation ────────────────────────────────
+            const dn = data.depr_notes || {};
+            if (dn.title) {
+                html += `<h6 class="mt-2 mb-2 fw-semibold">${dn.title}</h6>`;
+                if (dn.accounts) {
+                    html += '<table class="table table-sm table-bordered mb-2"><thead>'
+                          + '<tr><th>Account</th><th>Amount / Role</th></tr></thead><tbody>';
+                    Object.entries(dn.accounts).forEach(([acct, desc]) => {
+                        html += `<tr><td><code class="small">${acct}</code></td>`
+                              + `<td class="small">${desc}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                }
+                if (dn.explanation) {
+                    html += `<p class="small text-muted mb-1" style="white-space:pre-wrap">${dn.explanation}</p>`;
+                }
+                if (dn.flow) {
+                    html += `<p class="small mb-1"><strong>8825 flow:</strong> <code>${dn.flow}</code></p>`;
+                }
+                if (dn.form4562_flow) {
+                    html += `<p class="small mb-2"><strong>4562 flow:</strong> <code>${dn.form4562_flow}</code></p>`;
+                }
+            }
+
+            // ── CPA Advisory fields ────────────────────────────────────────
+            const fields = data.fields || [];
+            if (fields.length) {
+                html += '<h6 class="mt-2 mb-2 fw-semibold">CPA Advisory Fields</h6>'
+                      + '<p class="text-muted small">Fields below require CPA review before filing. '
+                      + 'They are not auto-filled by the BookToIRS pipeline.</p>'
+                      + '<table class="table table-sm table-bordered"><thead>'
+                      + '<tr><th>Field</th><th>Location</th><th>Note</th></tr></thead><tbody>';
+                fields.forEach(f => {
+                    const lbl  = f.label || f.logicalKey;
+                    const loc  = f.location || '';
+                    const note = f.note || '';
+                    html += `<tr><td><code>${lbl}</code></td><td class="text-muted small">${loc}</td>`
+                          + `<td class="small">${note}</td></tr>`;
+                });
+                html += '</tbody></table>';
+            }
+
+            if (!parts.length && !dn.title && !fields.length) {
+                html = '<div class="text-success">No review data defined for this form.</div>';
+            }
+
             document.getElementById("cpaReviewBody").innerHTML = html;
         })
         .catch(err => {
