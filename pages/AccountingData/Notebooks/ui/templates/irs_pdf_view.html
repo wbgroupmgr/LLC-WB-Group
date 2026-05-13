@@ -138,6 +138,10 @@
         {# Book→IRS Aid (v0.1) — opens an inline modal scoped to one fid. #}
         <button type="button" class="btn btn-warning" onclick="aidOpen()"
                 title="Open the Book→IRS Mapping Aid">🛠 Aid</button>
+        {# CPA Review — lists fields flagged CPA:unknown for this form. #}
+        <button type="button" class="btn btn-outline-danger" id="cpaReviewBtn"
+                onclick="cpaReviewOpen()"
+                title="Show CPA-review fields for this form">🔍 Review</button>
 
         <div class="meta-group">
             <span class="source-tag" id="fillFileLabel">{{ meta.formId }}_FILL.pdf</span>
@@ -173,6 +177,68 @@
 
 {# Book→IRS Aid inline modal (v0.1) — see ui/templates/_aid_dialog.html. #}
 {% include '_aid_dialog.html' %}
+
+{# CPA Review modal — lists _CPA_NOTES fields flagged for accountant review. #}
+<div class="modal fade" id="cpaReviewModal" tabindex="-1" aria-labelledby="cpaReviewLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="cpaReviewLabel">🔍 CPA Review Fields — <span id="cpaFormNm"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Fields below require CPA review before filing.
+        They are not auto-filled by the BookToIRS pipeline.</p>
+        <div id="cpaReviewBody">
+          <div class="text-center text-muted py-3">Loading…</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function cpaReviewOpen() {
+    const formNm = "{{ meta.formId }}";
+    document.getElementById("cpaFormNm").textContent = formNm;
+    document.getElementById("cpaReviewBody").innerHTML =
+        '<div class="text-center text-muted py-3">Loading…</div>';
+    const modal = new bootstrap.Modal(document.getElementById("cpaReviewModal"));
+    modal.show();
+    fetch("/api/aid/cpa_review?formNm=" + encodeURIComponent(formNm))
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) {
+                document.getElementById("cpaReviewBody").innerHTML =
+                    '<div class="text-danger">Error: ' + (data.error || "unknown") + '</div>';
+                return;
+            }
+            const fields = data.fields || [];
+            if (!fields.length) {
+                document.getElementById("cpaReviewBody").innerHTML =
+                    '<div class="text-success">No CPA-review fields defined for this form.</div>';
+                return;
+            }
+            let html = '<table class="table table-sm table-bordered"><thead>'
+                + '<tr><th>Field</th><th>Location</th><th>Note</th></tr></thead><tbody>';
+            fields.forEach(f => {
+                const lbl  = f.label || f.logicalKey;
+                const loc  = f.location || '';
+                const note = f.note || '';
+                html += `<tr><td><code>${lbl}</code></td><td class="text-muted small">${loc}</td>`
+                      + `<td class="small">${note}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            document.getElementById("cpaReviewBody").innerHTML = html;
+        })
+        .catch(err => {
+            document.getElementById("cpaReviewBody").innerHTML =
+                '<div class="text-danger">Fetch error: ' + err + '</div>';
+        });
+}
+</script>
 
 {% if meta.owners %}
 <script>

@@ -409,24 +409,16 @@
   ],
   "Form4562": [
     [
-      "F_F4562_EntityName",
+      "f2",
       "Profile.entity.entity_name"
     ],
     [
-      "F_F4562_EIN",
+      "f3",
       "Profile.entity.ein"
     ],
     [
-      "F_F4562_BusActivity",
+      "f4",
       "Profile.F1065.A_bus_act"
-    ],
-    [
-      "F_F4562_TaxYear",
-      "Profile.F1065.tax_year"
-    ],
-    [
-      "F_F4562_PropertyDesc",
-      "Profile.entity.irs_product"
     ]
   ],
   "Form8825": [

@@ -734,6 +734,8 @@ class stmtIS_Tax(stmtIS):
     def _resolve_acct(self, acct: Any) -> Any:
         if not isinstance(acct, str):
             return None
+        if acct.startswith('Val.'):
+            return acct[4:]
         if acct.startswith('IS.'):
             return self.taxAggregates().get(acct[3:])
         if acct.startswith('Acct.'):

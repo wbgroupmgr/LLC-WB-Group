@@ -1,9 +1,9 @@
 {
   "_doc": {
-    "purpose": "Book NSpace mapping table — IRS form fid → Balance-Sheet Acct UAS path.",
+    "purpose": "Book NSpace mapping table \u2014 IRS form fid \u2192 Balance-Sheet Acct UAS path.",
     "format": "[ 'F###', '<Acct UAS>' ]   3-digit zero-padded fid; UAS is either a single COA acct (e.g. 'Acct.Equity.Owner.Capital.Funds') or a stmtBalanceSheet taxAggregate name prefixed 'BS.' (e.g. 'BS.total_assets').",
-    "scope": "Only fields sourced from the Balance Sheet appear here.  Profile-sourced and Income-Statement-sourced fields live in bookNS_Profile.json / bookNS_IS.json.  A single Acct may appear under multiple fids (e.g. BS.total_assets → F016, F371, F373).  Begin/End-of-year columns currently resolve to the same end-of-period BS snapshot; prior-year carry will be added when a prior-period BS becomes available.",
-    "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' → stmtBalanceSheet row Balance for that COA acct;  acct startswith 'BS.'   → stmtBalanceSheet.taxAggregates()[name];  acct startswith 'Profile.' → stmtProfile cell;  acct startswith 'IS.'   → stmtIncomeStmt.taxAggregates()[name].",
+    "scope": "Only fields sourced from the Balance Sheet appear here.  Profile-sourced and Income-Statement-sourced fields live in bookNS_Profile.json / bookNS_IS.json.  A single Acct may appear under multiple fids (e.g. BS.total_assets \u2192 F016, F371, F373).  Begin/End-of-year columns currently resolve to the same end-of-period BS snapshot; prior-year carry will be added when a prior-period BS becomes available.",
+    "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' \u2192 stmtBalanceSheet row Balance for that COA acct;  acct startswith 'BS.'   \u2192 stmtBalanceSheet.taxAggregates()[name];  acct startswith 'Profile.' \u2192 stmtProfile cell;  acct startswith 'IS.'   \u2192 stmtIncomeStmt.taxAggregates()[name].",
     "perPartner": "Sch_K1 entries reference partnership-level totals.  irsForm.savePDF() multiplies them by partner.pct from llcOwners when emitting per-partner FILL pdfs (capital section Item L)."
   },
   "Form1065": [
@@ -116,12 +116,24 @@
   ],
   "Form4562": [
     [
-      "F_F4562_19a_cost",
+      "f69",
+      "BS.placed_in_service_date"
+    ],
+    [
+      "f70",
       "Acct.Fixed.Tangible.InService"
     ],
     [
-      "F_F4562_19a_accum",
-      "Acct.Fixed.Depreciation.Accum"
+      "f71",
+      "Val.27.5"
+    ],
+    [
+      "f72",
+      "Val.MM"
+    ],
+    [
+      "f73",
+      "Val.S/L"
     ]
   ],
   "Form8825": []
