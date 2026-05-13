@@ -1,9 +1,9 @@
 {
   "_doc": {
-    "purpose": "Book NSpace mapping table — IRS form fid → Income-Statement Acct UAS path.",
+    "purpose": "Book NSpace mapping table \u2014 IRS form fid \u2192 Income-Statement Acct UAS path.",
     "format": "[ 'F###', '<Acct UAS>' ]   3-digit zero-padded fid; UAS is either a single COA acct (e.g. 'Acct.Rev.Rent') or a stmtIncomeStmt taxAggregate name prefixed 'IS.' (e.g. 'IS.net_income').",
-    "scope": "Only fields that are sourced from the Income Statement appear here.  Profile-sourced and Balance-Sheet-sourced fields live in bookNS_Profile.json / bookNS_BS.json.  A single Acct may appear under multiple fids (e.g. Acct.Rev.Rent → F030,F032,F034,F230).",
-    "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' → stmtIncomeStmt row Balance for that COA acct;  acct startswith 'IS.'   → stmtIncomeStmt.taxAggregates()[name];  acct startswith 'Profile.' → stmtProfile cell;  acct startswith 'BS.'   → stmtBalanceSheet.taxAggregates()[name].",
+    "scope": "Only fields that are sourced from the Income Statement appear here.  Profile-sourced and Balance-Sheet-sourced fields live in bookNS_Profile.json / bookNS_BS.json.  A single Acct may appear under multiple fids (e.g. Acct.Rev.Rent \u2192 F030,F032,F034,F230).",
+    "resolver": "irsForm.savePDF() resolves each entry as follows:  acct startswith 'Acct.' \u2192 stmtIncomeStmt row Balance for that COA acct;  acct startswith 'IS.'   \u2192 stmtIncomeStmt.taxAggregates()[name];  acct startswith 'Profile.' \u2192 stmtProfile cell;  acct startswith 'BS.'   \u2192 stmtBalanceSheet.taxAggregates()[name].",
     "perPartner": "Sch_K1 entries are partnership-level totals.  irsForm.savePDF() multiplies them by partner.pct from llcOwners when emitting per-partner FILL pdfs."
   },
   "Form1065": [
@@ -109,59 +109,27 @@
   "_Sch_K1_note": "Runtime values are provided by stmtIS_TaxMember._build_k1_filldict() which multiplies by partner.pct and keys by namespace fid directly. Entries above are documentation-only; they are NOT resolved by stmtIS_Tax.loadFillDict() at runtime.",
   "Form4562": [
     [
-      "F_F4562_19a_depr",
+      "f5",
+      "Val.1,220,000"
+    ],
+    [
+      "f21",
+      "Val.0"
+    ],
+    [
+      "f26",
+      "Val.0"
+    ],
+    [
+      "f74",
       "Acct.Exp.Depreciation"
     ],
     [
-      "F_F4562_22",
-      "Acct.Exp.Depreciation"
-    ],
-    [
-      "F_F4562_42",
+      "f153",
       "Acct.Exp.Depreciation"
     ]
   ],
   "Form8825": [
-    [
-      "F003",
-      "IS.BookVal.full_address"
-    ],
-    [
-      "F004",
-      "IS.BookVal.Prop.Type"
-    ],
-    [
-      "F005",
-      "IS.BookVal.Prop.Type1c"
-    ],
-    [
-      "F006",
-      "IS.BookVal.RentalDays.H_805HighMesa"
-    ],
-    [
-      "F007",
-      "IS.BookVal.RentPersonal.H_805HighMesa"
-    ],
-    [
-      "F008",
-      "IS.BookVal.Prop2.full_address"
-    ],
-    [
-      "F009",
-      "IS.BookVal.Prop2.Type"
-    ],
-    [
-      "F010",
-      "IS.BookVal.Prop2.Type1c"
-    ],
-    [
-      "F011",
-      "IS.BookVal.RentalDays.RV_RV1"
-    ],
-    [
-      "F012",
-      "IS.BookVal.RentPersonal.RV_RV1"
-    ],
     [
       "F023",
       "IS.rent_income"
@@ -204,57 +172,15 @@
     ],
     [
       "F104",
-      "IS.total_expenses"
+      "IS.subtotal_rental_expense"
     ],
     [
       "F106",
-      "IS.net_income"
+      "IS.net_ordinary"
     ],
     [
       "F113",
       "IS.net_income"
-    ]
-  ],
-  "BookVal": [
-    [
-      "Prop.Type",
-      "1"
-    ],
-    [
-      "Prop.Type1c",
-      "C"
-    ],
-    [
-      "Prop2.Type",
-      "8"
-    ],
-    [
-      "Prop2.Type1c",
-      "D"
-    ],
-    [
-      "Prop2.full_address",
-      "177 Kingsway Dr, Wimberley Tx 78676 (RV_RV1, Inactive)"
-    ],
-    [
-      "RentPersonal.H_805HighMesa",
-      "0"
-    ],
-    [
-      "RentPersonal.RV_RV1",
-      "0"
-    ],
-    [
-      "RentalDays.H_805HighMesa",
-      "92"
-    ],
-    [
-      "RentalDays.RV_RV1",
-      "0"
-    ],
-    [
-      "full_address",
-      "805 High Mesa Dr, Wimberley Tx 78676 (H_805HighMesa,Active)"
     ]
   ]
 }

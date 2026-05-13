@@ -309,6 +309,10 @@ class stmtBS(stmtDB):
         if not agg:
             agg = self._taxAggregates_local()
 
+        # ── 3. Inject placed_in_service_date (not in stmtFinancialReport) ──
+        if 'placed_in_service_date' not in agg:
+            agg['placed_in_service_date'] = self._earliest_in_service_date()
+
         try:
             object.__setattr__(self, '_taxAggregates_cache', agg)
         except Exception:
@@ -344,19 +348,46 @@ class stmtBS(stmtDB):
         total_liab_capital = round(total_liab + total_equity, 2)
 
         return {
-            'cash':              cash,
-            'ar':                ar,
-            'buildings':         buildings,
-            'accum_depr':        accum_dep,
-            'land':              land,
-            'other_assets':      other_assets,
-            'total_assets':      total_assets,
-            'payables':          payables,
-            'mortgage':          mortgage,
-            'other_liab':        other_liab,
-            'total_equity':      total_equity,
-            'total_liab_capital': total_liab_capital,
+            'cash':                   cash,
+            'ar':                     ar,
+            'buildings':              buildings,
+            'accum_depr':             accum_dep,
+            'land':                   land,
+            'other_assets':           other_assets,
+            'total_assets':           total_assets,
+            'payables':               payables,
+            'mortgage':               mortgage,
+            'other_liab':             other_liab,
+            'total_equity':           total_equity,
+            'total_liab_capital':     total_liab_capital,
+            'placed_in_service_date': self._earliest_in_service_date(),
         }
+
+    def _earliest_in_service_date(self) -> str:
+        '''Scan llcAssets JSON for the earliest InService date (M/YYYY format).'''
+        try:
+            import json as _j2
+            top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
+            acct = getattr(self.llc, 'dirAccounting', '') or ''
+            name = getattr(self.llc, 'objName', '') or ''
+            fn   = _os.path.join(top, acct, 'Accts', f'llcAssets_{name}.json')
+            if not _os.path.exists(fn):
+                return ''
+            records = _j2.loads(open(fn).read())
+            inservice = [r for r in records
+                         if r.get('Ledger') == 'Acct.Fixed.Tangible.InService']
+            # Prefer LLC-owned (propOwner == {'LLC': 100}); fall back to all InService.
+            llc_owned = [r for r in inservice if r.get('propOwner') == {'LLC': 100}]
+            dts = [r['dt'] for r in (llc_owned or inservice) if r.get('dt')]
+            if not dts:
+                return ''
+            dts.sort()
+            parts = dts[0].split('.')
+            if len(parts) >= 2:
+                return f"{int(parts[1])}/{parts[0]}"  # "8/2025"
+            return dts[0]
+        except Exception:
+            return ''
 
     def last_check(self) -> Dict[str, Any]:
         return dict(self._check) if getattr(self, '_check', None) else {}
@@ -509,6 +540,8 @@ class stmtBS_Tax(stmtBS):
     def _resolve_acct(self, acct: Any) -> Any:
         if not isinstance(acct, str):
             return None
+        if acct.startswith('Val.'):
+            return acct[4:]
         if acct.startswith('BS.'):
             return self.taxAggregates().get(acct[3:])
         if acct.startswith('Acct.'):

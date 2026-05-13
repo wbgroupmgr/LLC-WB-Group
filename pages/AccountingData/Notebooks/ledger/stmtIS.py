@@ -243,10 +243,6 @@ class stmtIS(stmtDB):
                                      if r.get('acctType') == 'Income' and _is_ord(r)), 2)
         rental_expense   = round(sum( r['Balance'] for r in rows
                                      if r.get('acctType') == 'Expense'), 2)
-        depr_expense     = round(sum( r['Balance'] for r in rows
-                                     if r.get('acctType') == 'Expense'
-                                     and r.get('acct') == DEPR_ACCT), 2)
-        rental_expense_no_depr = round(rental_expense - depr_expense, 2)
         ordinary_expense = 0.0   # no Acct.Exp.Ord.* accounts in COA yet
         net_ordinary     = round(ordinary_income  - ordinary_expense, 2)
         net_rental       = round(rental_income    - rental_expense,   2)
@@ -257,11 +253,10 @@ class stmtIS(stmtDB):
             'expense':   round(rental_expense + ordinary_expense, 2),
             'net_income': net_income,
             # new detail keys
-            'subtotal_rental_income':       rental_income,
-            'subtotal_ordinary_income':     ordinary_income,
-            'subtotal_rental_expense':      rental_expense_no_depr,   # excl. depreciation
-            'subtotal_depreciation_expense': depr_expense,            # depreciation only
-            'subtotal_ordinary_expense':    ordinary_expense,
+            'subtotal_rental_income':    rental_income,
+            'subtotal_ordinary_income':  ordinary_income,
+            'subtotal_rental_expense':   rental_expense,
+            'subtotal_ordinary_expense': ordinary_expense,
             'net_ordinary': net_ordinary,
             'net_rental':   net_rental,
         }
@@ -296,18 +291,16 @@ class stmtIS(stmtDB):
             ]
         if view_by == 'ByExpense':
             return [
-                _srow('SubTotal Rental Expense',       'rental-expense-subtotal',       s['subtotal_rental_expense']),
-                _srow('SubTotal Depreciation Expense', 'depreciation-expense-subtotal', s.get('subtotal_depreciation_expense', 0.0)),
-                _srow('SubTotal Ordinary Expense',     'ordinary-expense-subtotal',     s['subtotal_ordinary_expense']),
+                _srow('SubTotal Rental Expense',   'rental-expense-subtotal',   s['subtotal_rental_expense']),
+                _srow('SubTotal Ordinary Expense', 'ordinary-expense-subtotal', s['subtotal_ordinary_expense']),
             ]
         return [
-            _srow('SubTotal Rental Income',        'rental-income-subtotal',        s['subtotal_rental_income']),
-            _srow('SubTotal Ordinary Income',      'ordinary-income-subtotal',      s['subtotal_ordinary_income']),
-            _srow('SubTotal Rental Expense',       'rental-expense-subtotal',       s['subtotal_rental_expense']),
-            _srow('SubTotal Depreciation Expense', 'depreciation-expense-subtotal', s.get('subtotal_depreciation_expense', 0.0)),
-            _srow('SubTotal Ordinary Expense',     'ordinary-expense-subtotal',     s['subtotal_ordinary_expense']),
-            _srow('Net Ordinary Income/Loss',      'net-ordinary',                  s['net_ordinary']),
-            _srow('Net Rental Income/Loss',        'net-rental',                    s['net_rental']),
+            _srow('SubTotal Rental Income',    'rental-income-subtotal',    s['subtotal_rental_income']),
+            _srow('SubTotal Ordinary Income',  'ordinary-income-subtotal',  s['subtotal_ordinary_income']),
+            _srow('SubTotal Rental Expense',   'rental-expense-subtotal',   s['subtotal_rental_expense']),
+            _srow('SubTotal Ordinary Expense', 'ordinary-expense-subtotal', s['subtotal_ordinary_expense']),
+            _srow('Net Ordinary Income/Loss',  'net-ordinary',              s['net_ordinary']),
+            _srow('Net Rental Income/Loss',    'net-rental',                s['net_rental']),
             {
                 'acctType': 'TOTAL', 'acct': 'Total Net Income/Loss', 'acctSub': '',
                 'Debit': td, 'Credit': tc, 'Balance': s['net_income'],
@@ -470,17 +463,13 @@ class stmtIS(stmtDB):
             'total_expenses':    total_expenses,
             'net_income':        net_income,
             'distributions_cash': 0.0,
-            # Rental / Ordinary split — depreciation is broken out separately.
-            # subtotal_rental_expense  = non-depreciation rental expenses
-            # subtotal_depreciation_expense = Acct.Exp.Depreciation only
-            # total_expenses           = full total (rental_no_depr + depr + ordinary) = F104
-            'subtotal_rental_income':       subtotal_rental_income,
-            'subtotal_ordinary_income':     subtotal_ordinary_income,
-            'subtotal_rental_expense':      round(total_expenses - depreciation, 2),
-            'subtotal_depreciation_expense': depreciation,
-            'subtotal_ordinary_expense':    0.0,
-            'net_ordinary':                 net_ordinary,
-            'net_rental':                   net_rental,
+            # Rental / Ordinary split (Form 8825 aggregate fids)
+            'subtotal_rental_income':    subtotal_rental_income,
+            'subtotal_ordinary_income':  subtotal_ordinary_income,
+            'subtotal_rental_expense':   total_expenses,
+            'subtotal_ordinary_expense': 0.0,
+            'net_ordinary':              net_ordinary,
+            'net_rental':                net_rental,
         }
 
     def last_summary(self) -> Dict[str, Any]:
@@ -518,23 +507,6 @@ class stmtIS_Tax(stmtIS):
         except Exception:
             return ''
 
-    def _resolve_bookval(self, key: str) -> Optional[str]:
-        """Look up *key* in the ``BookVal`` section of ``bookNS_IS.json``.
-
-        ``BookVal`` is a list of ``[key, value]`` pairs stored alongside the
-        form mapping rows in the same file::
-
-            {"Form8825": [["F003", "IS.BookVal.full_address"], …],
-             "BookVal":  [["full_address", "177 Kingsway Dr, …"]]}
-
-        Returns the literal string value or ``None`` if not found.
-        """
-        d = self._bkNS_load()
-        for row in d.get('BookVal', []):
-            if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]) == key:
-                return str(row[1])
-        return None
-
     def _bkNS_load(self) -> Dict[str, Any]:
         fn = self._bkNS_path()
         if not fn or not _os.path.exists(fn):
@@ -551,9 +523,6 @@ class stmtIS_Tax(stmtIS):
         out: Dict[str, List[Dict[str, Any]]] = {}
         for formNm, mappings in bkNS.items():
             if not formNm or formNm.startswith('_'):
-                continue
-            # BookVal is a lookup table, not a form→field mapping section.
-            if formNm == 'BookVal':
                 continue
             if not isinstance(mappings, list):
                 continue
@@ -582,43 +551,16 @@ class stmtIS_Tax(stmtIS):
         '''
         Return ``{normalized_fid: fval}`` for the requested IRS form section.
 
-        Form8825 starts with the dynamic per-property builder
-        (``_build_f8825_filldict``) for computed rent/expense lines, then
-        overlays any explicit bookNS_IS.json Form8825 entries (literals,
-        entity overrides written via the Aid dialog).  Explicit entries
-        take priority — they represent operator-chosen values.
+        Form8825 uses a dynamic per-property builder (``_build_f8825_filldict``)
+        instead of the static bookNS_IS.json mapping, because the form has one
+        column per rental property and the number/names of properties vary.
 
-        All other forms read bookNS_IS.json directly.
+        All other forms use the static bookNS_IS.json mapping.
         '''
-        bkNS     = self._bkNS_load()
-        mappings = bkNS.get(formNm, []) or []
-
         if formNm == 'Form8825':
-            # ── Step 1: dynamic per-property computed values ──────────────
-            out = self._build_f8825_filldict()
-            # ── Step 2: overlay explicit bookNS IS Form8825 entries ───────
-            # These include BookVal literals and any hand-mapped overrides.
-            # An explicit entry wins over the dynamic builder for that fid.
-            if isinstance(mappings, list):
-                for pair in mappings:
-                    if not isinstance(pair, (list, tuple)) or len(pair) < 2:
-                        continue
-                    fid_raw, acct = pair[0], pair[1]
-                    fid = self._normalizeFid(fid_raw)
-                    if not fid:
-                        continue
-                    if isinstance(acct, str) and (acct == 'Cplx' or acct.startswith('Cplx.')):
-                        out[fid] = 'Complex'
-                        continue
-                    try:
-                        v = self._resolve_acct(acct)
-                        if v is not None:
-                            out[fid] = v
-                    except Exception:
-                        pass
-            return out
-
-        # ── All other forms: bookNS_IS.json only ─────────────────────────
+            return self._build_f8825_filldict()
+        bkNS = self._bkNS_load()
+        mappings = bkNS.get(formNm, []) or []
         out: Dict[str, Any] = {}
         if not isinstance(mappings, list):
             return out
@@ -792,16 +734,10 @@ class stmtIS_Tax(stmtIS):
     def _resolve_acct(self, acct: Any) -> Any:
         if not isinstance(acct, str):
             return None
-        # Val.<literal> — return the suffix verbatim (legacy shorthand).
         if acct.startswith('Val.'):
             return acct[4:]
         if acct.startswith('IS.'):
-            suffix = acct[3:]            # e.g. "net_rental" or "BookVal.full_address"
-            # IS.BookVal.<key> — user-defined literal stored in bookNS_IS.json BookVal section.
-            if suffix.startswith('BookVal.'):
-                return self._resolve_bookval(suffix[8:])   # key = "full_address"
-            # Live computed aggregates.
-            return self.taxAggregates().get(suffix)
+            return self.taxAggregates().get(acct[3:])
         if acct.startswith('Acct.'):
             return self.acct_balance(acct)
         return None
@@ -995,12 +931,8 @@ class _Pipeline:
         ord_income_bal:    Dict[str, float] = {p: 0.0 for p in prop_names}
         rental_income_total = 0.0
         ord_income_total    = 0.0
-        expense_bal:          Dict[str, float] = {p: 0.0 for p in prop_names}  # full total
-        expense_no_depr_bal:  Dict[str, float] = {p: 0.0 for p in prop_names}  # excl. depreciation
-        depr_bal:             Dict[str, float] = {p: 0.0 for p in prop_names}  # depreciation only
-        expense_total       = 0.0
-        expense_no_depr_total = 0.0
-        depr_total          = 0.0
+        expense_bal: Dict[str, float] = {p: 0.0 for p in prop_names}
+        expense_total = 0.0
 
         for key, prop_data in sorted(by_key.items(), key=sort_key):
             at, acct, acct_minor, acct_sub = key
@@ -1023,10 +955,6 @@ class _Pipeline:
                         rental_income_bal[pnm] = rental_income_bal.get(pnm, 0.0) + pb
                 else:
                     expense_bal[pnm] = expense_bal.get(pnm, 0.0) + pb
-                    if acct == DEPR_ACCT:
-                        depr_bal[pnm] = depr_bal.get(pnm, 0.0) + pb
-                    else:
-                        expense_no_depr_bal[pnm] = expense_no_depr_bal.get(pnm, 0.0) + pb
             if at == 'Income':
                 if acct.startswith(ORDINARY_INCOME_PREFIX):
                     ord_income_total += balance
@@ -1034,10 +962,6 @@ class _Pipeline:
                     rental_income_total += balance
             else:
                 expense_total += balance
-                if acct == DEPR_ACCT:
-                    depr_total += balance
-                else:
-                    expense_no_depr_total += balance
             result.append(row)
 
         # ── Summary rows (7 rows) ──
@@ -1056,7 +980,6 @@ class _Pipeline:
         _zero = {p: 0.0 for p in prop_names}
         rental_inc_disp  = {p: -rental_income_bal[p] for p in prop_names}
         ord_inc_disp     = {p: -ord_income_bal[p]    for p in prop_names}
-        # Net rental uses the FULL expense total (incl. depreciation) — correct P&L treatment.
         net_rental_bal   = {p: round(-rental_income_bal[p] - expense_bal[p], 2)
                             for p in prop_names}
         net_total_bal    = {p: round(net_rental_bal[p] - ord_income_bal[p], 2)
@@ -1066,31 +989,20 @@ class _Pipeline:
         net_ord_total     = round(-ord_income_total, 2)
         net_total         = round(net_rental_total + net_ord_total, 2)
 
-        result.append(_summary_row('SubTotal Rental Income',
-                                   'rental-income-subtotal',
+        result.append(_summary_row('SubTotal Rental Income',   'rental-income-subtotal',
                                    -rental_income_total,  rental_inc_disp))
-        result.append(_summary_row('SubTotal Ordinary Income',
-                                   'ordinary-income-subtotal',
+        result.append(_summary_row('SubTotal Ordinary Income', 'ordinary-income-subtotal',
                                    -ord_income_total,     ord_inc_disp))
-        # Expense subtotals: rental (excl. depr) | depreciation | ordinary
-        result.append(_summary_row('SubTotal Rental Expense',
-                                   'rental-expense-subtotal',
-                                   expense_no_depr_total, expense_no_depr_bal))
-        result.append(_summary_row('SubTotal Depreciation Expense',
-                                   'depreciation-expense-subtotal',
-                                   depr_total,            depr_bal))
-        result.append(_summary_row('SubTotal Ordinary Expense',
-                                   'ordinary-expense-subtotal',
-                                   0.0,                   _zero))
-        result.append(_summary_row('Net Ordinary Income/Loss',
-                                   'net-ordinary',
-                                   net_ord_total,         _zero))
-        result.append(_summary_row('Net Rental Income/Loss',
-                                   'net-rental',
-                                   net_rental_total,      net_rental_bal))
-        result.append(_summary_row('Total Net Income/Loss',
-                                   'total-net',
-                                   net_total,             net_total_bal))
+        result.append(_summary_row('SubTotal Rental Expense',  'rental-expense-subtotal',
+                                   expense_total,          expense_bal))
+        result.append(_summary_row('SubTotal Ordinary Expense','ordinary-expense-subtotal',
+                                   0.0,                    _zero))
+        result.append(_summary_row('Net Ordinary Income/Loss', 'net-ordinary',
+                                   net_ord_total,          _zero))
+        result.append(_summary_row('Net Rental Income/Loss',   'net-rental',
+                                   net_rental_total,       net_rental_bal))
+        result.append(_summary_row('Total Net Income/Loss',    'total-net',
+                                   net_total,              net_total_bal))
 
         return result, prop_names
 

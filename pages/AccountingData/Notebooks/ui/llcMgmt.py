@@ -46,6 +46,7 @@ from ui.stmtPropertyEquity   import stmtPropertyEquity
 from ui.llcForm1065         import llcForm1065
 from ui.llcFormK1           import llcFormK1
 from ui.llcForm8825         import llcForm8825
+from ui.llcForm4562         import llcForm4562
 
 
 class llcMgmt:
@@ -68,6 +69,7 @@ class llcMgmt:
         "llcForm1065",
         "llcFormK1",
         "llcForm8825",
+        "llcForm4562",
     ]
 
     VIEW_LABELS = {
@@ -84,6 +86,7 @@ class llcMgmt:
         "llcForm1065":        "Form 1065",
         "llcFormK1":          "Schedule K-1",
         "llcForm8825":        "Form 8825",
+        "llcForm4562":        "Form 4562",
     }
 
     VIEW_TITLES = {
@@ -94,6 +97,7 @@ class llcMgmt:
         "llcForm1065":        "Form 1065 – U.S. Return of Partnership Income",
         "llcFormK1":          "Schedule K-1 – Partner's Share of Income",
         "llcForm8825":        "Form 8825 – Rental Real Estate Income and Expenses",
+        "llcForm4562":        "Form 4562 – Depreciation and Amortization",
     }
 
     # View groups for the home page
@@ -119,7 +123,7 @@ class llcMgmt:
             # v0.2.4.7 — each tax view embeds the canonical FILL.pdf produced
             # by the IRS pipeline (irs.<Form>.saveFILL()).  No constructed
             # row tables, no nSpaceMap detour at the view layer.
-            "views": ["llcForm1065", "llcFormK1", "llcForm8825"],
+            "views": ["llcForm1065", "llcFormK1", "llcForm8825", "llcForm4562"],
         },
     ]
 
@@ -132,6 +136,7 @@ class llcMgmt:
         "llcForm1065": "Form1065",
         "llcFormK1":   "Sch_K1",
         "llcForm8825": "Form8825",
+        "llcForm4562": "Form4562",
     }
     # Views that use financial_view.html
     FINANCIAL_VIEWS = {"stmtBalanceSheet", "stmtIncomeStmt", "stmtOwnerEquity"}
@@ -143,7 +148,7 @@ class llcMgmt:
     READ_ONLY_VIEWS = {
         "stmtGeneralLedger", "stmtBalanceSheet", "stmtIncomeStmt", "stmtOwnerEquity",
         "llcBank", "stmtPropertyEquity",
-        "llcForm1065", "llcFormK1", "llcForm8825",
+        "llcForm1065", "llcFormK1", "llcForm8825", "llcForm4562",
     }
 
     # Preferred column sets for computed views
@@ -225,6 +230,8 @@ class llcMgmt:
             "llcFormK1":            "llcFormK1",
             "llcForm8825":          "llcForm8825",
             "Form8825":             "llcForm8825",
+            "llcForm4562":          "llcForm4562",
+            "Form4562":             "llcForm4562",
         }
         return aliases.get(name, name)
 
@@ -334,6 +341,7 @@ class llcMgmt:
         objects["llcForm1065"] = llcForm1065(self.eSession)
         objects["llcFormK1"]   = llcFormK1(self.eSession)
         objects["llcForm8825"] = llcForm8825(self.eSession)
+        objects["llcForm4562"] = llcForm4562(self.eSession)
 
         return objects
 
@@ -1344,6 +1352,45 @@ class llcMgmt:
                     "error":     str(err),
                     "traceback": traceback.format_exc(),
                 }), 500
+
+        @app.route("/api/aid/cpa_review")
+        def aid_cpa_review():
+            '''Return CPA:unknown fields for the current form.
+            Uses irs.<formNm>._CPA_NOTES and the namespace to build the list.'''
+            try:
+                form_nm = _aid_form_from_request()
+                # Load the form class to get _CPA_NOTES
+                import importlib
+                try:
+                    mod = importlib.import_module(f"irs.{form_nm}")
+                    form_cls = getattr(mod, form_nm, None)
+                    cpa_notes = getattr(form_cls, "_CPA_NOTES", {}) if form_cls else {}
+                except Exception:
+                    cpa_notes = {}
+
+                aid = _aid()
+                ns  = aid.loadNamespace()
+
+                fields = []
+                for lk, note in cpa_notes.items():
+                    # Find fid by logicalKey in namespace
+                    fid_match = None
+                    for fid_key, fmeta in ns.items():
+                        if fmeta.get("logicalKey") == lk:
+                            fid_match = fid_key
+                            break
+                    fields.append({
+                        "logicalKey": lk,
+                        "fid":        fid_match,
+                        "note":       note,
+                        "location":   ns.get(fid_match, {}).get("location", "") if fid_match else "",
+                        "label":      ns.get(fid_match, {}).get("label", lk) if fid_match else lk,
+                    })
+                return jsonify({"ok": True, "formNm": form_nm, "fields": fields})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:
