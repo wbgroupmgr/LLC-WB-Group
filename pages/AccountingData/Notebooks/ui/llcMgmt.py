@@ -1194,25 +1194,27 @@ class llcMgmt:
 
         @app.route("/api/aid/cpa_review")
         def aid_cpa_review():
-            '''Return CPA:unknown fields for the current form.
-            Uses irs.<formNm>._CPA_NOTES and the namespace to build the list.'''
+            '''Return CPA review data for the current form.
+            Returns _PART_NOTES (part summaries), _DEPR_RECONCILIATION, and _CPA_NOTES fields.'''
             try:
                 form_nm = _aid_form_from_request()
-                # Load the form class to get _CPA_NOTES
                 import importlib
                 try:
                     mod = importlib.import_module(f"irs.{form_nm}")
                     form_cls = getattr(mod, form_nm, None)
-                    cpa_notes = getattr(form_cls, "_CPA_NOTES", {}) if form_cls else {}
+                    cpa_notes  = getattr(form_cls, "_CPA_NOTES",          {}) if form_cls else {}
+                    part_notes = getattr(form_cls, "_PART_NOTES",          []) if form_cls else []
+                    depr_notes = getattr(form_cls, "_DEPR_RECONCILIATION", {}) if form_cls else {}
                 except Exception:
-                    cpa_notes = {}
+                    cpa_notes  = {}
+                    part_notes = []
+                    depr_notes = {}
 
                 aid = _aid()
                 ns  = aid.loadNamespace()
 
                 fields = []
                 for lk, note in cpa_notes.items():
-                    # Find fid by logicalKey in namespace
                     fid_match = None
                     for fid_key, fmeta in ns.items():
                         if fmeta.get("logicalKey") == lk:
@@ -1225,7 +1227,13 @@ class llcMgmt:
                         "location":   ns.get(fid_match, {}).get("location", "") if fid_match else "",
                         "label":      ns.get(fid_match, {}).get("label", lk) if fid_match else lk,
                     })
-                return jsonify({"ok": True, "formNm": form_nm, "fields": fields})
+                return jsonify({
+                    "ok":         True,
+                    "formNm":     form_nm,
+                    "parts":      part_notes,
+                    "depr_notes": depr_notes,
+                    "fields":     fields,
+                })
             except HTTPException:
                 raise
             except Exception as err:
