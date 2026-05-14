@@ -328,7 +328,7 @@
                     {% set acct       = row.data.get("acct", "") %}
                     {% set _ap        = acct.split('.') %}
                     {% set acct_disp  = _ap[:2]|join('.') %}
-                    {% set acct_minor = _ap[2:]|join('.') %}
+                    {% set acct_minor = row.data.get("acctMinor") or (_ap[2:]|join('.')) %}
                     {% set prop_nm    = row.data.get("propNm", "") %}
                     {% set acct_sub   = row.data.get("acctSub", "") %}
                     {% set debit    = row.data.get("Debit",   0) | float %}

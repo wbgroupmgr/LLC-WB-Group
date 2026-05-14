@@ -680,15 +680,35 @@ class stmtBS_View(stmtBS_Agg):
     def view(self, view_by: str = 'All',
              with_totals: bool = True) -> List[Dict[str, Any]]:
         '''
-        Pipeline:
-            AggBy().ViewBy(view_by).SortBy(['acctType','acct','acctSub'])
-                   .WithTotals(with_totals).load()
+        Aggregate on (acctType, acct-top2, acctMinor) for both All and Details.
+        Normalise acct → top-2 UAS nodes; roll acctSub variants into acctMinor.
         '''
-        return (self.AggBy()
-                  .ViewBy(view_by)
-                  .SortBy(['acctType', 'acct', 'acctSub'])
+        rows = self.AggBy().ViewBy(view_by).load()
+
+        # Normalise: acct → top-2 nodes, acctMinor → remainder
+        normed = []
+        for r in rows:
+            parts = str(r.get('acct', '')).split('.')
+            r2 = dict(r)
+            r2['acct']      = '.'.join(parts[:2]) if len(parts) >= 2 else r.get('acct', '')
+            r2['acctMinor'] = '.'.join(parts[2:]) if len(parts) > 2 else ''
+            normed.append(r2)
+
+        pipe = _Pipeline(normed, self._columns, self)
+        result = (pipe
+                  .ViewBy('All')
+                  .GroupBy(['acctType', 'acct', 'acctMinor'])
                   .WithTotals(with_totals)
                   .load())
+
+        # Sort by BS_ORDER (not alphabetically) then acct then acctMinor.
+        _order = {t: i for i, t in enumerate(BS_ORDER)}
+        body  = [r for r in result if r.get('acctType') != 'TOTAL']
+        total = [r for r in result if r.get('acctType') == 'TOTAL']
+        body.sort(key=lambda r: (_order.get(r.get('acctType', ''), 99),
+                                  str(r.get('acct', '')),
+                                  str(r.get('acctMinor', ''))))
+        return body + total
 
     def stats(self) -> Dict[str, Any]:
         '''Account-count + totals dict; mirrors v0.2 stats() shape.'''
