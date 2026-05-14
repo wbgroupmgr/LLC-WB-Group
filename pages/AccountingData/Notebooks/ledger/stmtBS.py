@@ -562,7 +562,7 @@ class _Pipeline:
     set (e.g. group by acctType only) — Debit/Credit/Balance are summed.
     '''
 
-    BS_VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity']
+    BS_VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity', 'Details']
 
     def __init__(self, rows: List[Dict[str, Any]],
                  columns: List[str], parent: stmtDB):
@@ -604,7 +604,7 @@ class _Pipeline:
     @staticmethod
     def _apply_view_by(rows: List[Dict[str, Any]],
                        view_by: str) -> List[Dict[str, Any]]:
-        if not view_by or view_by == 'All':
+        if not view_by or view_by in ('All', 'Details'):  # Details = no type filter
             return [dict(r) for r in rows]
         # 'ByAsset' / 'ByLiability' / 'ByEquity'
         acct_type = view_by[2:]

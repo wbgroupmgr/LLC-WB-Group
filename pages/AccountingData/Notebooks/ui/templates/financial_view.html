@@ -302,19 +302,18 @@
     <h3>{{ view_title }}</h3>
     <div class="table-wrap">
         {# ── Column visibility flags ── #}
-        {% set show_minor      = view_by not in ('ByProperty',) %}
-        {% set show_acct_subs  = false %}
-        {% set n_cols          = 8 if show_minor else 6 %}
-        {% set label_cols      = 5 if show_minor else 3 %}
+        {% set show_detail     = view_by == 'Details' %}
+        {% set n_cols          = 8 if show_detail else 5 %}
+        {% set label_cols      = 5 if show_detail else 2 %}
         {% set is_is_view      = obj_type == "stmtIncomeStmt" %}
         <table class="fin-table">
             <thead>
                 <tr>
                     <th style="width:120px">Type</th>
                     <th>Account</th>
-                    {% if show_minor %}<th style="width:160px">Minor</th>{% endif %}
-                    <th style="width:140px">Property</th>
-                    {% if show_minor %}<th style="width:160px">Sub-Account</th>{% endif %}
+                    {% if show_detail %}<th style="width:160px">Minor</th>{% endif %}
+                    {% if show_detail %}<th style="width:160px">Sub-Account</th>{% endif %}
+                    {% if show_detail %}<th style="width:140px">Property</th>{% endif %}
                     <th class="num" style="width:120px">Debit</th>
                     <th class="num" style="width:120px">Credit</th>
                     <th class="num" style="width:120px">Balance</th>
@@ -325,11 +324,13 @@
                                       section_debit=0, section_credit=0, section_balance=0,
                                       acct_debit=0,    acct_credit=0,    acct_balance=0) %}
                 {% for row in rows %}
-                    {% set at       = row.data.get("acctType", "") %}
-                    {% set acct     = row.data.get("acct", "") %}
-                    {% set acct_minor = row.data.get("acctMinor", "") %}
-                    {% set prop_nm  = row.data.get("propNm", "") %}
-                    {% set acct_sub = row.data.get("acctSub", "") %}
+                    {% set at         = row.data.get("acctType", "") %}
+                    {% set acct       = row.data.get("acct", "") %}
+                    {% set _ap        = acct.split('.') %}
+                    {% set acct_disp  = _ap[:2]|join('.') %}
+                    {% set acct_minor = _ap[2:]|join('.') %}
+                    {% set prop_nm    = row.data.get("propNm", "") %}
+                    {% set acct_sub   = row.data.get("acctSub", "") %}
                     {% set debit    = row.data.get("Debit",   0) | float %}
                     {% set credit   = row.data.get("Credit",  0) | float %}
                     {% set bal      = row.data.get("Balance", 0) | float %}
@@ -438,10 +439,10 @@
 
                         <tr>
                             <td></td>
-                            <td class="acct-name">{{ acct }}</td>
-                            {% if show_minor %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>{% endif %}
-                            <td style="font-size:12px; color:#374151">{{ prop_nm }}</td>
-                            {% if show_minor %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
+                            <td class="acct-name">{{ acct_disp }}</td>
+                            {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>{% endif %}
+                            {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
+                            {% if show_detail %}<td style="font-size:12px; color:#374151">{{ prop_nm }}</td>{% endif %}
                             <td class="num {% if debit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(debit) if debit else "" }}</td>
                             <td class="num {% if credit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(credit) if credit else "" }}</td>
                             <td class="num {% if bal > 0 %}amt-pos{% elif bal < 0 %}amt-neg{% endif %}">{{ "%.2f"|format(bal) }}</td>

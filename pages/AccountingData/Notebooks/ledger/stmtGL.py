@@ -737,7 +737,7 @@ class _Pipeline:
                 if include_coa_seed
                 else [dict(r) for r in rows if r.get('refDB') != 'COA'])
 
-        if not view_by or view_by == 'All':
+        if not view_by or view_by in ('All', 'Details'):  # Details = no type filter
             return work
 
         if view_by == 'By Dups':
@@ -855,7 +855,7 @@ class stmtGL_View(stmtGL_Agg):
 
     VIEW_BY_OPTIONS = ['All', 'By Dups', 'By COA Seed',
                        'ByAsset', 'ByLiability', 'ByEquity',
-                       'ByIncome', 'ByExpense']
+                       'ByIncome', 'ByExpense', 'Details']
 
     # ── Convenience: transaction frame (Frame 2 in the 2-frame GL view) ──
 
@@ -887,7 +887,7 @@ class stmtGL_View(stmtGL_Agg):
         pipe = _Pipeline(rows, self._columns, self)
         return (pipe
                 .ViewBy('All', include_coa_seed=True)
-                .GroupBy(['acctType', 'acct', 'acctSub'])
+                .GroupBy(['acctType', 'acct'])  # aggregate on acct only; no acctSub split
                 .WithTotals(with_totals)
                 .SortBy(['acctType', 'acct'])
                 .load())

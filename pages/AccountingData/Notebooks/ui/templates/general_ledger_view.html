@@ -298,6 +298,11 @@
 </div>
 {% endif %}
 
+{# show_detail: True when viewBy == 'Details' — reveals minor/sub/propNm columns #}
+{% set show_detail = frames.view_by == 'Details' %}
+{% set tb_label_cols = 5 if show_detail else 2 %}
+{% set tb_n_cols     = 8 if show_detail else 5 %}
+
 {# ─────────────── FRAME 1 — Trial Balance (aggregated) ─────────────── #}
 <details class="frame" open>
     <summary>
@@ -318,10 +323,10 @@
             <thead>
                 <tr>
                     <th style="width:110px">acctType</th>
-                    <th style="width:140px">acct</th>
-                    <th style="width:140px">acctMinor</th>
-                    <th style="width:110px">propNm</th>
-                    <th style="width:160px">acctSub</th>
+                    <th>acct</th>
+                    {% if show_detail %}<th style="width:160px">Minor</th>{% endif %}
+                    {% if show_detail %}<th style="width:160px">acctSub</th>{% endif %}
+                    {% if show_detail %}<th style="width:110px">propNm</th>{% endif %}
                     <th class="num" style="width:120px">Debit</th>
                     <th class="num" style="width:120px">Credit</th>
                     <th class="num" style="width:120px">Balance</th>
@@ -333,6 +338,9 @@
                 {% for row in frames.tb.rows %}
                     {% set at       = row.get("acctType", "") %}
                     {% set acct     = row.get("acct", "") %}
+                    {% set _ap      = acct.split('.') %}
+                    {% set acct_disp  = _ap[:2]|join('.') %}
+                    {% set acct_minor = _ap[2:]|join('.') %}
                     {% set acct_sub = row.get("acctSub", "") %}
                     {% set debit    = (row.get("Debit",   0) or 0) | float %}
                     {% set credit   = (row.get("Credit",  0) or 0) | float %}
@@ -341,7 +349,7 @@
                     {% if at != ns.current_type %}
                         {% if ns.current_type %}
                         <tr class="subtotal">
-                            <td colspan="5" style="text-align:right; font-style:italic">
+                            <td colspan="{{ tb_label_cols }}" style="text-align:right; font-style:italic">
                                 {{ ns.current_type }} Subtotal
                             </td>
                             <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
@@ -350,7 +358,7 @@
                         </tr>
                         {% endif %}
                         <tr class="section-header">
-                            <td colspan="8">{{ at or "— unclassified —" }}</td>
+                            <td colspan="{{ tb_n_cols }}">{{ at or "— unclassified —" }}</td>
                         </tr>
                         {% set ns.current_type = at %}
                         {% set ns.sec_debit = 0 %}
@@ -363,12 +371,10 @@
 
                     <tr>
                         <td></td>
-                        <td class="acct-name">{{ acct }}</td>
-                        <td class="acct-name">{{ row.get("acctMinor", "") }}</td>
-                        <td style="font-size:12px; color:#6b7280">{{ row.get("propNm", "") }}</td>
-                        <td style="font-size:12px; color:#6b7280; font-family:monospace">
-                            {{ acct_sub }}
-                        </td>
+                        <td class="acct-name">{{ acct_disp }}</td>
+                        {% if show_detail %}<td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_minor }}</td>{% endif %}
+                        {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
+                        {% if show_detail %}<td style="font-size:12px; color:#6b7280">{{ row.get("propNm", "") }}</td>{% endif %}
                         <td class="num {% if debit > 0 %}amt-pos{% endif %}">
                             {{ "%.2f"|format(debit) if debit else "" }}
                         </td>
@@ -384,7 +390,7 @@
                 {# Close last section subtotal + grand total #}
                 {% if frames.tb.rows %}
                 <tr class="subtotal">
-                    <td colspan="5" style="text-align:right; font-style:italic">
+                    <td colspan="{{ tb_label_cols }}" style="text-align:right; font-style:italic">
                         {{ ns.current_type }} Subtotal
                     </td>
                     <td class="num">{{ "%.2f"|format(ns.sec_debit) }}</td>
@@ -392,13 +398,13 @@
                     <td class="num">{{ "%.2f"|format(ns.sec_balance) }}</td>
                 </tr>
                 <tr class="grand-total">
-                    <td colspan="5">TOTAL</td>
+                    <td colspan="{{ tb_label_cols }}">TOTAL</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Debit) }}</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Credit) }}</td>
                     <td class="num">{{ "%.2f"|format(frames.tb.totals.Balance) }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="8" class="muted">No trial-balance rows under ViewBy
+                <tr><td colspan="{{ tb_n_cols }}" class="muted">No trial-balance rows under ViewBy
                     <strong>{{ frames.view_by }}</strong>.</td></tr>
                 {% endif %}
             </tbody>
@@ -420,16 +426,17 @@
         </span>
     </summary>
     <div class="frame-body">
+        {% set tx_n_cols = 11 if show_detail else 8 %}
         <table class="gl-table">
             <thead>
                 <tr>
                     <th style="width:70px">Status</th>
                     <th style="width:100px">dt</th>
                     <th style="width:110px">acctType</th>
-                    <th style="width:120px">acct</th>
-                    <th style="width:120px">acctMinor</th>
-                    <th style="width:110px">propNm</th>
-                    <th style="width:120px">acctSub</th>
+                    <th style="width:160px">acct</th>
+                    {% if show_detail %}<th style="width:120px">Minor</th>{% endif %}
+                    {% if show_detail %}<th style="width:120px">acctSub</th>{% endif %}
+                    {% if show_detail %}<th style="width:110px">propNm</th>{% endif %}
                     <th style="width:70px">aType</th>
                     <th class="num" style="width:100px">amt</th>
                     <th>desc</th>
@@ -438,6 +445,10 @@
             </thead>
             <tbody>
                 {% for row in frames.tx.rows %}
+                    {% set acct_tx   = row.get("acct", "") %}
+                    {% set _txap     = acct_tx.split('.') %}
+                    {% set acct_tx_disp  = _txap[:2]|join('.') %}
+                    {% set acct_tx_minor = _txap[2:]|join('.') %}
                     {% set amt = (row.get("amt", 0) or 0) | float %}
                     <tr>
                         <td>
@@ -447,10 +458,10 @@
                         </td>
                         <td>{{ row.get("dt", "") }}</td>
                         <td>{{ row.get("acctType", "") }}</td>
-                        <td class="acct-name">{{ row.get("acct", "") }}</td>
-                        <td class="acct-name">{{ row.get("acctMinor", "") }}</td>
-                        <td style="font-size:12px; color:#374151">{{ row.get("propNm", "") }}</td>
-                        <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.get("acctSub", "") }}</td>
+                        <td class="acct-name">{{ acct_tx_disp }}</td>
+                        {% if show_detail %}<td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_tx_minor }}</td>{% endif %}
+                        {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.get("acctSub", "") }}</td>{% endif %}
+                        {% if show_detail %}<td style="font-size:12px; color:#374151">{{ row.get("propNm", "") }}</td>{% endif %}
                         <td>{{ row.get("aType", "") }}</td>
                         <td class="num {% if amt > 0 %}amt-pos{% elif amt < 0 %}amt-neg{% endif %}">
                             {{ "%.2f"|format(amt) }}
@@ -460,7 +471,7 @@
                     </tr>
                 {% endfor %}
                 {% if not frames.tx.rows %}
-                <tr><td colspan="11" class="muted">No transaction rows under ViewBy
+                <tr><td colspan="{{ tx_n_cols }}" class="muted">No transaction rows under ViewBy
                     <strong>{{ frames.view_by }}</strong>.</td></tr>
                 {% endif %}
             </tbody>
