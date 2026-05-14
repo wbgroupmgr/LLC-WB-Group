@@ -902,12 +902,19 @@ class stmtGL_View(stmtGL_Agg):
             group_keys = ['acctType', 'acct']  # roll all sub-accounts up to top-2 node
 
         pipe = _Pipeline(normed, self._columns, self)
-        return (pipe
-                .ViewBy('All', include_coa_seed=True)
-                .GroupBy(group_keys)
-                .WithTotals(with_totals)
-                .SortBy(['acctType', 'acct'])
-                .load())
+        result = (pipe
+                  .ViewBy('All', include_coa_seed=True)
+                  .GroupBy(group_keys)
+                  .WithTotals(with_totals)
+                  .load())
+
+        # Sort by _TB_ACCT_ORDER (not alphabetically) so Liability precedes Expense.
+        _order = {t: i for i, t in enumerate(_TB_ACCT_ORDER)}
+        body  = [r for r in result if r.get('acctType') != 'TOTAL']
+        total = [r for r in result if r.get('acctType') == 'TOTAL']
+        body.sort(key=lambda r: (_order.get(r.get('acctType', ''), 99),
+                                  str(r.get('acct', ''))))
+        return body + total
 
     # ── Stats summary (independent of view_by) ───────────────────────────
 
