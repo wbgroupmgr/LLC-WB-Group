@@ -61,12 +61,12 @@
            (position: absolute) is not clipped to the panel height. */
         overflow: visible;
     }
-    .title-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
+    .title-toolbar { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
         background: #1e40af; padding: 12px 16px; color: white;
         border-top-left-radius: 10px; border-top-right-radius: 10px; }
     .stats-sub { border-top: 2px solid #3b82f6; padding: 8px 16px; }
     .meta-row { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
-    .title-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
     .title-left .menu details { position: relative; }
     .title-left .menu summary {
         list-style: none; cursor: pointer; font-size: 18px;
@@ -76,7 +76,42 @@
     .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
     .title-sep { color: #93c5fd; font-size: 15px; }
     .title-sub { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; flex-shrink: 0; }
+    .toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; flex: 0 0 auto; }
+
+    /* Actions dropdown */
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none;
+        white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827;
+        min-width: 170px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300;
+        overflow: hidden;
+    }
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .actions-menu .act-dropdown button:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+    .actions-menu .act-dropdown button.act-primary { color: #1d4ed8; font-weight: 600; }
+    .actions-menu .act-dropdown button.act-success  { color: #15803d; font-weight: 600; }
+    .actions-menu .act-dropdown button.act-warning  { color: #b45309; }
+    .actions-menu .act-dropdown button.act-danger   { color: #dc2626; }
     .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
     .stat-chip {
         display: inline-flex; align-items: center; gap: 8px;
@@ -125,13 +160,20 @@
                     {% include '_nav_dropdown.html' %}
                 </details>
             </div>
-            <span class="title-name">{{ app_title }}</span>
-            <span class="title-sep">·</span>
             <span class="title-sub">🏦 Bank Reconciliation — New Transactions</span>
+            <span class="title-sep">·</span>
+            <span class="title-name">{{ app_title }}</span>
         </div>
         <div class="toolbar-row">
-            <button class="btn btn-secondary" title="Reload view" onclick="window.location.href=buildViewUrl()">Refresh</button>
-            <button class="btn btn-warning" title="Toggle raw JSON pane" onclick="toggleJsonPane()">JSON</button>
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
+                        <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
+                    </div>
+                </details>
+            </div>
         </div>
     </div>
 
@@ -229,4 +271,12 @@
         <pre>{{ raw_rows | tojson(indent=2) }}</pre>
     </details>
 </div>
+
+<script>
+document.querySelectorAll('.act-dropdown button').forEach(function(b){
+    b.addEventListener('click', function(){
+        var d = b.closest('details'); if(d) d.removeAttribute('open');
+    });
+});
+</script>
 {% endblock %}

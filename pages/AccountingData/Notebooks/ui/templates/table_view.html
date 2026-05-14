@@ -388,9 +388,9 @@
     }
     .title-toolbar {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 12px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         background: #1e40af;
         padding: 12px 16px;
         color: white;
@@ -412,8 +412,8 @@
         display: flex;
         align-items: center;
         gap: 10px;
+        flex: 1 1 auto;
         min-width: 0;
-        flex-shrink: 1;
     }
     .title-left .menu details { position: relative; }
     .title-left .menu summary {
@@ -439,15 +439,50 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
-    /* right cluster: select + buttons — pushed all the way right */
+    /* right cluster: select + buttons */
     .toolbar-row {
         display: flex;
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
-        margin-left: auto;
         flex-shrink: 0;
+        flex: 0 0 auto;
     }
+
+    /* Actions dropdown */
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none;
+        white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827;
+        min-width: 170px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300;
+        overflow: hidden;
+    }
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .actions-menu .act-dropdown button:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+    .actions-menu .act-dropdown button.act-primary { color: #1d4ed8; font-weight: 600; }
+    .actions-menu .act-dropdown button.act-success  { color: #15803d; font-weight: 600; }
+    .actions-menu .act-dropdown button.act-warning  { color: #b45309; }
+    .actions-menu .act-dropdown button.act-danger   { color: #dc2626; }
     .toolbar-row select {
         padding: 7px 10px;
         border-radius: 6px;
@@ -527,7 +562,7 @@
 <div class="panel title-panel">
     <div class="title-toolbar">
 
-        <!-- left: hamburger · LLC name · separator · view name -->
+        <!-- left: hamburger · view name · separator · LLC name -->
         <div class="title-left">
             <div class="menu">
                 <details>
@@ -535,12 +570,12 @@
                     {% include '_nav_dropdown.html' %}
                 </details>
             </div>
-            <span class="title-name">{{ app_title }}</span>
-            <span class="title-sep">·</span>
             <span class="title-sub">📋 {{ obj_type }} — Save-Publish commits all records to DB</span>
+            <span class="title-sep">·</span>
+            <span class="title-name">{{ app_title }}</span>
         </div>
 
-        <!-- right: view selector + action buttons -->
+        <!-- right: view selectors + actions dropdown -->
         <div class="toolbar-row">
             {% if show_view_options %}
             <label for="viewModeSelect" title="Filter Transaction Fields"><strong>Fields</strong></label>
@@ -559,15 +594,22 @@
             </select>
             {% endif %}
 
-            {% if not read_only %}
-            <button class="btn btn-success"   title="Add a new record"                       onclick="openAddEditor()">Add</button>
-            <button class="btn btn-primary"   title="Save all records and publish to DB"      onclick="saveAndPublish()">💾 Save-Publish</button>
-            <button class="btn btn-secondary" title="Reload wk object, discard view changes"  onclick="window.location.href=buildViewUrl()">Refresh View</button>
-            <button class="btn btn-secondary" title="Reset wk from DB"                        onclick="resetFromObject()">Refresh DB</button>
-            {% else %}
-            <button class="btn btn-secondary" title="Reload view"                             onclick="window.location.href=buildViewUrl()">Refresh</button>
-            {% endif %}
-            <button class="btn btn-warning"   title="Toggle raw JSON pane"                    onclick="toggleJsonPane()">JSON</button>
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        {% if not read_only %}
+                        <button class="act-success" onclick="openAddEditor()">➕ Add</button>
+                        <button class="act-primary" onclick="saveAndPublish()">💾 Save-Publish</button>
+                        <button onclick="window.location.href=buildViewUrl()">🔄 Refresh View</button>
+                        <button onclick="resetFromObject()">↺ Refresh DB</button>
+                        {% else %}
+                        <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
+                        {% endif %}
+                        <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
+                    </div>
+                </details>
+            </div>
         </div>
 
     </div>
@@ -672,4 +714,12 @@
         </div>
     </div>
 </div>
+
+<script>
+document.querySelectorAll('.act-dropdown button').forEach(function(b){
+    b.addEventListener('click', function(){
+        var d = b.closest('details'); if(d) d.removeAttribute('open');
+    });
+});
+</script>
 {% endblock %}
