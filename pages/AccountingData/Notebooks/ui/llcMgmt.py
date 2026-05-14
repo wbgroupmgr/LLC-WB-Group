@@ -1400,6 +1400,40 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        # ── GL Audit routes ────────────────────────────────────────────────────
+
+        @app.route("/api/audit/gl")
+        def audit_gl():
+            '''Run all GL audit checks and return structured findings.'''
+            try:
+                from ledger.auditor import GLAuditor
+                from ledger.stmtGL import stmtGL
+                llc = self.eSession.llc
+                gl_records = list(stmtGL(llc).load() or [])
+                result = GLAuditor(llc, gl_records).audit()
+                return jsonify({"ok": True, **result})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/audit/apply", methods=["POST"])
+        def audit_apply():
+            '''Apply operator-approved auto-applicable corrections.'''
+            try:
+                from ledger.auditor import GLAuditor
+                from ledger.stmtGL import stmtGL
+                data        = request.get_json(force=True) or {}
+                corrections = data.get("corrections", [])
+                llc         = self.eSession.llc
+                gl_records  = list(stmtGL(llc).load() or [])
+                result      = GLAuditor(llc, gl_records).apply_corrections(corrections)
+                return jsonify({"ok": True, **result})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:
             thread = threading.Thread(

@@ -57,6 +57,148 @@
         pane.open = !pane.open;
         if (pane.open) pane.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+
+    /* ── Audit panel ─────────────────────────────────────────────── */
+    const _SEV_BADGE = {
+        error:   '<span class="aud-sev error">⛔ Error</span>',
+        warning: '<span class="aud-sev warning">⚠️ Warning</span>',
+    };
+    const _CORR_ICON = { remove_entry: '🗑️', manual: '✏️', add_entry: '➕' };
+
+    let _auditReport = null;  // last fetch result
+
+    function runAudit() {
+        const d = document.getElementById('actionsMenu'); if(d) d.removeAttribute('open');
+        const panel = document.getElementById('auditPanel');
+        panel.style.display = 'block';
+        panel.innerHTML = '<div class="aud-loading">⏳ Running GL Audit…</div>';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        fetch('/api/audit/gl')
+            .then(r => r.json())
+            .then(data => {
+                _auditReport = data;
+                renderAuditPanel(data);
+            })
+            .catch(err => {
+                panel.innerHTML = `<div class="aud-error">Audit failed: ${err}</div>`;
+            });
+    }
+
+    function renderAuditPanel(data) {
+        const panel = document.getElementById('auditPanel');
+        if (!data.ok) {
+            panel.innerHTML = `<div class="aud-error">⛔ ${data.error}</div>`;
+            return;
+        }
+        const s = data.summary;
+        const issues = data.issues || [];
+
+        const summaryHtml = `
+            <div class="aud-summary">
+                <span class="aud-title">🔍 GL Audit Report</span>
+                <span class="aud-chip ${s.clean ? 'clean' : 'dirty'}">
+                    ${s.clean ? '✅ Clean' : `${s.errors} error${s.errors!==1?'s':''}, ${s.warnings} warning${s.warnings!==1?'s':''}`}
+                </span>
+                <button class="aud-close" onclick="closeAudit()">✕ Close</button>
+            </div>`;
+
+        if (s.clean) {
+            panel.innerHTML = summaryHtml + '<div class="aud-clean">✅ All checks passed — GL is in compliance.</div>';
+            return;
+        }
+
+        const autoIssues = issues.filter(i => i.correction && i.correction.auto_apply);
+
+        let issuesHtml = issues.map((iss, idx) => {
+            const c = iss.correction || {};
+            const canApply = c.auto_apply && (c.entries || []).length > 0;
+            const affectedHtml = (iss.affected || []).slice(0, 5).map(a => {
+                const parts = Object.entries(a).map(([k,v]) => `<span class="aud-kv"><b>${k}</b>: ${v}</span>`).join(' ');
+                return `<div class="aud-affected-row">${parts}</div>`;
+            }).join('') + ((iss.affected||[]).length > 5 ? `<div class="aud-affected-row muted">… and ${iss.affected.length-5} more</div>` : '');
+
+            return `
+            <div class="aud-issue" id="aud-issue-${idx}">
+                <div class="aud-issue-header">
+                    ${_SEV_BADGE[iss.severity]||''}
+                    <span class="aud-issue-title">${iss.title}</span>
+                    ${canApply ? `<label class="aud-check-lbl"><input type="checkbox" class="aud-apply-chk" data-idx="${idx}" checked> Apply fix</label>` : ''}
+                </div>
+                <div class="aud-issue-desc">${iss.description.replace(/\n/g, '<br>')}</div>
+                ${iss.affected && iss.affected.length ? `
+                <details class="aud-affected">
+                    <summary>Affected records (${iss.affected.length})</summary>
+                    ${affectedHtml}
+                </details>` : ''}
+                <div class="aud-correction">
+                    <span class="aud-corr-icon">${_CORR_ICON[c.type]||'📋'}</span>
+                    <span class="aud-corr-type">${c.type === 'manual' ? 'Manual review required' : c.type === 'remove_entry' ? 'Auto-removable' : 'Auto-applicable'}</span>
+                    — ${c.description || ''}
+                </div>
+            </div>`;
+        }).join('');
+
+        const hasAuto = autoIssues.length > 0;
+        const actionsHtml = `
+            <div class="aud-actions">
+                ${hasAuto ? `<button class="aud-btn-go" onclick="applyAuditFixes()">✅ GO — Apply Selected Fixes</button>` : ''}
+                <button class="aud-btn-cancel" onclick="closeAudit()">✕ Cancel</button>
+                ${!hasAuto ? '<span class="muted" style="font-size:12px">No auto-applicable fixes — manual review required.</span>' : ''}
+            </div>`;
+
+        panel.innerHTML = summaryHtml + issuesHtml + actionsHtml;
+    }
+
+    function applyAuditFixes() {
+        if (!_auditReport) return;
+        const checked = [...document.querySelectorAll('.aud-apply-chk:checked')];
+        const idxs    = checked.map(el => parseInt(el.dataset.idx));
+        const issues  = _auditReport.issues || [];
+        const corrections = idxs.map(i => ({
+            code:    issues[i].code,
+            entries: (issues[i].correction || {}).entries || [],
+        })).filter(c => c.entries.length > 0);
+
+        if (!corrections.length) {
+            closeAudit();
+            return;
+        }
+
+        const panel = document.getElementById('auditPanel');
+        panel.innerHTML = '<div class="aud-loading">⏳ Applying corrections…</div>';
+
+        fetch('/api/audit/apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ corrections }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            const lines = (data.applied || []).map(s => `<div class="aud-applied">✅ ${s}</div>`).join('');
+            const errs  = (data.errors  || []).map(s => `<div class="aud-err-line">⛔ ${s}</div>`).join('');
+            panel.innerHTML = `
+                <div class="aud-summary">
+                    <span class="aud-title">🔍 Audit — Corrections Applied</span>
+                    <button class="aud-close" onclick="closeAudit()">✕ Close</button>
+                </div>
+                ${lines}${errs}
+                <div class="aud-actions">
+                    <button class="aud-btn-go" onclick="window.location.href=buildViewUrl()">🔄 Refresh GL</button>
+                    <button class="aud-btn-cancel" onclick="closeAudit()">✕ Close</button>
+                </div>`;
+        })
+        .catch(err => {
+            panel.innerHTML = `<div class="aud-error">Apply failed: ${err}</div>`;
+        });
+    }
+
+    function closeAudit() {
+        const panel = document.getElementById('auditPanel');
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+        _auditReport = null;
+    }
 </script>
 
 <style>
@@ -217,6 +359,81 @@
 
     /* JSON pane */
     .json-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+
+    /* ── Audit panel ──────────────────────────────────────────────── */
+    #auditPanel {
+        display: none;
+        background: white; border: 2px solid #1e40af;
+        border-radius: 10px; margin-bottom: 18px;
+        box-shadow: 0 4px 20px rgba(30,64,175,0.15);
+        overflow: hidden;
+    }
+    .aud-loading, .aud-error, .aud-clean {
+        padding: 18px 20px; font-size: 14px; text-align: center;
+    }
+    .aud-error    { color: #991b1b; background: #fef2f2; }
+    .aud-clean    { color: #14532d; background: #f0fdf4; font-weight: 600; }
+    .aud-summary  {
+        display: flex; align-items: center; gap: 12px;
+        background: #1e40af; color: white;
+        padding: 10px 16px; flex-wrap: wrap;
+    }
+    .aud-title    { font-size: 15px; font-weight: 700; flex: 1 1 auto; }
+    .aud-chip     { font-size: 12px; font-weight: 700; padding: 3px 10px;
+                    border-radius: 999px; }
+    .aud-chip.clean  { background: #dcfce7; color: #14532d; }
+    .aud-chip.dirty  { background: #fef2f2; color: #991b1b; }
+    .aud-close    { margin-left: auto; background: rgba(255,255,255,0.18);
+                    color: white; border: 1px solid rgba(255,255,255,0.4);
+                    border-radius: 6px; padding: 4px 12px; cursor: pointer;
+                    font-size: 13px; }
+    .aud-close:hover { background: rgba(255,255,255,0.3); }
+
+    .aud-issue  {
+        border-bottom: 1px solid #e5e7eb; padding: 14px 18px;
+    }
+    .aud-issue:last-of-type { border-bottom: 0; }
+    .aud-issue-header {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        margin-bottom: 6px;
+    }
+    .aud-sev          { font-size: 11px; font-weight: 700; padding: 2px 8px;
+                        border-radius: 999px; }
+    .aud-sev.error    { background: #fee2e2; color: #991b1b; }
+    .aud-sev.warning  { background: #fef3c7; color: #92400e; }
+    .aud-issue-title  { font-size: 14px; font-weight: 700; color: #1f2937; flex: 1 1 auto; }
+    .aud-check-lbl    { font-size: 12px; color: #374151; cursor: pointer;
+                        display: flex; align-items: center; gap: 4px; }
+    .aud-issue-desc   { font-size: 13px; color: #374151; margin-bottom: 8px;
+                        white-space: pre-wrap; line-height: 1.5; }
+    .aud-affected     { margin: 6px 0 8px; }
+    .aud-affected summary { cursor: pointer; font-size: 12px; color: #6b7280;
+                            font-weight: 600; }
+    .aud-affected-row { font-size: 11px; color: #374151; font-family: monospace;
+                        padding: 2px 8px; background: #f9fafb; margin-top: 2px;
+                        border-radius: 4px; }
+    .aud-affected-row .aud-kv { margin-right: 10px; }
+    .aud-correction   { font-size: 12px; color: #374151; background: #f8faff;
+                        border: 1px solid #dbeafe; border-radius: 6px;
+                        padding: 7px 12px; display: flex; gap: 8px; align-items: flex-start; }
+    .aud-corr-icon    { font-size: 15px; flex-shrink: 0; }
+    .aud-corr-type    { font-weight: 700; color: #1d4ed8; }
+    .aud-applied      { padding: 8px 18px; font-size: 13px; color: #14532d;
+                        background: #f0fdf4; border-bottom: 1px solid #bbf7d0; }
+    .aud-err-line     { padding: 8px 18px; font-size: 13px; color: #991b1b;
+                        background: #fef2f2; border-bottom: 1px solid #fecaca; }
+    .aud-actions      {
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        padding: 14px 18px; background: #f8faff; border-top: 1px solid #dbeafe;
+    }
+    .aud-btn-go     { background: #16a34a; color: white; border: 0;
+                      border-radius: 6px; padding: 8px 18px; font-size: 13px;
+                      font-weight: 700; cursor: pointer; }
+    .aud-btn-go:hover { background: #15803d; }
+    .aud-btn-cancel { background: #e5e7eb; color: #374151; border: 0;
+                      border-radius: 6px; padding: 8px 14px; font-size: 13px;
+                      cursor: pointer; }
+    .aud-btn-cancel:hover { background: #d1d5db; }
 </style>
 {% endblock %}
 
@@ -252,6 +469,7 @@
                     <summary>Actions ▾</summary>
                     <div class="act-dropdown">
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
+                        <button class="act-primary" onclick="runAudit()">🔍 Audit</button>
                         <button class="act-warning" onclick="togglePane('jsonPane')">{ } JSON</button>
                     </div>
                 </details>
@@ -295,8 +513,12 @@
     vs Σ Credit {{ "%.2f"|format(frames.tb.totals.Credit) }}
     (difference {{ "%.2f"|format(frames.tb.totals.Debit - frames.tb.totals.Credit) }}).
     Investigate missing / mis-classified entries before closing the books.
+    — <a href="#" onclick="runAudit(); return false;" style="color:#7f1d1d; font-weight:700;">Run Audit ›</a>
 </div>
 {% endif %}
+
+{# ── Audit results panel (populated by JS after Actions → Audit) ── #}
+<div id="auditPanel"></div>
 
 {# show_detail: True when viewBy == 'Details' — reveals minor/sub/propNm columns #}
 {% set show_detail = frames.view_by == 'Details' %}
