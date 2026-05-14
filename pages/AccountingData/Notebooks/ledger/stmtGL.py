@@ -969,7 +969,7 @@ class stmtTrialBalance(stmtDB):
     DEFAULT_TBLID = "TrialBalance"
     COLUMNS = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS = ['All', 'ByAsset', 'ByLiability', 'ByEquity',
-                       'ByIncome', 'ByExpense']
+                       'ByIncome', 'ByExpense', 'Details']
 
     PUBLISH_MAP: Dict[str, List[Any]] = {}
 
@@ -1041,9 +1041,8 @@ class stmtTrialBalance(stmtDB):
 
         tb = df[df['acctType'].isin(_TB_ACCT_TYPES)].copy()
 
-        if view_by and view_by != 'All':
-            wanted = view_by[2:]  # strip 'By'
-            tb = tb[tb['acctType'] == wanted]
+        if view_by and view_by not in ('All', 'Details') and view_by.startswith('By'):
+            tb = tb[tb['acctType'] == view_by[2:]]
 
         if tb.empty:
             return [], {'balanced': True, 'total_debit': 0.0, 'total_credit': 0.0, 'tb_diff': 0.0}

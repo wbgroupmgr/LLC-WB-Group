@@ -157,7 +157,7 @@ class llcMgmt:
     # ViewBy options per computed view (empty = no dropdown shown)
     VIEW_BY_OPTIONS: Dict[str, List[str]] = {
         'stmtGeneralLedger': ['All', 'By Dups', 'ByAsset', 'ByLiability', 'ByEquity', 'ByIncome', 'ByExpense'],
-        'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity'],
+        'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity', 'Details'],
         'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember', 'PerMemberDetails'],
         # IRS Form 1065 / Sch K-1 are now PDF-embed views (v0.2.4.7) — no
         # row-level publish filter at the view layer; the publish flag is
