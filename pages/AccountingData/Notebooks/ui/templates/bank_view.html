@@ -75,7 +75,24 @@
     }
     .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
     .title-sep { color: #93c5fd; font-size: 15px; }
-    .title-sub { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title-sub {
+        font-size: 18px; font-weight: 600; color: #bfdbfe;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        position: relative;
+    }
+    .title-sub[data-tip] { cursor: help; }
+    .title-sub[data-tip]::after {
+        content: attr(data-tip);
+        position: absolute; top: calc(100% + 6px); left: 0;
+        background: #1f2937; color: #f9fafb;
+        font-size: 12px; font-weight: 400;
+        padding: 5px 10px; border-radius: 6px;
+        white-space: nowrap; pointer-events: none;
+        opacity: 0; transition: opacity .15s;
+        box-shadow: 0 4px 12px rgba(0,0,0,.25);
+        z-index: 400;
+    }
+    .title-sub[data-tip]:hover::after { opacity: 1; }
     .toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; flex: 0 0 auto; }
 
     /* Actions dropdown */
@@ -160,7 +177,7 @@
                     {% include '_nav_dropdown.html' %}
                 </details>
             </div>
-            <span class="title-sub">🏦 Bank Reconciliation — New Transactions</span>
+            <span class="title-sub" data-tip="Upload a bank CSV to review and import new transactions">🏦 Bank Reconciliation</span>
             <span class="title-sep">·</span>
             <span class="title-name">{{ app_title }}</span>
         </div>
