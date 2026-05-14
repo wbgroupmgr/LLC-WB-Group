@@ -305,9 +305,15 @@ class stmtGL(stmtDB):
             gl_records = self._expand_and_merge(sources, self._init_resolve_dups)
 
         seed = self._coa_seed_records()
-        all_records = list(seed) + list(gl_records or [])
 
-        rows = [self._norm_row(r) for r in all_records]
+        # Sort transaction rows by tID (date-prefixed → chronological order).
+        # COA seed rows are kept separate so they don't interleave with txns.
+        tx_rows = sorted(
+            [self._norm_row(r) for r in (gl_records or [])],
+            key=lambda r: str(r.get('tID') or ''),
+        )
+        seed_rows = [self._norm_row(r) for r in seed]
+        rows = seed_rows + tx_rows
 
         self._tblID   = self.DEFAULT_TBLID
         self._columns = list(self.COLUMNS)
