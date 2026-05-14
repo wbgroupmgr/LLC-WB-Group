@@ -336,12 +336,11 @@
                 {% set ns = namespace(current_type="",
                                       sec_debit=0, sec_credit=0, sec_balance=0) %}
                 {% for row in frames.tb.rows %}
-                    {% set at       = row.get("acctType", "") %}
-                    {% set acct     = row.get("acct", "") %}
-                    {% set _ap      = acct.split('.') %}
-                    {% set acct_disp  = _ap[:2]|join('.') %}
-                    {% set acct_minor = _ap[2:]|join('.') %}
-                    {% set acct_sub = row.get("acctSub", "") %}
+                    {% set at         = row.get("acctType", "") %}
+                    {% set acct       = row.get("acct", "") %}
+                    {% set acct_disp  = acct %}
+                    {% set acct_minor = row.get("acctMinor", "") %}
+                    {% set acct_sub   = row.get("acctSub", "") %}
                     {% set debit    = (row.get("Debit",   0) or 0) | float %}
                     {% set credit   = (row.get("Credit",  0) or 0) | float %}
                     {% set bal      = (row.get("Balance", 0) or 0) | float %}

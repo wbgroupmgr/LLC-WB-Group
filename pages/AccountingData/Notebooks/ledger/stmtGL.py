@@ -883,11 +883,24 @@ class stmtGL_View(stmtGL_Agg):
         all_rows = self.AggBy().ViewBy(view_by, include_coa_seed=True).load()
         rows = [r for r in all_rows if r.get('acctType') in _TB_TYPES]
 
-        # Run the rest of the pipeline on the filtered row set.
-        pipe = _Pipeline(rows, self._columns, self)
+        # Normalise acct → top-2 UAS nodes; derive acctMinor from remainder.
+        normed = []
+        for r in rows:
+            parts = str(r.get('acct', '')).split('.')
+            r2 = dict(r)
+            r2['acct']      = '.'.join(parts[:2]) if len(parts) >= 2 else r.get('acct', '')
+            r2['acctMinor'] = '.'.join(parts[2:]) if len(parts) > 2 else ''
+            normed.append(r2)
+
+        if view_by == 'Details':
+            group_keys = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm']
+        else:
+            group_keys = ['acctType', 'acct']  # roll all sub-accounts up to top-2 node
+
+        pipe = _Pipeline(normed, self._columns, self)
         return (pipe
                 .ViewBy('All', include_coa_seed=True)
-                .GroupBy(['acctType', 'acct'])  # aggregate on acct only; no acctSub split
+                .GroupBy(group_keys)
                 .WithTotals(with_totals)
                 .SortBy(['acctType', 'acct'])
                 .load())
