@@ -1,40 +1,93 @@
 {% extends "base.html" %}
-{# v0.4 — IRS PDF embed view.
-   Replaces the bespoke per-form Pg1/Pg2/Pg3/… constructed views.  The page
-   now embeds the canonical FILL.pdf produced by irs.<Form>.saveFILL() in an
-   <iframe>, with a small stat-chip header and a download/open-in-new-tab
-   toolbar.  No row tables; no nSpaceMap; no view-layer data wrangling.
-
-   v0.4 additions:
-     - K-1 member selector dropdown (shown when meta.owners is set)
-     - Namespace PDF button (shown when ns_pdf_url is set)
+{# v0.5 — IRS PDF embed view.
+   Blue sticky title-bar (matches financial_view / GL / table patterns).
+   Actions dropdown in header: View in Tab, Download, Logoff.
+   Aid + Review remain in the pdf-toolbar below.
 #}
+
+{% block topbar %}{% endblock %}
 
 {% block head_extra %}
 <style>
-    .stat-bar {
-        display: flex; flex-wrap: wrap; gap: 10px;
-        margin-bottom: 14px;
+    /* ── Sticky title bar (matches other views) ───────────────────────── */
+    .title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 18px; border-radius: 10px;
+        display: flex; flex-direction: column; gap: 0;
+        padding: 0 !important; overflow: visible;
     }
+    .title-toolbar {
+        display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+        background: #1e40af; padding: 10px 16px; color: white;
+        border-top-left-radius: 10px; border-top-right-radius: 10px;
+    }
+    .title-left {
+        display: flex; align-items: center; gap: 10px;
+        flex: 1 1 auto; min-width: 0;
+    }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-sub {
+        font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap;
+    }
+    .title-sep { color: #93c5fd; font-size: 15px; }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; flex-shrink: 0; flex: 0 0 auto;
+    }
+    /* Actions dropdown */
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none; white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827; min-width: 170px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300; overflow: hidden;
+    }
+    .actions-menu .act-dropdown a,
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6; text-decoration: none;
+    }
+    .actions-menu .act-dropdown a:last-child,
+    .actions-menu .act-dropdown button:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown a:hover,
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+    .actions-menu .act-dropdown .act-primary { color: #1d4ed8; font-weight: 600; }
+    .actions-menu .act-dropdown .act-danger  { color: #dc2626; }
+    /* ── Stats strip ───────────────────────────────────────────────────── */
+    .stats-sub { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
     .stat-chip {
-        background: white; border-radius: 8px; padding: 10px 14px;
-        box-shadow: 0 1px 3px rgba(0,0,0,.08);
-        min-width: 130px; display: flex; flex-direction: column; gap: 2px;
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
     }
-    .stat-chip .stat-val {
-        font-size: 18px; font-weight: 700; color: #111827;
-    }
-    .stat-chip .stat-lbl {
-        font-size: 11px; color: #6b7280; text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    /* ── PDF area ──────────────────────────────────────────────────────── */
     .pdf-wrap {
         background: white; border-radius: 10px;
-        box-shadow: 0 1px 4px rgba(0,0,0,.08);
-        padding: 8px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 8px;
     }
     .pdf-frame {
-        width: 100%; height: calc(100vh - 240px); min-height: 600px;
+        width: 100%; height: calc(100vh - 260px); min-height: 600px;
         border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb;
     }
     .pdf-toolbar {
@@ -56,56 +109,88 @@
     }
     .missing-pdf {
         background: #fef3c7; border: 1px solid #f59e0b;
-        color: #78350f; padding: 16px; border-radius: 8px;
-        font-size: 14px;
+        color: #78350f; padding: 16px; border-radius: 8px; font-size: 14px;
     }
-    /* ── Member selector (K-1 only) ─────────────────────────────────── */
+    /* ── K-1 member selector ───────────────────────────────────────────── */
     .member-bar {
         display: flex; align-items: center; gap: 10px;
         background: #f8fafc; border: 1px solid #e2e8f0;
-        border-radius: 8px; padding: 8px 14px;
-        margin-bottom: 12px;
+        border-radius: 8px; padding: 8px 14px; margin-bottom: 12px;
     }
-    .member-bar label {
-        font-size: 13px; font-weight: 600; color: #374151;
-        white-space: nowrap;
-    }
+    .member-bar label { font-size: 13px; font-weight: 600; color: #374151; white-space: nowrap; }
     .member-bar select {
         font-size: 13px; padding: 4px 8px;
         border: 1px solid #d1d5db; border-radius: 6px;
-        background: white; color: #111827; cursor: pointer;
-        min-width: 240px;
+        background: white; color: #111827; cursor: pointer; min-width: 240px;
     }
     .member-bar select:focus { outline: 2px solid #6366f1; }
     .member-badge {
-        font-size: 11px; color: #6b7280;
-        background: #e5e7eb; border-radius: 4px;
-        padding: 2px 7px; white-space: nowrap;
+        font-size: 11px; color: #6b7280; background: #e5e7eb;
+        border-radius: 4px; padding: 2px 7px; white-space: nowrap;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="panel">
-    <h2 style="margin:0 0 4px 0;">{{ view_title }}</h2>
-    <div class="muted" style="margin-bottom: 12px;">
-        Source: {{ meta.sources.pdf if meta.sources and meta.sources.pdf else 'irs.<Form>.saveFILL()' }}
+{# ── Blue sticky title bar ──────────────────────────────────────────────── #}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-sub">📄 {{ view_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-name">{{ app_title }}</span>
+        </div>
+        <div class="toolbar-row">
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        {% if meta.pdfPresent %}
+                        <a class="act-primary" id="pdfOpenBtn"
+                           href="{{ pdf_url }}" target="_blank" rel="noopener"
+                           onclick="document.getElementById('actionsMenu').removeAttribute('open')">
+                            ↗ View in Tab
+                        </a>
+                        <a id="pdfDlBtn"
+                           href="{{ pdf_url }}?download=1" download
+                           onclick="document.getElementById('actionsMenu').removeAttribute('open')">
+                            ⬇ Download
+                        </a>
+                        {% endif %}
+                        <button class="act-danger"
+                                onclick="document.getElementById('actionsMenu').removeAttribute('open');
+                                         fetch('/api/logoff',{method:'POST'}).then(()=>window.location.href='/')">
+                            ⏻ Logoff
+                        </button>
+                    </div>
+                </details>
+            </div>
+        </div>
     </div>
 
-    {# Stat chips #}
+    {# Stat chips strip #}
     {% if stats_labels %}
-    <div class="stat-bar">
-        {% for s in stats_labels %}
-        <div class="stat-chip">
-            <span class="stat-val">{{ s.value }}</span>
-            <span class="stat-lbl">
-                {% if s.group %}{{ s.group }} — {% endif %}{{ s.text }}
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for s in stats_labels %}
+            <span class="stat-chip">
+                <span class="value">{{ s.value }}</span>
+                <span>{% if s.group %}{{ s.group }} — {% endif %}{{ s.text }}</span>
             </span>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
     {% endif %}
+</div>
 
+{# ── Page body ──────────────────────────────────────────────────────────── #}
+<div class="panel">
     {# K-1 member selector ─────────────────────────────────────────────── #}
     {% if meta.owners %}
     <div class="member-bar">
@@ -123,26 +208,13 @@
     </div>
     {% endif %}
 
-    {# Toolbar #}
+    {# Toolbar — Aid + Review remain here #}
     <div class="pdf-toolbar">
-        {% if meta.pdfPresent %}
-            <a class="btn btn-primary" id="pdfOpenBtn"
-               href="{{ pdf_url }}" target="_blank" rel="noopener">
-                Open in new tab
-            </a>
-            <a class="btn btn-secondary" id="pdfDlBtn"
-               href="{{ pdf_url }}?download=1" download>
-                Download
-            </a>
-        {% endif %}
-        {# Book→IRS Aid (v0.1) — opens an inline modal scoped to one fid. #}
         <button type="button" class="btn btn-warning" onclick="aidOpen()"
                 title="Open the Book→IRS Mapping Aid">🛠 Aid</button>
-        {# CPA Review — lists fields flagged CPA:unknown for this form. #}
         <button type="button" class="btn btn-outline-danger" id="cpaReviewBtn"
                 onclick="cpaReviewOpen()"
                 title="Show CPA-review fields for this form">🔍 Review</button>
-
         <div class="meta-group">
             <span class="source-tag" id="fillFileLabel">{{ meta.formId }}_FILL.pdf</span>
             {% if ns_pdf_url %}
@@ -154,7 +226,7 @@
         </div>
     </div>
 
-    {# Embed #}
+    {# PDF embed #}
     <div class="pdf-wrap">
         {% if meta.pdfPresent %}
         <iframe id="pdfFrame" class="pdf-frame"
