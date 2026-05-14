@@ -277,7 +277,7 @@ class stmtGL(stmtDB):
 
     DEFAULT_TBLID = "GeneralLedger"
     COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt',
-               'desc', 'acctSub', 'propNm', 'refDB', 'tID']
+               'desc', 'acctSub', 'propNm', 'propOwners', 'refDB', 'tID']
     COA_SEED_REFDB = 'COA'
 
     # PUBLISH_MAP intentionally empty for v0.3 — IRS publication is a
@@ -335,18 +335,22 @@ class stmtGL(stmtDB):
             amt = float(r.get('amt', 0) or 0)
         except (TypeError, ValueError):
             amt = 0.0
+        po = r.get('propOwners') or r.get('propOwner') or ''
+        if isinstance(po, dict):
+            po = ', '.join(f"{k}:{v}%" for k, v in po.items())
         return {
-            'Status':   r.get('Status',   '') or '',
-            'dt':       r.get('dt',       '') or '',
-            'acctType': r.get('acctType', '') or '',
-            'acct':     r.get('acct',     '') or '',
-            'aType':    r.get('aType',    '') or '',
-            'amt':      amt,
-            'desc':     r.get('desc',     '') or '',
-            'acctSub':  r.get('acctSub',  '') or '',
-            'propNm':   str(r.get('propNm', '') or ''),
-            'refDB':    r.get('refDB',    '') or '',
-            'tID':      r.get('tID',      '') or '',
+            'Status':     r.get('Status',   '') or '',
+            'dt':         r.get('dt',       '') or '',
+            'acctType':   r.get('acctType', '') or '',
+            'acct':       r.get('acct',     '') or '',
+            'aType':      r.get('aType',    '') or '',
+            'amt':        amt,
+            'desc':       r.get('desc',     '') or '',
+            'acctSub':    r.get('acctSub',  '') or '',
+            'propNm':     str(r.get('propNm', '') or ''),
+            'propOwners': str(po),
+            'refDB':      r.get('refDB',    '') or '',
+            'tID':        r.get('tID',      '') or '',
         }
 
     # ── Source loading (default path: read ledger DB files) ──────────────

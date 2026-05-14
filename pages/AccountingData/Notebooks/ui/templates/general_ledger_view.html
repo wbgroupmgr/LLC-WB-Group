@@ -425,7 +425,7 @@
         </span>
     </summary>
     <div class="frame-body">
-        {% set tx_n_cols = 11 if show_detail else 8 %}
+        {% set tx_n_cols = 12 %}
         <table class="gl-table">
             <thead>
                 <tr>
@@ -433,9 +433,10 @@
                     <th style="width:100px">dt</th>
                     <th style="width:110px">acctType</th>
                     <th style="width:160px">acct</th>
-                    {% if show_detail %}<th style="width:120px">Minor</th>{% endif %}
-                    {% if show_detail %}<th style="width:120px">acctSub</th>{% endif %}
-                    {% if show_detail %}<th style="width:110px">propNm</th>{% endif %}
+                    <th style="width:120px">Minor</th>
+                    <th style="width:120px">acctSub</th>
+                    <th style="width:110px">propNm</th>
+                    <th style="width:110px">propOwners</th>
                     <th style="width:70px">aType</th>
                     <th class="num" style="width:100px">amt</th>
                     <th>desc</th>
@@ -458,9 +459,10 @@
                         <td>{{ row.get("dt", "") }}</td>
                         <td>{{ row.get("acctType", "") }}</td>
                         <td class="acct-name">{{ acct_tx_disp }}</td>
-                        {% if show_detail %}<td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_tx_minor }}</td>{% endif %}
-                        {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.get("acctSub", "") }}</td>{% endif %}
-                        {% if show_detail %}<td style="font-size:12px; color:#374151">{{ row.get("propNm", "") }}</td>{% endif %}
+                        <td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_tx_minor }}</td>
+                        <td style="font-size:12px; color:#6b7280; font-family:monospace">{{ row.get("acctSub", "") }}</td>
+                        <td style="font-size:12px; color:#374151">{{ row.get("propNm", "") }}</td>
+                        <td style="font-size:12px; color:#374151">{{ row.get("propOwners", "") }}</td>
                         <td>{{ row.get("aType", "") }}</td>
                         <td class="num {% if amt > 0 %}amt-pos{% elif amt < 0 %}amt-neg{% endif %}">
                             {{ "%.2f"|format(amt) }}
