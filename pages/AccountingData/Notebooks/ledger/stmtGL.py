@@ -909,7 +909,9 @@ class stmtGL_View(stmtGL_Agg):
         if view_by == 'Details':
             group_keys = ['acctType', 'acct', 'acctMinor', 'acctSub', 'propNm']
         else:
-            group_keys = ['acctType', 'acct']  # roll all sub-accounts up to top-2 node
+            # Default (All): aggregate on [acct, acctMinor] so minor sub-accounts
+            # are visible as separate rows rather than rolled into the top-2 node.
+            group_keys = ['acctType', 'acct', 'acctMinor']
 
         pipe = _Pipeline(normed, self._columns, self)
         result = (pipe
@@ -918,12 +920,13 @@ class stmtGL_View(stmtGL_Agg):
                   .WithTotals(with_totals)
                   .load())
 
-        # Sort by _TB_ACCT_ORDER (not alphabetically) so Liability precedes Expense.
+        # Sort by _TB_ACCT_ORDER then acct then acctMinor.
         _order = {t: i for i, t in enumerate(_TB_ACCT_ORDER)}
         body  = [r for r in result if r.get('acctType') != 'TOTAL']
         total = [r for r in result if r.get('acctType') == 'TOTAL']
         body.sort(key=lambda r: (_order.get(r.get('acctType', ''), 99),
-                                  str(r.get('acct', ''))))
+                                  str(r.get('acct', '')),
+                                  str(r.get('acctMinor', ''))))
         return body + total
 
     # ── Stats summary (independent of view_by) ───────────────────────────
