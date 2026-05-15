@@ -31,7 +31,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 
 from ui.llcAssets          import llcAssets
 from ui.llcExpRev          import llcExpRev
@@ -47,6 +47,7 @@ from ui.llcForm1065         import llcForm1065
 from ui.llcFormK1           import llcFormK1
 from ui.llcForm8825         import llcForm8825
 from ui.llcForm4562         import llcForm4562
+from ui.llcLogin_auth       import make_auth_routes
 
 
 class llcMgmt:
@@ -195,6 +196,13 @@ class llcMgmt:
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
 
+        import os, secrets
+        self.app.secret_key = os.environ.get("LLC_SECRET_KEY", secrets.token_hex(32))
+        self.app._llc_version = self.version
+
+        llc_name = getattr(getattr(self.eSession, "llc", None), "objName", "LLC")
+        make_auth_routes(self.app, llc_name=llc_name)
+
         self.objects = self._build_objects()
 
         @self.app.context_processor
@@ -204,6 +212,8 @@ class llcMgmt:
                 "available_views": self.available_views(),
                 "view_groups":     self.VIEW_GROUPS,
                 "view_labels":     self.VIEW_LABELS,
+                "current_user":    session.get("full_name", ""),
+                "current_role":    session.get("role", ""),
             }
 
         self._bind_routes()
@@ -512,8 +522,20 @@ class llcMgmt:
             })
         return result
 
+    # Routes that don't require a logged-in session.
+    _PUBLIC_ENDPOINTS = {"login", "logout", "register", "static"}
+
     def _bind_routes(self):
         app = self.app
+
+        @app.before_request
+        def _require_login():
+            if request.endpoint in self._PUBLIC_ENDPOINTS:
+                return
+            if not session.get("logged_in"):
+                if request.path.startswith("/api/"):
+                    return jsonify({"error": "authentication required"}), 401
+                return redirect(url_for("login", next=request.path))
 
         @app.route("/.well-known/appspecific/com.chrome.devtools.json")
         def chrome_devtools_json():
