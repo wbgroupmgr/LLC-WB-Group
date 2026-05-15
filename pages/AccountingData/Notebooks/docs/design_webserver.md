@@ -172,4 +172,21 @@ The `wbgadminWS` record adds a `notes` field that holds `LLC_SECRET_KEY`:
 
 ## Allowed Roles
 
-`member` · `llcManager` · `bookkeeper` · `accountant`
+> **Note:** Permission enforcement is a future implementation item.
+> The table below defines the intended policy; no role-based restrictions
+> are active in the current codebase.
+
+| Role | Views | Fields | DB | Registration |
+|------|-------|--------|----|--------------|
+| `llcManager` | View All | All | Refresh | New, Delete, Edit |
+| `member` | View All | View Only | No Refresh | No access |
+| `bookkeeper` | View All | Edit | Session Only | No access |
+| `accountant` | View All | View Only | No Refresh | No access |
+| `wbgadminWS` | View All | View Only | No Refresh | New, Delete, Edit |
+
+**Column definitions:**
+
+- **Views** — which pages/statements the role can see
+- **Fields** — read-only vs. editable transaction fields
+- **DB** — `Refresh` = can trigger DB reload/new session; `Session Only` = working-file edits only, no DB write; `No Refresh` = read-only session
+- **Registration** — ability to create (`New`), remove (`Delete`), or modify (`Edit`) user accounts in `pw.json.gpg`
