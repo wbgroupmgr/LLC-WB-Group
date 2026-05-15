@@ -208,7 +208,9 @@ class ledgerGeneral(ledgerObject):
         for r in records:
             ledger_acct = (r.get('Ledger') or '').strip()
 
+            src_tid = r.get('tID', '') or ''
             e1 = {k: v for k, v in r.items() if k not in ('Ledger', 'tID')}
+            e1['srcTID']   = src_tid
             e1['tID']      = toTid(e1)
             e1['acctType'] = self.coa._Type(e1.get('acct', ''))
             result.append(e1)
@@ -217,6 +219,7 @@ class ledgerGeneral(ledgerObject):
                 e2 = {k: v for k, v in r.items() if k not in ('Ledger', 'tID')}
                 e2['acct']     = ledger_acct
                 e2['aType']    = self._toggle_atype(r.get('aType', 'Debit'))
+                e2['srcTID']   = src_tid
                 e2['tID']      = toTid(e2)
                 e2['acctType'] = self.coa._Type(e2['acct'])
                 result.append(e2)
@@ -277,7 +280,7 @@ class stmtGL(stmtDB):
 
     DEFAULT_TBLID = "GeneralLedger"
     COLUMNS = ['Status', 'dt', 'acctType', 'acct', 'aType', 'amt',
-               'desc', 'acctSub', 'propNm', 'propOwners', 'refDB', 'tID']
+               'desc', 'acctSub', 'propNm', 'propOwners', 'refDB', 'tID', 'srcTID']
     COA_SEED_REFDB = 'COA'
 
     # PUBLISH_MAP intentionally empty for v0.3 — IRS publication is a
@@ -310,7 +313,7 @@ class stmtGL(stmtDB):
         # COA seed rows are kept separate so they don't interleave with txns.
         tx_rows = sorted(
             [self._norm_row(r) for r in (gl_records or [])],
-            key=lambda r: str(r.get('tID') or ''),
+            key=lambda r: (str(r.get('dt') or ''), float(r.get('amt') or 0), str(r.get('tID') or '')),
         )
         seed_rows = [self._norm_row(r) for r in seed]
         rows = seed_rows + tx_rows
@@ -357,6 +360,7 @@ class stmtGL(stmtDB):
             'propOwners': str(po),
             'refDB':      r.get('refDB',    '') or '',
             'tID':        r.get('tID',      '') or '',
+            'srcTID':     r.get('srcTID',   '') or '',
         }
 
     # ── Source loading (default path: read ledger DB files) ──────────────

@@ -10,6 +10,31 @@ receives the same figure.
 
 ---
 
+### 1.1 LLC Depreciation Handling in 2025
+
+The original books for depreciation, ie. Assets (Acct.Exp.Depreciation, Acct.Fixed.Depreciation.Accum) was incorrect. 
+
+
+### 1.1.1. The True Tax Treatment (The De Minimis Safe Harbor)
+
+* Treasury Regulation §1.263(a)-3: This governs the capitalization or expensing of improvements to tangible property.
+* The Safe Harbor Rule: Under the De Minimis Safe Harbor election,
+    - a taxpayer can elect to immediately expense (write off) tangible property costs up to a certain threshold (
+        - $2,500 per item/invoice for unstated financial statements, 
+        - or $5,000 for audited statements) rather than capitalizing them.
+* Section §179:
+    - As entered the expenses are not a Section 179 deduction,
+    - Section 179 requires capitalizing the asset first and
+    - then electing to expense it up to a annual limit on Form 4562.
+    - **This can NOT BE USED BECAUSE AGI > \$100K**, fallback to MACRS
+* MACRS: standard Modified Accelerated Cost Recovery System depreciation
+    - MACRS spreads the cost out over a set recovery period (e.g., 5, 7, 15, 27.5, or 39 years).
+* CORRECION NEEDED:
+    - The $5,246.06 should have been booked directly to a Repairs & Maintenance
+    - or Safe Harbor Expensing account,
+    - completely bypassing the depreciation schedules.
+
+-----------------------------
 ## 2. irs.Form4562 — Architecture
 
 `Form4562` is a thin subclass of `irsForm`, following the same pattern as `Form8825`.
