@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_title }} — Sign In</title>
+  <style>
+    :root {
+      --ink:        #1a1a18;
+      --ink-muted:  #5f5e5a;
+      --ink-faint:  #888780;
+      --surface:    #f8f6f1;
+      --card:       #ffffff;
+      --border:     rgba(26,26,24,.13);
+      --border-md:  rgba(26,26,24,.22);
+      --accent:     #0c447c;
+      --accent-bg:  #e6f1fb;
+      --accent-hov: #185fa5;
+      --danger:     #a32d2d;
+      --danger-bg:  #fcebeb;
+      --input-h:    42px;
+      --radius:     10px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink:        #e8e6df;
+        --ink-muted:  #b4b2a9;
+        --ink-faint:  #888780;
+        --surface:    #1c1c1a;
+        --card:       #252522;
+        --border:     rgba(232,230,223,.10);
+        --border-md:  rgba(232,230,223,.20);
+        --accent:     #85b7eb;
+        --accent-bg:  #042c53;
+        --accent-hov: #b5d4f4;
+        --danger:     #f09595;
+        --danger-bg:  #501313;
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      background: var(--surface);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    /* ── Letterhead bar ── */
+    .letterhead {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 2.5rem;
+    }
+
+    .monogram {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: var(--ink);
+      color: var(--surface);
+      font-family: 'Georgia', serif;
+      font-size: 19px;
+      font-weight: normal;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .letterhead-text { line-height: 1.25; }
+
+    .letterhead-title {
+      font-size: 15px;
+      font-weight: normal;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+    }
+
+    .letterhead-sub {
+      font-size: 12px;
+      color: var(--ink-faint);
+      letter-spacing: 0.06em;
+      font-family: 'Courier New', monospace;
+      margin-top: 2px;
+    }
+
+    /* ── Card ── */
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--card);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.25rem 2rem 2rem;
+    }
+
+    .card-header {
+      margin-bottom: 1.75rem;
+      border-bottom: 0.5px solid var(--border);
+      padding-bottom: 1.25rem;
+    }
+
+    .card-header h1 {
+      font-size: 18px;
+      font-weight: normal;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+
+    .card-header p {
+      font-size: 13px;
+      color: var(--ink-muted);
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Flash messages ── */
+    .flash {
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 1.5rem;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.02em;
+    }
+
+    .flash-error {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 0.5px solid var(--danger);
+    }
+
+    /* ── Form ── */
+    .field { margin-bottom: 1.25rem; }
+
+    label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--ink-faint);
+      font-family: 'Courier New', monospace;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      height: var(--input-h);
+      padding: 0 13px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 0.5px solid var(--border-md);
+      border-radius: 7px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-bg);
+    }
+
+    /* show/hide password toggle */
+    .pw-wrap { position: relative; }
+
+    .pw-toggle {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--ink-faint);
+      font-size: 11px;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.05em;
+      padding: 2px 4px;
+    }
+
+    .pw-toggle:hover { color: var(--ink); }
+
+    /* ── Remember row ── */
+    .row-between {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.75rem;
+      font-size: 13px;
+    }
+
+    .check-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--ink-muted);
+      font-family: 'Courier New', monospace;
+      user-select: none;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
+    input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .link {
+      color: var(--accent);
+      text-decoration: none;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+    }
+
+    .link:hover { color: var(--accent-hov); text-decoration: underline; }
+
+    /* ── Submit button ── */
+    .btn-primary {
+      width: 100%;
+      height: var(--input-h);
+      background: var(--ink);
+      color: var(--surface);
+      border: none;
+      border-radius: 7px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+
+    .btn-primary:hover { opacity: .85; }
+    .btn-primary:active { transform: scale(.985); }
+
+    /* ── Footer rule ── */
+    .card-footer {
+      margin-top: 1.75rem;
+      padding-top: 1.25rem;
+      border-top: 0.5px solid var(--border);
+      font-size: 11px;
+      color: var(--ink-faint);
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.04em;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* ── Version watermark ── */
+    .version-note {
+      margin-top: 2.5rem;
+      font-size: 11px;
+      color: var(--ink-faint);
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Letterhead -->
+  <div class="letterhead" aria-hidden="true">
+    <div class="monogram">LLC</div>
+    <div class="letterhead-text">
+      <div class="letterhead-title">{{ app_title }}</div>
+      <div class="letterhead-sub">Accounting &amp; Tax Management System</div>
+    </div>
+  </div>
+
+  <!-- Login card -->
+  <div class="card" role="main">
+    <div class="card-header">
+      <h1>Member Sign-In</h1>
+      <p>Enter your credentials to access the ledger.</p>
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=True) %}
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}" role="alert">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="/login" autocomplete="on">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+
+      <!-- Next URL carried through login -->
+      <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input
+          id="username"
+          name="username"
+          type="text"
+          autocomplete="username"
+          autofocus
+          spellcheck="false"
+          value="{{ request.form.get('username', '') }}"
+          required
+        />
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="pw-wrap">
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="button" class="pw-toggle" onclick="togglePw()" id="pw-btn">show</button>
+        </div>
+      </div>
+
+      <div class="row-between">
+        <label class="check-label">
+          <input type="checkbox" name="remember" value="1" />
+          remember me
+        </label>
+      </div>
+
+      <button class="btn-primary" type="submit">Sign In &rarr;</button>
+    </form>
+
+    <div class="card-footer">
+      <span>New member? <a class="link" href="/register">Request access</a></span>
+      {% if version %}
+        <span>ui {{ version }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if version %}
+    <div class="version-note">LLC Management App &mdash; v{{ version }}</div>
+  {% endif %}
+
+  <script>
+    function togglePw() {
+      const inp = document.getElementById('password');
+      const btn = document.getElementById('pw-btn');
+      if (inp.type === 'password') {
+        inp.type = 'text';
+        btn.textContent = 'hide';
+      } else {
+        inp.type = 'password';
+        btn.textContent = 'show';
+      }
+    }
+  </script>
+</body>
+</html>
