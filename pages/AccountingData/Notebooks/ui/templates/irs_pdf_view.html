@@ -165,7 +165,7 @@
                         {% endif %}
                         <button class="act-danger"
                                 onclick="document.getElementById('actionsMenu').removeAttribute('open');
-                                         fetch('/api/logoff',{method:'POST'}).then(()=>window.location.href='/')">
+                                         window.location.href='/logout'">
                             ⏻ Logoff
                         </button>
                     </div>
