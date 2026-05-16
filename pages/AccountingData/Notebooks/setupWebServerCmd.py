@@ -69,7 +69,7 @@ def step_reset_db(db: Path) -> None:
     print(f"  ⚠️  This will permanently delete: {db}")
     print("  All existing user accounts will be lost.")
     confirm = input("  Type YES to confirm: ").strip()
-    if confirm != "YES":
+    if confirm.lower()[0] != "y":
         print("  Cancelled — database not deleted.")
         sys.exit(0)
     db.unlink()
@@ -131,29 +131,31 @@ def step_userdb() -> list:
     return users
 
 
-def step_secret_key(users: list) -> str:
+def step_secret_key(users: list, passphrase: str) -> str:
     print("\n── Step 4: Web Server Secret Key ───────────────────────────────")
     secret_key = secrets.token_hex(32)
     os.environ["LLC_SECRET_KEY"] = secret_key
 
     admin = _find_user(users, _ADMIN_ID)
     if admin:
-        admin["notes"] = secret_key
-        print(f"  Updated {_ADMIN_ID} with new secret key.")
+        admin["notes"]          = secret_key
+        admin["gpg_passphrase"] = passphrase
+        print(f"  Updated {_ADMIN_ID} with new secret key and passphrase.")
     else:
         users.append({
-            "username":   _ADMIN_ID,
-            "password":   "",
-            "full_name":  "webserver admin",
-            "phone":      "",
-            "role":       "llcManager",
-            "notes":      secret_key,
-            "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
+            "username":       _ADMIN_ID,
+            "password":       "",
+            "full_name":      "webserver admin",
+            "phone":          "",
+            "role":           "llcManager",
+            "notes":          secret_key,
+            "gpg_passphrase": passphrase,
+            "created_at":     datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
         })
         print(f"  + Created {_ADMIN_ID} record.")
 
     _save_users(LLC_NAME, users)
-    print(f"  ✓ LLC_SECRET_KEY stored in pw.json.gpg (notes field).")
+    print(f"  ✓ LLC_SECRET_KEY and LLC_GPG_PASSPHRASE stored in pw.json.gpg.")
     return secret_key
 
 
@@ -195,7 +197,7 @@ def main():
 
     print()
     print("=" * 64)
-    print("  LLC App — PythonAnywhere Web Server Setup")
+    print("  LLC App — MultiTaskWS Web Server Setup")
     print("=" * 64)
 
     if args.reset:
@@ -204,13 +206,21 @@ def main():
     passphrase = step_passphrase()
     step_pip()
     users      = step_userdb()
-    secret_key = step_secret_key(users)
+    secret_key = step_secret_key(users, passphrase)
     step_wsgi(passphrase, secret_key)
 
     print("=" * 64)
     print("  Setup complete.")
     print("  → Hit Reload in the PA Web tab.")
     print("  → Visit your PA URL and log in: llcgroupmgr / llcManager0!")
+    print()
+    print("  Recover passphrase later (while server/env is running):")
+    print("    python3 -c \"")
+    print("    import sys; sys.path.insert(0,'pages/AccountingData/Notebooks')")
+    print("    from ui.llcLogin_auth import _load_users, _find_user")
+    print("    u = _find_user(_load_users('WBGroupLLC'), 'wbgadminWS')")
+    print("    print('passphrase:', u['gpg_passphrase'])")
+    print("    print('secret_key:', u['notes'])\"")
     print("=" * 64)
     print()
 
