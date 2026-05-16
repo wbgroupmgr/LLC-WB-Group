@@ -5,6 +5,9 @@ setupWebServerCmd.py — one-shot PythonAnywhere web server setup.
 Run from pages/AccountingData/Notebooks/ after cloning the repo:
     python3.10 setupWebServerCmd.py
 
+Forgot your passphrase / need a clean reset:
+    python3.10 setupWebServerCmd.py --reset
+
 Tasks
 ─────
   1. Prompt for LLC_GPG_PASSPHRASE
@@ -12,8 +15,15 @@ Tasks
   3. Seed pw.json.gpg with default llcgroupmgr user (if missing)
   4. Generate LLC_SECRET_KEY; store it in pw.json.gpg under wbgadminWS
   5. Print the ready-to-paste PA WSGI file content
+
+--reset flag (Step 0)
+─────────────────────
+  Deletes pw.json.gpg before setup so a fresh DB is created with the
+  new passphrase.  Use when the old passphrase is lost or the DB is
+  corrupt.  All existing user accounts will be removed.
 """
 
+import argparse
 import getpass
 import json
 import os
@@ -50,6 +60,21 @@ _ADMIN_ID = "wbgadminWS"
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────────
+
+def step_reset_db(db: Path) -> None:
+    print("\n── Step 0: Reset User Database ─────────────────────────────────")
+    if not db.exists():
+        print("  No existing DB found — nothing to delete.")
+        return
+    print(f"  ⚠️  This will permanently delete: {db}")
+    print("  All existing user accounts will be lost.")
+    confirm = input("  Type YES to confirm: ").strip()
+    if confirm != "YES":
+        print("  Cancelled — database not deleted.")
+        sys.exit(0)
+    db.unlink()
+    print("  ✓ Deleted pw.json.gpg — starting fresh.")
+
 
 def step_passphrase() -> str:
     print("\n── Step 1: GPG Passphrase ──────────────────────────────────────")
@@ -163,10 +188,18 @@ from wsgi import application
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    ap = argparse.ArgumentParser(description="LLC App — PA web server setup")
+    ap.add_argument("--reset", action="store_true",
+                    help="Delete pw.json.gpg before setup (use when passphrase is lost)")
+    args = ap.parse_args()
+
     print()
     print("=" * 64)
     print("  LLC App — PythonAnywhere Web Server Setup")
     print("=" * 64)
+
+    if args.reset:
+        step_reset_db(_db_path(LLC_NAME))
 
     passphrase = step_passphrase()
     step_pip()
