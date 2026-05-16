@@ -66,6 +66,15 @@ class WsCmd:
 
     # ── internal helpers ──────────────────────────────────────────────────────
 
+    def _inject_env_from_profile(self) -> None:
+        """Set LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from llcProfile if not already in env."""
+        cfg = getattr(self.llc, "MultiTaskWS_Config", None)
+        if not cfg:
+            return
+        for env_var in ("LLC_GPG_PASSPHRASE", "LLC_SECRET_KEY"):
+            if not os.environ.get(env_var) and cfg.get(env_var):
+                os.environ[env_var] = cfg[env_var]
+
     def _webserver_tag(self) -> str:
         home = Path.home()
         if str(home).startswith("/home/"):        # PythonAnywhere Linux
@@ -221,6 +230,8 @@ class WsCmd:
               load: bool = False, ed_opt: str = "llc",
               notebook: bool = False) -> None:
         """Start the LLC task app (local or hosted placeholder)."""
+        self._inject_env_from_profile()     # pull creds from llcProfile if not in env
+
         if host_mode:
             print()
             print("=" * 64)
