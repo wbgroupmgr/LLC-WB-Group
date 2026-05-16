@@ -45,9 +45,12 @@ python3.10 wsCmd.py --setup --reset --llcName WBGroupLLC
 ### Start — local mode (Scenario A)
 
 ```bash
-LLC_GPG_PASSPHRASE=<pp> python3.10 wsCmd.py --start --llcName WBGroupLLC
-LLC_GPG_PASSPHRASE=<pp> python3.10 wsCmd.py --start --llcName WBGroupLLC --port 5001 --load
+python3.10 wsCmd.py --start --llcName WBGroupLLC
+python3.10 wsCmd.py --start --llcName WBGroupLLC --addr localhost --port 5001 --load
 ```
+
+Credentials are read automatically from `llcProfile_WBGroupLLC.json → MultiTaskWS_Config`
+(no `LLC_GPG_PASSPHRASE=` prefix needed after `--setup` has been run).
 
 **Options:**
 
@@ -60,7 +63,12 @@ LLC_GPG_PASSPHRASE=<pp> python3.10 wsCmd.py --start --llcName WBGroupLLC --port 
 | `--edOpt OPT` | `llc` | Editor option: `llc` \| `llcAsset` \| `llcExpRev` |
 | `--notebook` | off | Jupyter notebook display mode |
 
-Login URL: `http://<addr>:<port>/login`
+**Login URL:** `http://<addr>:<port>/login`
+
+> **macOS / Chrome note:** Chrome 94+ blocks redirects to the bare `127.0.0.1`
+> address (Private Network Access policy). Use `--addr localhost` or open
+> `http://localhost:5000/login` in the browser. `curl` and non-Chrome browsers
+> are unaffected.
 
 ---
 
