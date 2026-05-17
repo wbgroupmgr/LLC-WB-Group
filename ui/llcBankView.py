@@ -119,7 +119,7 @@ class llcBankView:
         if llc:
             yr = str(getattr(llc, 'yr', 2025))
             top = getattr(llc, 'TOP', None)
-            dir_acct = getattr(llc, 'dirAccounting', 'pages/AccountingData')
+            dir_acct = getattr(llc, 'dirAccounting', 'books')
             if top:
                 candidate = Path(top) / dir_acct / yr / 'BankStmts'
                 if candidate.exists():

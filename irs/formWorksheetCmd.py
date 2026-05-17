@@ -29,7 +29,7 @@ Usage
 Paths
 -----
 All input PDFs and keys files are resolved relative to
-  <repo>/pages/AccountingData/2025/YE_Tax_Records/Forms_IRS/
+  <bus_repo>/books/<year>/Forms/
 
 Output files are saved to the same folder.
 
@@ -44,10 +44,9 @@ from typing import Any, Dict, List, Optional
 
 from pypdf import PdfReader, PdfWriter
 
-# ── Locate the Forms_IRS folder relative to this file ────────────────────────
-_HERE      = Path(__file__).resolve().parent          # …/Notebooks/irs/
-_ACCT_DATA = _HERE.parent.parent                      # …/AccountingData/
-_FORMS_DIR = _ACCT_DATA / "2025" / "YE_Tax_Records" / "Forms_IRS"
+# ── Locate the Forms folder via setup_paths (set by load_config at startup) ──
+from ledger import setup_paths as _sp
+_FORMS_DIR = _sp.IRS_FORMS_DIR
 
 
 # ── Location-derivation rules (ordered — first match wins) ───────────────────

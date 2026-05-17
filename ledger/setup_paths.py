@@ -1,68 +1,70 @@
 """
 ledger/setup_paths.py
 ---------------------
-Canonical path resolver for the LLC-WB-Group project.
+Config-driven path resolver for llcRentalTracker.
 
-Hierarchy from this file's location:
-    parents[0]  →  .../Notebooks/ledger/          (this package)
-    parents[1]  →  .../Notebooks/                 (NOTEBOOKS_DIR  — sys.path root)
-    parents[2]  →  .../AccountingData/             (ACCT_DATA_DIR)
-    parents[3]  →  .../pages/
-    parents[4]  →  .../LLC-WB-Group/               (TOP)
+Per-business config lives at:
+    ~/.llcRentalTracker/<llcName>_config.json
 
-Usage — from any script or notebook:
-    import sys, os
-    sys.path.insert(0, '<path-to-Notebooks>')  # only if not already on path
-    from ledger import setup_paths
+Fields:
+    bus_repo   — absolute path to the LLC business repo
+    books_dir  — subdirectory name for accounting books (e.g. "books")
+    year       — current fiscal year (int)
 
-    # or, from inside the ledger package:
-    from . import setup_paths
-
-Path constants exposed:
-    setup_paths.TOP             LLC-WB-Group root
-    setup_paths.NOTEBOOKS_DIR   Notebooks/
-    setup_paths.ACCT_DATA_DIR   AccountingData/
-    setup_paths.ACCTS_DIR       AccountingData/Accts/
-    setup_paths.EXPENSES_DIR    AccountingData/Expenses/
-    setup_paths.BANK_STMTS_2025 AccountingData/2025/BankStmts/
-    setup_paths.BANK_STMTS_2026 AccountingData/2026/BankStmts/
-    setup_paths.TAX_RECORDS_2025 AccountingData/2025/YE_Tax_Records/
-    setup_paths.IRS_FORMS_DIR   .../YE_Tax_Records/Forms_IRS/
+Call load_config(llcName) once at startup before instantiating any LLC objects.
+All path constants below are None until load_config() has been called.
 """
 
+import json
 import sys
 from pathlib import Path
 
-_here = Path(__file__).resolve()
+_APP_ROOT       = Path(__file__).resolve().parents[1]   # repo root (llcRentalTracker/)
+TRACKER_CFG_DIR = Path.home() / ".llcRentalTracker"
 
-# ── Core anchors (parents[N] from this file) ─────────────────────────────────
-TOP           = _here.parents[4]   # LLC-WB-Group/
-NOTEBOOKS_DIR = _here.parents[1]   # Notebooks/
-ACCT_DATA_DIR = _here.parents[2]   # AccountingData/
+# ── Runtime paths — populated by load_config() ───────────────────────────────
+TOP:           Path | None = None   # business repo root
+ACCT_DATA_DIR: Path | None = None   # books/
+ACCTS_DIR:     Path | None = None   # books/<year>/Accts/
+EXPENSES_DIR:  Path | None = None   # books/<year>/Expenses/
+IRS_FORMS_DIR: Path | None = None   # books/<year>/Forms/
+BANK_STMTS:    Path | None = None   # books/<year>/BankStmts/
+YEAR:          int  | None = None
 
-# ── Data sub-directories ─────────────────────────────────────────────────────
-ACCTS_DIR        = ACCT_DATA_DIR / "Accts"
-EXPENSES_DIR     = ACCT_DATA_DIR / "Expenses"
-BANK_STMTS_2025  = ACCT_DATA_DIR / "2025" / "BankStmts"
-BANK_STMTS_2026  = ACCT_DATA_DIR / "2026" / "BankStmts"
-TAX_RECORDS_2025 = ACCT_DATA_DIR / "2025" / "YE_Tax_Records"
-IRS_FORMS_DIR    = TAX_RECORDS_2025 / "Forms_IRS"
 
-# ── Ensure Notebooks/ is on sys.path so sibling packages are importable ──────
-if str(NOTEBOOKS_DIR) not in sys.path:
-    sys.path.insert(0, str(NOTEBOOKS_DIR))
+def load_config(llcName: str) -> dict:
+    """Read ~/.llcRentalTracker/<llcName>_config.json and populate all path constants."""
+    global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR
+
+    cfg_path = TRACKER_CFG_DIR / f"{llcName}_config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+
+    base  = Path(cfg["bus_repo"]).expanduser().resolve()
+    books = base / cfg["books_dir"]
+    yr    = int(cfg["year"])
+
+    TOP           = base
+    ACCT_DATA_DIR = books
+    ACCTS_DIR     = books / str(yr) / "Accts"
+    EXPENSES_DIR  = books / str(yr) / "Expenses"
+    IRS_FORMS_DIR = books / str(yr) / "Forms"
+    BANK_STMTS    = books / str(yr) / "BankStmts"
+    YEAR          = yr
+
+    app_root = str(_APP_ROOT)
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+
+    return cfg
 
 
 if __name__ == "__main__":
-    _pkgs = ["ledger", "stmt", "irs", "F1065_K1", "uillc", "util"]
-    print(f"TOP            : {TOP}")
-    print(f"Notebooks root : {NOTEBOOKS_DIR}")
-    print(f"AccountingData : {ACCT_DATA_DIR}")
-    print(f"Accts dir      : {ACCTS_DIR}")
-    print(f"Bank stmts 2025: {BANK_STMTS_2025}")
-    print(f"Bank stmts 2026: {BANK_STMTS_2026}")
-    print(f"IRS forms dir  : {IRS_FORMS_DIR}")
-    print("\nPackages importable from Notebooks/:")
-    for pkg in _pkgs:
-        status = "✓" if (NOTEBOOKS_DIR / pkg).is_dir() else "✗ (not found)"
-        print(f"  {status}  {pkg}")
+    llc = sys.argv[1] if len(sys.argv) > 1 else "WBGroupLLC"
+    load_config(llc)
+    print(f"TOP           : {TOP}")
+    print(f"books         : {ACCT_DATA_DIR}")
+    print(f"Accts         : {ACCTS_DIR}")
+    print(f"IRS forms     : {IRS_FORMS_DIR}")
+    print(f"Bank stmts    : {BANK_STMTS}")
+    print(f"Year          : {YEAR}")

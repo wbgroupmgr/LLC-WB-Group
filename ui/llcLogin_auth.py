@@ -132,9 +132,8 @@ from ledger import setup_paths as _sp
 
 ALLOWED_ROLES: List[str] = ["member", "llcManager", "bookkeeper", "accountant"]
 
-_HERE  = Path(__file__).resolve().parent   # Notebooks/ui/
-_ACCTS = _sp.ACCTS_DIR                     # AccountingData/Accts/  (canonical)
-_TMPL  = _HERE / "templates"               # Notebooks/ui/templates/
+_HERE  = Path(__file__).resolve().parent   # ui/
+_TMPL  = _HERE / "templates"               # ui/templates/
 
 # Environment variable that holds the GPG symmetric passphrase.
 _GPG_PASSPHRASE_ENV = "LLC_GPG_PASSPHRASE"
@@ -228,8 +227,9 @@ def _gpg_encrypt(plaintext: bytes, out_path: Path, passphrase: str) -> None:
 
 def _db_path(llc_name: str) -> Path:
     """Return Accts/pw.json.gpg, creating the directory if needed."""
-    _ACCTS.mkdir(parents=True, exist_ok=True)
-    return _ACCTS / "pw.json.gpg"
+    accts = _sp.ACCTS_DIR
+    accts.mkdir(parents=True, exist_ok=True)
+    return accts / "pw.json.gpg"
 
 
 def _load_users(llc_name: str) -> List[dict]:

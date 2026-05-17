@@ -35,7 +35,7 @@ from adminTracker.wsgi import application as admin_app
 # ── LLC Tracker (uncomment after running LLC setup) ───────────────────────────
 # os.environ.setdefault('LLC_GPG_PASSPHRASE', '<llc-passphrase>')
 # os.environ.setdefault('LLC_SECRET_KEY',     '<llc-secret-key>')
-# sys.path.insert(0, '/home/wbgroup/llc/LLC-WB-Group/pages/AccountingData/Notebooks')
+# sys.path.insert(0, '/home/wbgroup/llcRentalTracker')
 # from wsgi import application as llc_app
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────

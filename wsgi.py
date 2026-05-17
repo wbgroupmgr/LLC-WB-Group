@@ -4,21 +4,23 @@
 # Python version: 3.10+
 #
 # Expected repo layout on PA:
-#   /home/<pa-user>/LLC-WB-Group/
-#       pages/AccountingData/Notebooks/   ← this file lives here
-#           ledger/setup_paths.py         ← anchors all path constants
-#           Accts/                        ← JSON DBs (llcAssets, llcExpRev, …)
+#   /home/<pa-user>/llcRentalTracker/   ← this file lives here
+#       ledger/setup_paths.py           ← config-driven path constants
+#
+# ~/.llcRentalTracker/WBGroupLLC_config.json must exist before starting.
 #
 import sys
 from pathlib import Path
 
-# Add Notebooks/ to sys.path so all sibling packages (ledger, stmt, ui, …) are importable.
-_notebooks = Path(__file__).resolve().parent
-if str(_notebooks) not in sys.path:
-    sys.path.insert(0, str(_notebooks))
+_app_root = Path(__file__).resolve().parent
+if str(_app_root) not in sys.path:
+    sys.path.insert(0, str(_app_root))
+
+from ledger import setup_paths as _sp
+_sp.load_config('WBGroupLLC')
 
 from util.utilEditSession import utilEditSession
-from uillc.llcMgmt import llcMgmt
+from ui.llcMgmt import llcMgmt
 
 _eSession = utilEditSession(llcName='WBGroupLLC', load=True)
 _mgmt = llcMgmt(_eSession)

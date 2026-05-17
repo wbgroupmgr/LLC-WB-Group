@@ -19,9 +19,8 @@ class LLC(object):
     LLC Bookkeeping
     TopDir : <llcDIR> :: basename is the llcName
     Profile : <llcDIR>/llcProfile_<llcName>.json
-    Accounting: <llcDIR>/pages/AccountingData/YEAR/files
+    Accounting: <llcDIR>/books/<YEAR>/Accts/
     LLC Bank : class llcBank - defaults to Wells Fargo account
-    Py LLL Notebook: <llcDIR>/Notebooks
 
     This LLC object is owned by the LLC
     '''

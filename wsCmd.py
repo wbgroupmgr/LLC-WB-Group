@@ -31,9 +31,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Anchor Notebooks/ on sys.path so all packages are importable.
+# Ensure app root is on sys.path so all packages are importable.
 _here = Path(__file__).resolve().parent
-sys.path.insert(0, str(_here))
+if str(_here) not in sys.path:
+    sys.path.insert(0, str(_here))
 
 from ledger.LLC import LLC
 from ui.llcLogin_auth import _db_path, _find_user, _hash, _load_users, _save_users
@@ -245,7 +246,7 @@ class WsCmd:
             return
 
         from util.utilEditSession import utilEditSession
-        from uillc.llcMgmt import llcMgmt
+        from ui.llcMgmt import llcMgmt
 
         print()
         print("=" * 64)
