@@ -250,11 +250,13 @@ class llcAssets(balanceSheet):
     
     def _keyDict(self):
         '''
-        # map dt :: amt, return dict dt:amt 
-        
+        # map dt :: amt, return dict dt:amt
+
         '''
         # Load asset DF
         df = self.df.copy()
+        if df.empty or 'dt' not in df.columns:
+            return {}
         df.amt = getBal(df)
         # Normalize asset datetime format to match bank format
         df['dt'] = df['dt'].apply(lambda v: datetime.datetime.strptime(v, '%Y.%m.%d').strftime('%m/%d/%Y'))
