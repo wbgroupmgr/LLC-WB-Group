@@ -66,15 +66,21 @@ _SEED_USER = {
 
 # ── Business provisioning ─────────────────────────────────────────────────────
 
-def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books") -> Path:
+def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
+                      llc_name: str = None) -> Path:
     """
     Generate ~/.llcRentalTracker/<llcName>_<year>_config.json for a business repo + year.
 
-    llcName is auto-detected from the repo folder name.
+    llcName defaults to the repo folder name but can be overridden via --llcName
+    so it matches the suffix used by existing data files (e.g. WBGroupLLC).
     Returns the path to the written config file.
     """
-    bus_path  = Path(bus_repo).expanduser().resolve()
-    llc_name  = bus_path.name
+    bus_path     = Path(bus_repo).expanduser().resolve()
+    detected     = bus_path.name
+    llc_name     = llc_name or detected
+
+    if llc_name != detected:
+        print(f"  ℹ  llcName overridden: '{detected}' (folder) → '{llc_name}' (--llcName)")
 
     cfg_dir = _sp.TRACKER_CFG_DIR
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +335,8 @@ examples:
     )
 
     ap.add_argument("--llcName", metavar="NAME",
-                    help="LLC name, e.g. WBGroupLLC (required for --setup and --start)")
+                    help="LLC name matching data file suffix, e.g. WBGroupLLC. "
+                         "Required for --setup/--start. Optional for --newBus (overrides folder-name auto-detect).")
     ap.add_argument("--year", type=int, default=None, metavar="YEAR",
                     help="Fiscal year, e.g. 2025 (required for --newBus; auto-detected for --setup/--start)")
 
@@ -376,7 +383,8 @@ def main():
     if args.newBus:
         if not args.year:
             ap.error("--year is required for --newBus")
-        provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir)
+        provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir,
+                          llc_name=args.llcName)
         return
 
     if not args.llcName:
