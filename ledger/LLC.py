@@ -33,15 +33,16 @@ class LLC(object):
         ###--- load profile ---
         if self.debug: print(f"llc:{self.oID} init load _Profile")
 
-        # Set year before profile as default, profile may contain YEAR:xxxx
         self._Profile(**kwargs)
-        
-        try:
-            # Use profile year
-            self.yr = self.YEAR
-        except:
-            # Use current year
-            self.yr = datetime.datetime.now().year
+
+        # Year resolution order: kwarg → profile YEAR attr → current year
+        if kwargs.get('year'):
+            self.yr = int(kwargs['year'])
+        else:
+            try:
+                self.yr = self.YEAR
+            except AttributeError:
+                self.yr = datetime.datetime.now().year
 
         self.coa = llccoa(self)
 

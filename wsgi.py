@@ -26,7 +26,7 @@ _sp.load_config(LLC_NAME, LLC_YEAR)
 from util.utilEditSession import utilEditSession
 from ui.llcMgmt import llcMgmt
 
-_eSession = utilEditSession(llcName='WBGroupLLC', load=True)
+_eSession = utilEditSession(llcName='WBGroupLLC', year=LLC_YEAR, load=True)
 _mgmt = llcMgmt(_eSession)
 
 # PythonAnywhere (and any WSGI server) looks for `application`.

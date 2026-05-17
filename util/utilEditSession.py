@@ -20,6 +20,7 @@ import pandas as pd
 
 
 
+from ledger import setup_paths as _sp
 from ledger.LLC import LLC
 from ledger.llcExpRev import llcExpRev
 from ledger.llcAssets import llcAssets
@@ -59,24 +60,27 @@ class wkIncomeStmt(utilWorkingDB):
 class utilEditSession():
 
     def __init__(self, **kwargs):
-        # Session data parameters 
         self.loadOpt = kwargs.get('load', False)
-        self.edOpt = kwargs.get('edOpt', 'llc')
+        self.edOpt   = kwargs.get('edOpt', 'llc')
 
-        # LLC 
-        llcName = kwargs.get('llcName', None)
-        if llcName is None or llcName == 'NoNameLLC':
-            print("Missing LLC name, exiting")
+        llcName = kwargs.get('llcName')
+        if not llcName or llcName == 'NoNameLLC':
             raise Exception("Missing --llcName option")
 
-        # bind to LLC
-        top = Path.cwd().parents[2]
-        self.llc = LLC(llcName,debug=False, top=top)  # debug='details'
+        year = kwargs.get('year')
+        if year is None:
+            raise Exception("Missing --year option")
+        self.year = int(year)
+
+        # Sync module globals and capture SessionPaths for this session
+        _sp.load_config(llcName, self.year)
+        self.paths = _sp.load_year(llcName, self.year)
+
+        self.llc = LLC(llcName, debug=False, year=self.year)
         _ = self.llc._Bank()
 
-        # bind LLC data
         self.wkDict = self.llcBind()
-        self.oDict = {wk.o.oID:wk for wkID, wk in self.wkDict.items()}
+        self.oDict  = {wk.o.oID: wk for wkID, wk in self.wkDict.items()}
 
     def get(self, oID):
         # returns the work object for the oID object ID

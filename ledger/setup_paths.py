@@ -11,12 +11,13 @@ Fields:
     books_dir  — subdirectory name for accounting books (e.g. "books")
     year       — fiscal year (int)
 
-Call load_config(llcName, year) once at startup before instantiating any LLC objects.
-All path constants below are None until load_config() has been called.
+Call load_config(llcName, year) once at startup (sets module globals).
+Use load_year(llcName, year) to get a SessionPaths without touching module globals.
 """
 
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _APP_ROOT       = Path(__file__).resolve().parents[1]   # repo root (llcRentalTracker/)
@@ -30,6 +31,54 @@ EXPENSES_DIR:  Path | None = None   # books/<year>/Expenses/
 IRS_FORMS_DIR: Path | None = None   # books/<year>/Forms/
 BANK_STMTS:    Path | None = None   # books/<year>/BankStmts/
 YEAR:          int  | None = None
+
+
+@dataclass
+class SessionPaths:
+    """Year-specific paths for one active session. Does not touch module globals."""
+    accts_dir:     Path
+    expenses_dir:  Path
+    irs_forms_dir: Path
+    bank_stmts:    Path
+    year:          int
+
+
+def available_years(llc_name: str) -> list:
+    """Return sorted-descending list of fiscal years that have a config file."""
+    years = []
+    for p in TRACKER_CFG_DIR.glob(f"{llc_name}_*_config.json"):
+        stem = p.stem                          # e.g. "WBGroupLLC_2025_config"
+        part = stem[len(llc_name) + 1:]       # e.g. "2025_config"
+        try:
+            years.append(int(part.split("_")[0]))
+        except (ValueError, IndexError):
+            continue
+    return sorted(years, reverse=True)
+
+
+def load_year(llc_name: str, year: int) -> SessionPaths:
+    """Return a SessionPaths for (llc_name, year). Does NOT update module globals."""
+    cfg_path = TRACKER_CFG_DIR / f"{llc_name}_{year}_config.json"
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    base  = Path(cfg["bus_repo"]).expanduser().resolve()
+    books = base / cfg["books_dir"]
+    yr    = int(cfg["year"])
+    return SessionPaths(
+        accts_dir     = books / str(yr) / "Accts",
+        expenses_dir  = books / str(yr) / "Expenses",
+        irs_forms_dir = books / str(yr) / "Forms",
+        bank_stmts    = books / str(yr) / "BankStmts",
+        year          = yr,
+    )
+
+
+def load_bootstrap(llc_name: str) -> dict:
+    """Load config for the latest available year and set module globals."""
+    years = available_years(llc_name)
+    if not years:
+        raise FileNotFoundError(f"No config found for {llc_name} in {TRACKER_CFG_DIR}")
+    return load_config(llc_name, years[0])
 
 
 def load_config(llcName: str, year: int) -> dict:

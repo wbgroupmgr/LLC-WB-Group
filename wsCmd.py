@@ -41,6 +41,13 @@ from ledger import setup_paths as _sp
 from ledger.LLC import LLC
 from ui.llcLogin_auth import _db_path, _find_user, _hash, _load_users, _save_users
 
+
+def _latest_config_year(llc_name: str) -> int:
+    """Return the latest fiscal year that has a config file, or current year."""
+    import datetime as _dt
+    years = _sp.available_years(llc_name)
+    return years[0] if years else _dt.datetime.now().year
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 DEPS = ["flask", "pandas", "numpy", "pypdf", "deepdiff"]
@@ -95,9 +102,10 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books") -> Pat
 # ── WsCmd class ───────────────────────────────────────────────────────────────
 
 class WsCmd:
-    def __init__(self, llc_name: str):
+    def __init__(self, llc_name: str, year: int = None):
         self.llc_name = llc_name
-        self.llc      = LLC(llc_name)                           # ledger.LLC instance
+        self.year     = year or _latest_config_year(llc_name)
+        self.llc      = LLC(llc_name, year=self.year)
         self._db      = _db_path(llc_name)
         self._profile = _here.parent / "Accts" / f"llcProfile_{llc_name}.json"
 
@@ -236,7 +244,7 @@ class WsCmd:
         """Set up the LLC task app (passphrase, deps, profile config, user DB)."""
         print()
         print("=" * 64)
-        print(f"  LLC Task App — Setup  [{self.llc_name}]")
+        print(f"  LLC Task App — Setup  [{self.llc_name}]  year={self.year}")
         print("=" * 64)
 
         if reset:
@@ -286,11 +294,11 @@ class WsCmd:
 
         print()
         print("=" * 64)
-        print(f"  LLC Task App — Local Start  [{self.llc_name}]")
+        print(f"  LLC Task App — Local Start  [{self.llc_name}]  year={self.year}")
         print(f"  http://{addr}:{port}/login")
         print("=" * 64)
 
-        eSession = utilEditSession(llcName=self.llc_name, load=load, edOpt=ed_opt)
+        eSession = utilEditSession(llcName=self.llc_name, year=self.year, load=load, edOpt=ed_opt)
         app = llcMgmt(eSession)
         app.run(host=addr, port=port, debug=debug, notebook=notebook)
 
@@ -314,8 +322,8 @@ examples:
 
     ap.add_argument("--llcName", metavar="NAME",
                     help="LLC name, e.g. WBGroupLLC (required for --setup and --start)")
-    ap.add_argument("--year", type=int, required=False, metavar="YEAR",
-                    help="Fiscal year, e.g. 2025 (required for all modes)")
+    ap.add_argument("--year", type=int, default=None, metavar="YEAR",
+                    help="Fiscal year, e.g. 2025 (required for --newBus; auto-detected for --setup/--start)")
 
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--newBus", metavar="BUS_REPO_PATH",
@@ -357,18 +365,22 @@ def main():
     ap   = _build_parser()
     args = ap.parse_args()
 
-    if not args.year:
-        ap.error("--year is required for all modes, e.g. --year 2025")
-
     if args.newBus:
+        if not args.year:
+            ap.error("--year is required for --newBus")
         provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir)
         return
 
     if not args.llcName:
         ap.error("--llcName is required for --setup and --start")
 
-    _sp.load_config(args.llcName, args.year)
-    ws = WsCmd(args.llcName)
+    # Resolve year: explicit arg > auto-detect latest config
+    year = args.year or _latest_config_year(args.llcName)
+    if not year:
+        ap.error("--year is required (no existing config found to auto-detect)")
+
+    _sp.load_config(args.llcName, year)
+    ws = WsCmd(args.llcName, year=year)
 
     if args.setup:
         ws.setup(reset=args.reset)

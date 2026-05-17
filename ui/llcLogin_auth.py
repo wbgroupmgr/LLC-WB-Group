@@ -341,6 +341,11 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
                 session["username"]  = user["username"]
                 session["full_name"] = user.get("full_name", username)
                 session["role"]      = user.get("role", "member")
+                session["llc_name"]  = llc_name
+                # Capture the active year from the running eSession
+                _es = app.config.get("_esession")
+                if _es and hasattr(_es, "year"):
+                    session["year"] = _es.year
                 if remember:
                     session.permanent = True
 

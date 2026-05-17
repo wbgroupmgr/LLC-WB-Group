@@ -182,7 +182,8 @@ class llcMgmt:
 
     def __init__(self, eSession, title: str = None):
         self.eSession = eSession
-        session_title = getattr(getattr(eSession, "llc", None), "objName", None)
+        self.llc_name = getattr(getattr(eSession, "llc", None), "objName", None)
+        session_title = self.llc_name
         base_title = title or session_title or "LLC Management App"
         # v0.2: surface the package version in the app title so the running
         # editor is self-identifying in the browser tab and home header.
@@ -200,20 +201,27 @@ class llcMgmt:
         self.app.secret_key = os.environ.get("LLC_SECRET_KEY", secrets.token_hex(32))
         self.app._llc_version = self.version
 
-        llc_name = getattr(getattr(self.eSession, "llc", None), "objName", "LLC")
-        make_auth_routes(self.app, llc_name=llc_name)
+        # Store eSession and llc_name in app.config so auth routes and Switch Year can access them
+        self.app.config['_esession']  = eSession
+        self.app.config['_llc_name']  = self.llc_name or "LLC"
+
+        make_auth_routes(self.app, llc_name=self.app.config['_llc_name'])
 
         self.objects = self._build_objects()
 
         @self.app.context_processor
         def inject_globals():
+            from ledger import setup_paths as _sp
+            llc_nm = self.app.config.get('_llc_name', '')
             return {
-                "app_title":       self.title,
-                "available_views": self.available_views(),
-                "view_groups":     self.VIEW_GROUPS,
-                "view_labels":     self.VIEW_LABELS,
-                "current_user":    session.get("full_name", ""),
-                "current_role":    session.get("role", ""),
+                "app_title":        self.title,
+                "available_views":  self.available_views(),
+                "view_groups":      self.VIEW_GROUPS,
+                "view_labels":      self.VIEW_LABELS,
+                "current_user":     session.get("full_name", ""),
+                "current_role":     session.get("role", ""),
+                "current_year":     session.get("year", getattr(self.eSession, 'year', '')),
+                "available_years":  _sp.available_years(llc_nm) if llc_nm else [],
             }
 
         self._bind_routes()
@@ -354,6 +362,10 @@ class llcMgmt:
         objects["llcForm4562"] = llcForm4562(self.eSession)
 
         return objects
+
+    def _rebuild_objects(self):
+        """Rebuild the objects dict after an eSession switch (e.g. Switch Year)."""
+        self.objects = self._build_objects()
 
     def available_views(self) -> List[Dict[str, Any]]:
         items = []
@@ -550,11 +562,11 @@ class llcMgmt:
             allowed = set(self.PDF_VIEWS.values())
             if form_id not in allowed:
                 abort(404)
-            llc = getattr(self.eSession, "llc", None)
-            if llc is None:
+            es = self.eSession
+            if es is None:
                 abort(404)
             try:
-                irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+                irs_dir = es.paths.irs_forms_dir
             except Exception:
                 abort(404)
             # K-1 per-partner: ?member=oID serves Sch_K1_{oID}_FILL.pdf
@@ -581,11 +593,11 @@ class llcMgmt:
             allowed = set(self.PDF_VIEWS.values())
             if form_id not in allowed:
                 abort(404)
-            llc = getattr(self.eSession, "llc", None)
-            if llc is None:
+            es = self.eSession
+            if es is None:
                 abort(404)
             try:
-                irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+                irs_dir = es.paths.irs_forms_dir
             except Exception:
                 abort(404)
             pdf_path = irs_dir / f"{form_id}_namespace.pdf"
@@ -622,6 +634,24 @@ class llcMgmt:
                 title=self.title,
                 session_views=session_views,
             )
+
+        # ── Switch Year ───────────────────────────────────────────────────────
+        @app.route("/switch_year", methods=["POST"])
+        def switch_year():
+            from util.utilEditSession import utilEditSession as _UES
+            year = request.form.get("year", type=int)
+            if not year:
+                return redirect(url_for("home"))
+            llc_nm = self.app.config.get("_llc_name")
+            try:
+                new_es = _UES(llcName=llc_nm, year=year)
+                self.eSession = new_es
+                self.app.config["_esession"] = new_es
+                self._rebuild_objects()
+                session["year"] = year
+            except Exception as exc:
+                app.logger.error("Switch Year failed: %s", exc)
+            return redirect(url_for("home"))
 
         # ── View ──────────────────────────────────────────────────────────────
         @app.route("/view/<obj_type>")
@@ -681,12 +711,9 @@ class llcMgmt:
                 # wrappers benefit without each needing to implement it.
                 ns_pdf_url = None
                 try:
-                    _llc = getattr(self.eSession, "llc", None)
-                    if _llc:
-                        _ns = (Path(_llc.acctDir(dirName="ye"))
-                               / "Forms_IRS" / f"{form_nm}_namespace.pdf")
-                        if _ns.exists():
-                            ns_pdf_url = f"/forms/{form_nm}_NS.pdf"
+                    _ns = self.eSession.paths.irs_forms_dir / f"{form_nm}_namespace.pdf"
+                    if _ns.exists():
+                        ns_pdf_url = f"/forms/{form_nm}_NS.pdf"
                 except Exception:
                     pass
                 return render_template(
