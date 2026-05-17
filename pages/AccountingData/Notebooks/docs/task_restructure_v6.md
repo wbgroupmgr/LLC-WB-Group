@@ -23,66 +23,76 @@
 **Destination:** `~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup/`
 
 **Key structural changes from current LLC-WB-Group:**
-- `pages/` renamed to `books/` — clearer separation of business content sections
-- `Accts/` moves from `books/AccountingData/` (above the year) **into** `books/AccountingData/<YEAR>/Accts/` — accounting records are per fiscal period
-- `Stmts/` cache stays at `books/AccountingData/Stmts/` (cross-year read cache, not live data)
+- `books/` is a NEW top-level folder holding all fiscal-year accounting data — `pages/` is NOT renamed, it stays for reference/guide content (Operations, IRSGuide, RentalMgmt, Taxes)
+- `Accts/` moves under the fiscal year: `books/<YEAR>/Accts/` — accounting records are per fiscal period
+- `Forms/` consolidates IRS PDFs + namespace JSON files into one year-level folder
+- `Receipts/` and `Expenses/` move inside the year folder (they are year-specific)
+- `Working/` replaces `FinancialTemplates` as the scratch/draft directory
+- `.bookNS_backups/` moves outside git structure (not committed)
 
 ```
 LLC-WBGroup/
-├── Assets/                              # Property acquisition docs
-│   ├── 16ElConejo-2026/
-│   ├── 805HighMesa/
-│   └── RVCamper_2025/
-├── LLC Doc Records/                     # Articles, operating agreement, IRS letter
-│   ├── 20250818-LLC_forms/
-│   └── LLC_Filing/
-├── Notebooks/                           # Legacy Jupyter (root-level, kept in business repo)
-├── Receipts/                            # Scanned receipt archives
-├── docs/                                # Release notes, milestone docs
-│   └── releases/
-├── Claude-Work/                         # Claude session artifacts
-├── llcProfile_WBGroupLLC.json           # Root entity metadata (TOP updated)
+├── llcProfile_WBGroupLLC.json        # Root entity + IRS form metadata
+├── Assets/                           # Property acquisition docs (16ElConejo, 805HighMesa, RVCamper)
+├── LLC Doc Records/                  # Articles, operating agreement, IRS letter
+├── docs/                             # Release notes, milestone docs
+├── pages/                            # Guide/reference content: Operations, IRSGuide, RentalMgmt, Taxes
+├── Notebooks/                        # Legacy Jupyter (root-level, kept in business repo)
 ├── index.md
 ├── requirements.txt
-└── books/                               # was "pages/" — business content sections
-    ├── IRSGuide/
-    ├── LLC-Filing/
-    ├── Operations/
-    ├── RentalMgmt/
-    ├── Taxes/
-    └── AccountingData/
-        ├── Expenses/                    # Expense tracking JSONs (cross-year)
-        ├── Stmts/                       # Read-only statement cache (cross-year)
-        ├── 2025/
-        │   ├── Accts/                   # ← MOVED HERE (was AccountingData/Accts/)
-        │   │   ├── llcProfile_WBGroupLLC.json
-        │   │   ├── ChartOfAccounts_WBGroupLLC.json
-        │   │   ├── llcAssets_WBGroupLLC.json
-        │   │   ├── llcExpRev_WBGroupLLC.json
-        │   │   ├── llcPayables_WBGroupLLC.json
-        │   │   ├── llcReceivables_WBGroupLLC.json
-        │   │   ├── llcOwners_WBGroupLLC.json
-        │   │   ├── llcCustomers_WBGroupLLC.json
-        │   │   └── accountNameSpace.json
-        │   ├── BankStmts/
-        │   ├── YE_Tax_Records/
-        │   │   └── Forms_IRS/           # IRS PDF output
-        │   └── FinancialTemplates/
-        └── 2026/
-            ├── Accts/                   # Populated when FY2026 books open
-            └── BankStmts/
+└── books/                            # Fiscal books — year-specific accounting data
+    ├── 2025/
+    │   ├── Accts/                    # ← MOVED from AccountingData/Accts/ (per-year ledger DBs)
+    │   │   ├── llcProfile_WBGroupLLC.json
+    │   │   ├── ChartOfAccounts_WBGroupLLC.json
+    │   │   ├── llcAssets_WBGroupLLC.json
+    │   │   ├── llcExpRev_WBGroupLLC.json
+    │   │   ├── llcPayables_WBGroupLLC.json
+    │   │   ├── llcReceivables_WBGroupLLC.json
+    │   │   ├── llcOwners_WBGroupLLC.json
+    │   │   ├── llcCustomers_WBGroupLLC.json
+    │   │   └── accountNameSpace.json
+    │   ├── BankStmts/                # Downloads from bank accounts
+    │   ├── Forms/                    # ← CONSOLIDATED (from YE_Tax_Records/Forms_IRS + bookNS_*)
+    │   │   ├── *IRS.pdf              # Original empty IRS forms
+    │   │   ├── *FILL.pdf             # Filled IRS forms (output)
+    │   │   ├── *namespace.pdf        # Namespace visual: IRS form mappings
+    │   │   └── bookNS_*.json         # Namespace data per financial object (GL, IS, BS)
+    │   ├── YE_Tax_Records/           # Other year-end tax records (non-form documents)
+    │   ├── Expenses/                 # Expense tracking (year-specific)
+    │   ├── Receipts/                 # Scanned receipts (year-specific)
+    │   └── Working/                  # Drafts, misc (replaces FinancialTemplates)
+    └── 2026/
+        ├── Accts/                    # Populated when FY2026 books open
+        └── BankStmts/
 ```
 
-**Accounting principle:** Each fiscal year's ledger is self-contained. When a new year opens, a new `<YEAR>/Accts/` is created — COA carried forward, transactions start clean. The active year is set in the tracker config, not inside the profile.
+**Accounting principle:** Each fiscal year's ledger is self-contained. When a new year opens, a new `<YEAR>/Accts/` is created — COA carried forward, transactions start clean. The active year is set in the tracker config (not inside the profile). Backups go outside git.
+
+### 2.2 OLD → NEW Migration Map (current LLC-WB-Group → LLC-WBGroup)
+
+| Old path | New path | Notes |
+|----------|----------|-------|
+| `pages/AccountingData/Accts/` | `books/2025/Accts/` | Per-year ledger DBs |
+| `pages/AccountingData/2025/BankStmts/` | `books/2025/BankStmts/` | Same content |
+| `pages/AccountingData/2025/YE_Tax_Records/Forms_IRS/` | `books/2025/Forms/` | Consolidated with bookNS |
+| `pages/AccountingData/2025/bookNS_*.json` | `books/2025/Forms/bookNS_*.json` | Namespace data files |
+| `pages/AccountingData/2025/.bookNS_backups/` | Outside git | Not committed |
+| `pages/AccountingData/2025/FinancialTemplates/` | `books/2025/Working/` | Renamed |
+| `pages/AccountingData/2025/YE_Tax_Records/` | `books/2025/YE_Tax_Records/` | Non-form tax records |
+| `pages/AccountingData/Expenses/` | `books/2025/Expenses/` | Now year-specific |
+| `Receipts/` (root) | `books/2025/Receipts/` | Now year-specific |
+| `pages/IRSGuide/`, `pages/Operations/`, etc. | `pages/` (unchanged) | Reference content stays |
+| `pages/AccountingData/Notebooks/` | `~/GDrive/dev/trackers/llcRentalTracker/` | App code split out |
 
 **Git:** New independent repo. No Python source code.
 **Profile updates needed:**
 - `TOP` → `~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup`
-- `dirAccounting` → `books/AccountingData` (was `pages/AccountingData`)
+- `dirAccounting` → `books` (was `pages/AccountingData` — now the year folder is directly under `books/`)
 
 ---
 
-### 2.2 Application Repo — `llcRentalTracker`
+### 2.3 Application Repo — `llcRentalTracker`
 
 **Destination:** `~/GDrive/dev/trackers/llcRentalTracker/`
 
@@ -91,8 +101,7 @@ LLC-WBGroup/
 Contains the current `pages/AccountingData/Notebooks/` tree, with these structural changes:
 - `uillc/` **removed entirely** — all imports redirected to `ui.*` before copy
 - `mcp/` **added** — MCP server skeleton
-- `irsv1/` and `Untitled Folder/` excluded (dead code)
-- `.ipynb_checkpoints/`, `working/`, `__pycache__` excluded
+- `irsv1/`, `Untitled Folder/`, `working/`, `.ipynb_checkpoints/`, `__pycache__` excluded
 
 ```
 llcRentalTracker/
@@ -116,7 +125,7 @@ llcRentalTracker/
 └── requirements.txt
 ```
 
-**No business data files in this repo.** All data access goes through the business config in `~/.llcRentalTracker/`.
+**No business data files in this repo.** All data access goes through `~/.llcRentalTracker/<llcName>_config.json`.
 
 ---
 
@@ -130,12 +139,12 @@ llcRentalTracker/
 _here = Path(__file__).resolve()
 TOP           = _here.parents[4]   # LLC-WB-Group/        ← BREAKS after split
 ACCT_DATA_DIR = _here.parents[2]   # AccountingData/      ← BREAKS after split
-ACCTS_DIR     = ACCT_DATA_DIR / "Accts"  ← BREAKS (wrong year-level too)
+ACCTS_DIR     = ACCT_DATA_DIR / "Accts"   ← BREAKS (wrong structure too)
 ```
 
-After the split AND the `Accts/` move, two things break simultaneously:
+After the split AND the layout change, two things break:
 1. `parents[N]` no longer reaches the business repo (code is in a separate tree)
-2. `ACCTS_DIR` is one level too high — it must be `ACCT_DATA_DIR / str(YEAR) / "Accts"`
+2. `ACCTS_DIR` must now be `TOP / "books" / str(YEAR) / "Accts"` — completely different path shape
 
 ### 3.2 New Design: Per-Business Config File
 
@@ -149,22 +158,26 @@ Each business managed by the tracker gets a config at:
 
 ```json
 {
-  "llcName":        "WBGroupLLC",
-  "bus_repo":       "~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup",
-  "acct_data_dir":  "books/AccountingData",
-  "year":           2025,
-  "bank_stmts":     "books/AccountingData/{year}/BankStmts",
-  "irs_forms_dir":  "books/AccountingData/{year}/YE_Tax_Records/Forms_IRS"
+  "llcName":   "WBGroupLLC",
+  "bus_repo":  "~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup",
+  "books_dir": "books",
+  "year":      2025
 }
 ```
 
-**Derived at runtime** (not stored in config — computed by `setup_paths.load_config()`):
-- `ACCTS_DIR`      = `bus_repo / acct_data_dir / year / "Accts"`
-- `BANK_STMTS`     = `bus_repo / acct_data_dir / year / "BankStmts"`
-- `IRS_FORMS_DIR`  = `bus_repo / acct_data_dir / year / "YE_Tax_Records/Forms_IRS"`
-- `STMTS_DIR`      = `bus_repo / acct_data_dir / "Stmts"` (cross-year cache)
+**All derived at runtime** from just these four fields:
 
-Storing only `bus_repo + acct_data_dir + year` is enough to derive everything else. The year field makes it trivial to switch fiscal years without moving files.
+| Constant | Derived Path |
+|----------|-------------|
+| `TOP` | `bus_repo` (expanded) |
+| `ACCT_DATA_DIR` | `TOP / books_dir` |
+| `ACCTS_DIR` | `TOP / books_dir / year / "Accts"` |
+| `BANK_STMTS` | `TOP / books_dir / year / "BankStmts"` |
+| `IRS_FORMS_DIR` | `TOP / books_dir / year / "Forms"` |
+| `STMTS_DIR` | `TOP / books_dir / "Stmts"` (cross-year cache) |
+| `EXPENSES_DIR` | `TOP / books_dir / year / "Expenses"` |
+
+Storing only `bus_repo + books_dir + year` is enough to derive everything. Changing fiscal year = change `year` field only.
 
 ### 3.3 Refactored `setup_paths.py` (design sketch)
 
@@ -176,34 +189,32 @@ TRACKER_CFG_DIR = Path("~/.llcRentalTracker").expanduser()
 TRACKER_DIR     = Path(__file__).resolve().parent.parent  # llcRentalTracker/
 
 # Populated by load_config(); None until LLC('name') is called
-TOP           = None
-ACCT_DATA_DIR = None
-ACCTS_DIR     = None
-STMTS_DIR     = None
-BANK_STMTS    = None
-IRS_FORMS_DIR = None
-YEAR          = None
+TOP = ACCT_DATA_DIR = ACCTS_DIR = STMTS_DIR = None
+BANK_STMTS = IRS_FORMS_DIR = EXPENSES_DIR = YEAR = None
 
 def load_config(llcName: str):
     cfg_path = TRACKER_CFG_DIR / f"{llcName}_config.json"
     with open(cfg_path) as f:
         cfg = json.load(f)
-    base     = Path(cfg["bus_repo"]).expanduser()
-    acct     = base / cfg["acct_data_dir"]
-    yr       = cfg["year"]
+    base = Path(cfg["bus_repo"]).expanduser()
+    books = base / cfg["books_dir"]
+    yr    = cfg["year"]
 
     import ledger.setup_paths as _sp
     _sp.TOP           = base
-    _sp.ACCT_DATA_DIR = acct
-    _sp.ACCTS_DIR     = acct / str(yr) / "Accts"
-    _sp.STMTS_DIR     = acct / "Stmts"
-    _sp.BANK_STMTS    = acct / str(yr) / "BankStmts"
-    _sp.IRS_FORMS_DIR = acct / str(yr) / "YE_Tax_Records" / "Forms_IRS"
+    _sp.ACCT_DATA_DIR = books          # kept for stmtDB.py compatibility (TOP/dirAccounting)
+    _sp.ACCTS_DIR     = books / str(yr) / "Accts"
+    _sp.STMTS_DIR     = books / "Stmts"
+    _sp.BANK_STMTS    = books / str(yr) / "BankStmts"
+    _sp.IRS_FORMS_DIR = books / str(yr) / "Forms"
+    _sp.EXPENSES_DIR  = books / str(yr) / "Expenses"
     _sp.YEAR          = yr
     return cfg
 ```
 
-`LLC.__init__(llcName)` calls `load_config(llcName)` before any file access. All downstream modules that already import `setup_paths` get the updated constants with no changes.
+`LLC.__init__(llcName)` calls `load_config(llcName)` before any file access. All downstream modules that import `setup_paths` get updated constants with no changes.
+
+**Note:** `stmtDB.py` uses `TOP/dirAccounting/Stmts`. With `dirAccounting = "books"`, this resolves to `TOP/books/Stmts` = `STMTS_DIR`. Consistent.
 
 ---
 
@@ -215,37 +226,47 @@ def load_config(llcName: str):
 
 **Steps:**
 1. `cp -r LLC-WB-Group/ ~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup/` — duplicate full tree
-2. `rm -rf LLC-WBGroup/pages/AccountingData/Notebooks/` — remove app code from business copy
-3. Rename `LLC-WBGroup/pages/` → `LLC-WBGroup/books/`
-4. Move `books/AccountingData/Accts/` → `books/AccountingData/2025/Accts/`
-5. Update `books/AccountingData/2025/Accts/llcProfile_WBGroupLLC.json`:
+2. `rm -rf LLC-WBGroup/pages/AccountingData/Notebooks/` — remove app code
+3. Build `books/` structure:
+   - `mkdir -p LLC-WBGroup/books/2025/`
+   - `mv LLC-WBGroup/pages/AccountingData/Accts/ LLC-WBGroup/books/2025/Accts/`
+   - `mv LLC-WBGroup/pages/AccountingData/2025/BankStmts/ LLC-WBGroup/books/2025/BankStmts/`
+   - `mkdir LLC-WBGroup/books/2025/Forms/`
+   - `mv LLC-WBGroup/pages/AccountingData/2025/YE_Tax_Records/Forms_IRS/* LLC-WBGroup/books/2025/Forms/`
+   - `mv LLC-WBGroup/pages/AccountingData/2025/bookNS_*.json LLC-WBGroup/books/2025/Forms/`
+   - `mv LLC-WBGroup/pages/AccountingData/2025/YE_Tax_Records/ LLC-WBGroup/books/2025/YE_Tax_Records/`
+   - `mv LLC-WBGroup/pages/AccountingData/Expenses/ LLC-WBGroup/books/2025/Expenses/`
+   - `mv LLC-WBGroup/pages/AccountingData/2025/FinancialTemplates/ LLC-WBGroup/books/2025/Working/`
+   - `mv LLC-WBGroup/Receipts/ LLC-WBGroup/books/2025/Receipts/`
+   - Leave `.bookNS_backups/` out (not committed)
+4. Update `books/2025/Accts/llcProfile_WBGroupLLC.json`:
    - `"TOP"` → `"~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup"`
-   - `"dirAccounting"` → `"books/AccountingData"`
-6. Update root `llcProfile_WBGroupLLC.json` with same changes
+   - `"dirAccounting"` → `"books"`
+5. Update root `llcProfile_WBGroupLLC.json` with same changes
+6. `mkdir -p LLC-WBGroup/books/2026 && mkdir LLC-WBGroup/books/2026/Accts`
 7. `git init && git add . && git commit -m "init: LLC-WBGroup business repo"` in the new folder
-
-**What stays in LLC-WB-Group:** unchanged until Task 4 validates llcRentalTracker works.
 
 ### Task 3 — Create `llcRentalTracker`
 
 **Steps:**
 1. `cp -r pages/AccountingData/Notebooks/ ~/GDrive/dev/trackers/llcRentalTracker/`
 2. Remove excluded dirs: `uillc/`, `irsv1/`, `Untitled Folder/`, `working/`, all `__pycache__`, `.ipynb_checkpoints`
-3. Redirect `uillc/` imports → scan for `from uillc.` and rewrite to `from ui.` across all .py files
-4. Refactor `ledger/setup_paths.py` per §3.3 design
-5. Update `ledger/LLC.__init__()` to call `setup_paths.load_config(llcName)` first
-6. Add `mcp/` skeleton: `server.py` + `skills/__init__.py` + 4 skill stubs
-7. Update `wsCmd.py` — add `--newBus <bus_folder>` flag (reads profile, writes `~/.llcRentalTracker/<llcName>_config.json`)
-8. Update `CLAUDE.md` to reflect new repo identity and layout
-9. `git init && git remote add origin <existing LLC-WB-Group GitHub URL>`
-10. `git add . && git commit -m "init: llcRentalTracker (split from LLC-WB-Group)"`
+3. Rewrite all `from uillc.` imports → `from ui.` across all .py files
+4. Refactor `ledger/setup_paths.py` per §3.3
+5. Update `ledger/LLC.__init__()` to call `setup_paths.load_config(llcName)` before profile load
+6. Fix late-binding issue in `ui/llcLogin_auth.py` (see §5.2)
+7. Add `mcp/` skeleton: `server.py` + `skills/__init__.py` + 4 stub files
+8. Update `wsCmd.py` — add `--newBus <bus_folder>` flag
+9. Update `CLAUDE.md` for new repo identity
+10. `git init && git remote add origin <existing LLC-WB-Group GitHub URL>`
+11. `git add . && git commit -m "init: llcRentalTracker (split from LLC-WB-Group)"`
 
 ### Task 4 — Configure & Test
 
 **Steps:**
 1. `mkdir -p ~/.llcRentalTracker`
 2. `python wsCmd.py --newBus ~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup` → generates `WBGroupLLC_config.json`
-3. Verify config has correct paths (spot-check `ACCTS_DIR` resolves to `…/2025/Accts/`)
+3. Verify config: `ACCTS_DIR` resolves to `…/books/2025/Accts/`, `IRS_FORMS_DIR` to `…/books/2025/Forms/`
 4. Start app: `python wsCmd.py --llcName WBGroupLLC --port 5000`
 5. Run test suite:
    ```bash
@@ -253,9 +274,9 @@ def load_config(llcName: str):
    python -m tests.test_stmtGL
    python -m tests.test_stmtIS
    ```
-6. Smoke-test Flask UI: BS, IS, GL views load; editor saves to correct `2025/Accts/` files
+6. Smoke-test Flask UI: BS, IS, GL views load; editor saves to `books/2025/Accts/`; IRS PDFs write to `books/2025/Forms/`
 
-**Pass criteria:** All 3 test suites pass; Flask UI matches current behavior; Accts writes go to `books/AccountingData/2025/Accts/`.
+**Pass criteria:** All 3 test suites pass; Flask UI matches current behavior; all file paths resolve under `books/2025/`.
 
 ### Task 5 — MCP Server (separate session after Task 4 passes)
 
@@ -265,42 +286,43 @@ def load_config(llcName: str):
 
 All changes are isolated to the path/config layer. Business logic in `ledger/`, `stmt/`, `irs/`, `ui/` is untouched.
 
-### 5.1 Changes Required
+### 5.1 Full Change Table
 
 | File | What Changes | Why |
 |------|-------------|-----|
-| `ledger/setup_paths.py` | Full rewrite — remove `parents[N]`, add `load_config()` | Code no longer inside business repo tree; `ACCTS_DIR` now year-relative |
-| `ledger/LLC.py` | `__init__` calls `setup_paths.load_config(llcName)` before profile load | Must populate constants before any file access |
-| `ledger/LLC.py:165` | `acctDIR` already built as `TOP/dirAccounting/yr` — verify it still resolves correctly after profile `dirAccounting` changes to `books/AccountingData` | `pages/` → `books/` |
-| `ledger/stmtDB.py:404` | `stmts_dir = TOP/dirAccounting/Stmts` — driven by profile `dirAccounting` | Auto-corrects once profile updated; no code change |
-| `ledger/stmtProfile.py:149` | Uses `setup_paths.ACCTS_DIR` — auto-corrects once `load_config` sets it | No code change needed |
-| `irs/BookToIRS.py:151` | Uses `setup_paths.ACCTS_DIR` — same | No code change needed |
-| `ui/llcLogin_auth.py:136` | `_ACCTS = _sp.ACCTS_DIR` — assigned at module import; must import after `load_config` runs | Move assignment inside a function or use late binding |
-| `wsCmd.py` | Add `--newBus` argument; update any hardcoded paths | New feature |
+| `ledger/setup_paths.py` | Full rewrite — remove `parents[N]`, add `load_config()` | Code no longer inside business repo; paths now config-driven |
+| `ledger/LLC.py:__init__` | Call `setup_paths.load_config(llcName)` before profile load | Must populate constants before any file access |
+| `ledger/LLC.py:165` | `acctDIR = TOP/dirAccounting/yr` — verify resolves to `books/2025/` after profile update | Auto-corrects via profile change |
+| `ledger/stmtDB.py:404` | `stmts_dir = TOP/dirAccounting/Stmts` — verify resolves to `books/Stmts/` | Auto-corrects via profile change |
+| `ledger/stmtProfile.py:149` | Uses `setup_paths.ACCTS_DIR` | Auto-corrects once `load_config` sets it |
+| `irs/BookToIRS.py:151` | Uses `setup_paths.ACCTS_DIR` | Auto-corrects |
+| `irs/` PDF write paths | Currently write to `IRS_FORMS_DIR` (`YE_Tax_Records/Forms_IRS/`) | Auto-corrects to `books/2025/Forms/` via config |
+| `ui/llcLogin_auth.py:136` | `_ACCTS = _sp.ACCTS_DIR` at import time | Late-bind fix required (see §5.2) |
+| `wsCmd.py` | Add `--newBus` argument | New feature |
 | `util/multitask_wsgi.py` | Update `_pkg` path to llcRentalTracker location | Deployment path change |
 | All `from uillc.*` imports | Rewrite to `from ui.*` | `uillc/` removed |
 
 ### 5.2 The `ui/llcLogin_auth.py` Late-Binding Issue
 
-`_ACCTS = _sp.ACCTS_DIR` is assigned at module load time. If the module is imported before `LLC('WBGroupLLC')` runs `load_config()`, `_ACCTS` will be `None`.
+`_ACCTS = _sp.ACCTS_DIR` is assigned at module import time. If the module is imported before `LLC('WBGroupLLC')` calls `load_config()`, `_ACCTS` is `None`.
 
-**Fix:** Change the assignment to a property or function call:
+**Fix:** Change to a function:
 ```python
 # Before
 _ACCTS = _sp.ACCTS_DIR
 
-# After
+# After — late-bound
 def _accts(): return _sp.ACCTS_DIR
 ```
-Then replace `_ACCTS` usages with `_accts()` inside the file. Scope of change: `ui/llcLogin_auth.py` only.
+Replace all `_ACCTS` usages inside `llcLogin_auth.py` with `_accts()`. Scope: one file.
 
 ### 5.3 MCP Structural Note
 
-The `ui/` layer is stateful (Flask sessions, `utilEditSession`). This is fine for the web app. For MCP tools, we will **not** wrap `ui/` — MCP tools will call `stmt.*` and `ledger.*` directly for stateless reads, and `ledger.*` write methods for mutations. The session layer stays Flask-only. This clean boundary means no changes to `ui/` are needed during restructure.
+MCP tools will call `stmt.*` and `ledger.*` directly (stateless reads). The Flask session layer (`ui/`, `utilEditSession`) stays Flask-only. No changes to `ui/` required during restructure; this clean boundary makes MCP wiring straightforward in Task 5.
 
 ---
 
-## 6. MCP Server Design — `llcRentalTracker` (Task 5)
+## 6. MCP Server Design — Task 5
 
 `llcRentalTracker` exposes both HTTP (Flask) and MCP from the same codebase; they share `ledger/` and `stmt/` but have separate entry points.
 
@@ -318,21 +340,21 @@ The `ui/` layer is stateful (Flask sessions, `utilEditSession`). This is fine fo
 ```
 llcRentalTracker/mcp/server.py
 ```
-Library choice deferred to Task 5. Constraint: must support both `stdio` (Claude Desktop) and HTTP transport (PA deployment).
+Library choice deferred. Constraint: must support both `stdio` (Claude Desktop) and HTTP transport (PA deployment).
 
 ### 6.3 Claude API Integration
 
-CPA analysis and tax review skills call the Claude API with prompt caching. Financial statement data (BS/IS) passed as cached `user` content blocks. Model: `claude-sonnet-4-6`.
+CPA analysis and tax review skills call the Claude API with prompt caching. Financial statement data passed as cached `user` content blocks. Model: `claude-sonnet-4-6`.
 
 ---
 
-## 7. PA MultiTaskWS Integration (Goal 3)
+## 7. PA MultiTaskWS Integration
 
 | Task Name | Entry Point | Port |
 |-----------|-------------|------|
 | `llcRentalTracker` | `llcRentalTracker/wsgi.py` | 5000 (local) / PA WSGI |
 
-`util/multitask_wsgi.py` `_pkg` path updated to `~/GDrive/dev/trackers/llcRentalTracker` for local; PA path set via `--newBus` config or env var.
+`util/multitask_wsgi.py` `_pkg` updated to `~/GDrive/dev/trackers/llcRentalTracker` for local dev; PA path set via config or env var.
 
 ---
 
@@ -340,15 +362,17 @@ CPA analysis and tax review skills call the Claude API with prompt caching. Fina
 
 | Coupling | Current Location | Resolution | Task |
 |----------|-----------------|------------|------|
-| `parents[4]` = repo root (TOP) | `ledger/setup_paths.py:39` | Replace with `load_config()` | T3 |
+| `parents[4]` = repo root | `ledger/setup_paths.py:39` | Replace with `load_config()` | T3 |
 | `parents[2]` = AccountingData | `ledger/setup_paths.py:41` | Replace with `load_config()` | T3 |
-| `ACCTS_DIR = ACCT_DATA_DIR / "Accts"` | `ledger/setup_paths.py:44` | `ACCT_DATA_DIR / str(YEAR) / "Accts"` via config | T3 |
-| `dirAccounting = "pages/AccountingData"` | `llcProfile_WBGroupLLC.json` | Change to `"books/AccountingData"` | T2 |
+| `ACCTS_DIR = ACCT_DATA_DIR / "Accts"` | `ledger/setup_paths.py:44` | `books / str(YEAR) / "Accts"` via config | T3 |
+| `dirAccounting = "pages/AccountingData"` | `llcProfile_WBGroupLLC.json` | Change to `"books"` | T2 |
 | `TOP` old path in profile | `llcProfile_WBGroupLLC.json` | Update to new bus_repo path | T2 |
+| `IRS_FORMS_DIR` → `YE_Tax_Records/Forms_IRS/` | `setup_paths.py:48` | Redirect to `books/YEAR/Forms/` | T3 |
+| `EXPENSES_DIR` → `AccountingData/Expenses/` | `setup_paths.py:45` | Redirect to `books/YEAR/Expenses/` | T3 |
 | `_ACCTS = _sp.ACCTS_DIR` at import time | `ui/llcLogin_auth.py:136` | Late-bind via `_accts()` function | T3 |
-| `from uillc.*` imports (all files) | Multiple .py files | Rewrite to `from ui.*` | T3 |
+| `from uillc.*` imports (multiple files) | Various .py files | Rewrite to `from ui.*` | T3 |
 | `multitask_wsgi.py` `_pkg` path | `util/multitask_wsgi.py` | Update to llcRentalTracker path | T3 |
-| `stmts_dir = TOP/dirAccounting/Stmts` | `ledger/stmtDB.py:404` | Auto-corrects via profile update | T2 |
+| `stmts_dir = TOP/dirAccounting/Stmts` | `ledger/stmtDB.py:404` | Auto-corrects via profile `dirAccounting = "books"` | T2 |
 | `.claude/settings.json` | `.claude/` in old repo | Each new repo gets its own `.claude/` | T2+T3 |
 
 ---
@@ -359,14 +383,17 @@ The original `LLC-WB-Group` repo is **not deleted** — kept as archived monorep
 
 ---
 
-## 10. Session Decisions (Resolved)
+## 10. Session Decisions (All Resolved)
 
 | Question | Decision |
 |----------|----------|
-| Business repo destination | `~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup` ✅ |
-| llcRentalTracker GitHub remote | Inherits LLC-WB-Group remote; rename repo in GitHub ✅ |
-| `uillc/` shim | Remove entirely; rewrite imports to `ui.*` ✅ |
-| MCP library choice | Deferred to Task 5 ✅ |
-| Root-level `Notebooks/` | Goes into business repo (LLC-WBGroup) ✅ |
-| `pages/` rename | `books/` ✅ |
-| `Accts/` location | Under fiscal year: `books/AccountingData/YEAR/Accts/` ✅ |
+| Business repo destination | `~/GDrive/Family/Financials/Assets-Hobby/LLC-WBGroup` |
+| llcRentalTracker GitHub remote | Inherits LLC-WB-Group remote; rename repo in GitHub |
+| `uillc/` shim | Remove entirely; rewrite imports to `ui.*` |
+| MCP library choice | Deferred to Task 5 |
+| Root-level `Notebooks/` | Goes into business repo (LLC-WBGroup) |
+| `pages/` rename | Stays as `pages/` for reference content; `books/` is new for fiscal data |
+| `Accts/` location | Under fiscal year: `books/YEAR/Accts/` |
+| `IRS_FORMS_DIR` new location | `books/YEAR/Forms/` (consolidated with bookNS files) |
+| `dirAccounting` new value | `"books"` (was `"pages/AccountingData"`) |
+| Backups (`.bookNS_backups/`) | Outside git structure |
