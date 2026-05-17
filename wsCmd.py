@@ -155,7 +155,7 @@ class WsCmd:
             return
         print(f"  ⚠️  This will permanently delete: {self._db}")
         print("  All existing user accounts will be lost.")
-        if input("  Type YES to confirm: ").strip() != "YES":
+        if input("  Type YES to confirm: ").strip().upper() != "YES":
             print("  Cancelled — database not deleted.")
             sys.exit(0)
         self._db.unlink()
