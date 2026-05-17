@@ -1,45 +1,70 @@
-# LLC-WB-Group
-Repository for LLC W&amp;B Group documents and code
+# llcRentalTracker
 
-- [W&B Group, LLC](pages/index.md)
-- [Getting Started](pages/GettingStarted_Rental_LLC.md)
+Rental property accounting and tax tracker — Flask web app and MCP server for LLC rental businesses.
 
+## Services
 
-## Using Git to host website
-(Google: how to create a website in github)
+| Service | Description |
+|---------|-------------|
+| **Ledger** | Double-entry bookkeeping engine (assets, expenses, receivables, payables) |
+| **Statements** | Balance Sheet, Income Statement, General Ledger — immutable, year-specific |
+| **IRS Forms** | Form 1065, Schedule K-1, Form 8825, Form 4562 — PDF generation and fill |
+| **Web UI** | Flask app for ledger entry, statement review, and IRS form management |
+| **MCP Server** | Model Context Protocol server exposing accounting, CPA analysis, and IRS skills |
 
-Creating a website on GitHub typically involves using GitHub Pages, a feature that allows you to host static websites directly from your GitHub repositories.
+## Quick Start
 
-## Steps to create a website on GitHub Pages:
-### 1. Create a GitHub Account:
-- If you do not already have one, sign up for a free GitHub account.
+```bash
+# Configure a business (generates ~/.llcRentalTracker/<llcName>_config.json)
+python wsCmd.py --newBus ~/path/to/LLC-Business-Repo
 
-### 2. Create a New Repository:
-- Log in to your GitHub account.
-- Click on the "New" button on your dashboard to create a new repository.
-- For a `personal` or `organization` website:
-    - Name the repository username.github.io
-    - (replace username with your GitHub username or organization name).
-    - This naming convention automatically sets up a user or organization site.
-- For a `project website`: You can name the repository anything you like.
-- Choose whether the repository should be public or private. GitHub Pages sites are publicly available even if the repository is private, depending on your plan. 
-- Optionally, initialize the repository with a README.md file.
+# Start the web server
+python wsCmd.py --llcName WBGroupLLC --port 5000
+```
 
-### 3. Add Your Website Files:
-- `Upload directly`: You can drag and drop your website files (HTML, CSS, JavaScript, images, etc.) directly into the repository through the GitHub website interface.
-- `Clone and Push`: Clone the repository to your local machine, add your website files to the local repository folder, and then commit and push the changes back to GitHub.
+## Business Configuration
 
-### 4. Configure GitHub Pages:
-- Navigate to your repository on GitHub.
-- Click on the "Settings" tab.
-- In the sidebar, click on "Pages" under "Code and automation."
-- Under "Build and deployment," choose "Deploy from a branch" as the source.
-- Select the branch containing your website files (e.g., main or gh-pages) and the folder if your files are in a specific subfolder (e.g., /docs).
-- Click "Save."
+Each LLC business the tracker manages has a config file at:
 
-### 5. View Your Website:
-- After configuring GitHub Pages, it may take a few minutes for the site to deploy.
-- The URL for your website will be displayed in the "Pages" settings. For user/organization sites, it will be username.github.io. For project sites, it will be username.github.io/repository-name.
-- You can also optionally configure a custom domain for your GitHub Pages site.
+```
+~/.llcRentalTracker/<llcName>_config.json
+```
 
-Note: GitHub Pages primarily supports static websites. This means you cannot directly host dynamic server-side applications or databases on GitHub Pages. For dynamic content, you would need to use a different hosting solution or integrate with external services.
+```json
+{
+  "llcName":   "WBGroupLLC",
+  "bus_repo":  "~/GDrive/Family/Assets/LLC-WBGroup",
+  "books_dir": "books",
+  "year":      2025
+}
+```
+
+The tracker derives all data paths from these four fields — no hardcoded paths.
+
+## Package Layout
+
+```
+llcRentalTracker/
+├── ledger/       # Double-entry engine (LLC, ledgerDB, COA, statements)
+├── irs/          # IRS form builders + PDF population
+├── F1065_K1/     # Form 1065 / K-1 tax workflow
+├── ui/           # Flask views + Jinja2 templates
+├── util/         # Session management, working DB, MultiTaskWS integration
+├── tests/        # Test suite (stmtBS, stmtGL, stmtIS)
+├── mcp/          # MCP server + skill definitions
+├── wsCmd.py      # CLI: start/stop server, --newBus provisioning
+└── wsgi.py       # Flask WSGI entry point
+```
+
+## Running Tests
+
+```bash
+python -m tests.test_stmtBS
+python -m tests.test_stmtGL
+python -m tests.test_stmtIS
+```
+
+## Related
+
+- Business repo: `LLC-WBGroup` — ledger data, IRS forms, asset docs (separate repo)
+- Platform: [pyMultiTaskWS](https://github.com/wbgroupmgr/pyMultiTaskWS) — multi-app web server
