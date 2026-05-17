@@ -367,10 +367,8 @@ class stmtBS(stmtDB):
         '''Scan llcAssets JSON for the earliest InService date (M/YYYY format).'''
         try:
             import json as _j2
-            top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
-            acct = getattr(self.llc, 'dirAccounting', '') or ''
             name = getattr(self.llc, 'objName', '') or ''
-            fn   = _os.path.join(top, acct, 'Accts', f'llcAssets_{name}.json')
+            fn   = _os.path.join(self.llc.acctDir(), 'Accts', f'llcAssets_{name}.json')
             if not _os.path.exists(fn):
                 return ''
             records = _j2.loads(open(fn).read())

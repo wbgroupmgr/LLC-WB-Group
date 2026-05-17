@@ -395,13 +395,12 @@ class stmtDB(ledgerDB):
         — distinct from ledgerDB's Accts/ so the live DB is never shadowed.
         '''
         try:
-            top   = self.llc.TOP
-            acct  = getattr(self.llc, "dirAccounting", "")
             objNm = getattr(self.llc, "objName", "")
+            stmts_dir = _os.path.join(self.llc.acctDir(), "Stmts")
         except Exception:
-            top, acct, objNm = ".", "", "LLC"
+            stmts_dir = _os.path.join(".", "Stmts")
+            objNm = "LLC"
 
-        stmts_dir = _os.path.join(top, acct, "Stmts") if acct else _os.path.join(top, "Stmts")
         fn = _os.path.join(stmts_dir, f"{self._tblID}_{objNm}.json")
         if getattr(self, "debug", False):
             print(f"{self._tblID} stmtDB.FN: {fn}")

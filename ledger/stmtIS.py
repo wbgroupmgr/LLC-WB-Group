@@ -1329,10 +1329,8 @@ class stmtIS_TaxMember(stmtIS_Tax):
         super().__init__(llc)
 
     def _load_owners(self) -> List[Dict[str, Any]]:
-        top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
-        acct = getattr(self.llc, 'dirAccounting', '') or ''
         llcName = getattr(self.llc, 'objName', '') or ''
-        fn = _os.path.join(top, acct, 'Accts', f'llcOwners_{llcName}.json')
+        fn = _os.path.join(self.llc.acctDir(), 'Accts', f'llcOwners_{llcName}.json')
         if not _os.path.exists(fn):
             return []
         try:
@@ -1351,10 +1349,8 @@ class stmtIS_TaxMember(stmtIS_Tax):
         # Sum Acct.Equity.* Debit records from llcAssets × pct.
         # Placeholder — reflects closing-cost equity credits only until
         # proper capital contribution records are added to llcAssets.
-        top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
-        acct = getattr(self.llc, 'dirAccounting', '') or ''
         llcName = getattr(self.llc, 'objName', '') or ''
-        fn = _os.path.join(top, acct, 'Accts', f'llcAssets_{llcName}.json')
+        fn = _os.path.join(self.llc.acctDir(), 'Accts', f'llcAssets_{llcName}.json')
         try:
             with open(fn, 'r') as fh:
                 data = _json.load(fh)

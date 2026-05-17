@@ -37,7 +37,7 @@ class llcOwners(ledgerObject):
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
 
     def FN(self): 
-        fn = os.path.join(self.llc.TOP, self.llc.dirAccounting, 'Accts', f"{self.oID}_{self.llc.objName}.json")
+        fn = os.path.join(self.llc.acctDir(), 'Accts', f"{self.oID}_{self.llc.objName}.json")
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
 
