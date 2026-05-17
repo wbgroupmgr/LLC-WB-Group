@@ -1,58 +1,51 @@
-# workspace/ — Claude Working Folder
+# llcRentalTracker — Developer Quick Start
 
-This is the active working directory for code development and testing with Claude.
+Rental property accounting and tax tracker — Flask web app + future MCP server.
 
-## Purpose
-Scratch scripts, experiments, and new features are developed here before being
-promoted to the main package directories (`ledger/`, `irs/`, etc.).
+## Setup (first time)
 
-## Quick Start
+```bash
+# 1. Provision the business repo config
+python3 wsCmd.py --newBus ~/GDrive/Family/Assets/LLC-WBGroup
 
-Every script or notebook in this folder should begin with:
+# 2. Set up user DB and passphrase
+python3 wsCmd.py --setup --llcName WBGroupLLC
+
+# 3. Start local server
+LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC
+```
+
+## Available imports
 
 ```python
 from ledger import setup_paths
-```
+setup_paths.load_config('WBGroupLLC')   # call once before any LLC usage
 
-`setup_paths` lives in `ledger/` and uses `Path(__file__).parents[N]` to anchor
-all paths relative to the file itself — no hard-coded absolute paths needed.
-
-### Available imports after `from ledger import setup_paths`:
-
-```python
-from ledger import ledgerDB, llcCOA, LLC, llcBank, llcExpRev
+from ledger.LLC import LLC
+from ledger import ledgerDB, llcCOA, llcBank, llcExpRev
 from irs import pdfFill, irsForms, pdfMap
 from F1065_K1 import F1065, gl_ledger
-from uillc import llcMgmt, llcAssets, llcSession
+from ui import llcMgmt, llcAssets, llcSession
 from util import utilEditSession, utilWorkingDB
 ```
 
-### Path constants:
+## Path constants (after load_config)
 
-| Constant | `parents[N]` | Points to |
-|---|---|---|
-| `setup_paths.TOP` | `parents[4]` | `LLC-WB-Group/` |
-| `setup_paths.NOTEBOOKS_DIR` | `parents[1]` | `Notebooks/` |
-| `setup_paths.ACCT_DATA_DIR` | `parents[2]` | `AccountingData/` |
-| `setup_paths.ACCTS_DIR` | — | `AccountingData/Accts/` |
-| `setup_paths.EXPENSES_DIR` | — | `AccountingData/Expenses/` |
-| `setup_paths.BANK_STMTS_2025` | — | `AccountingData/2025/BankStmts/` |
-| `setup_paths.BANK_STMTS_2026` | — | `AccountingData/2026/BankStmts/` |
-| `setup_paths.TAX_RECORDS_2025` | — | `AccountingData/2025/YE_Tax_Records/` |
-| `setup_paths.IRS_FORMS_DIR` | — | `.../YE_Tax_Records/Forms_IRS/` |
+| Constant | Points to |
+|---|---|
+| `setup_paths.TOP` | business repo root |
+| `setup_paths.ACCT_DATA_DIR` | `books/` |
+| `setup_paths.ACCTS_DIR` | `books/<year>/Accts/` |
+| `setup_paths.EXPENSES_DIR` | `books/<year>/Expenses/` |
+| `setup_paths.IRS_FORMS_DIR` | `books/<year>/Forms/` |
+| `setup_paths.BANK_STMTS` | `books/<year>/BankStmts/` |
+| `setup_paths.YEAR` | current fiscal year (int) |
 
-### LLC instantiation (no `top` arg needed):
+## LLC instantiation
 
 ```python
+from ledger import setup_paths
+setup_paths.load_config('WBGroupLLC')
 from ledger.LLC import LLC
-
-llc = LLC('WBGroupLLC')   # setup_paths.TOP used automatically as default
-```
-
-## Structure
-
-```
-workspace/
-├── README.md           ← this file
-└── <your scripts>.py / .ipynb
+llc = LLC('WBGroupLLC')
 ```
