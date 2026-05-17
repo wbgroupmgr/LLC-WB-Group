@@ -42,11 +42,10 @@ from ledger.LLC import LLC
 from ui.llcLogin_auth import _db_path, _find_user, _hash, _load_users, _save_users
 
 
-def _latest_config_year(llc_name: str) -> int:
-    """Return the latest fiscal year that has a config file, or current year."""
-    import datetime as _dt
+def _latest_config_year(llc_name: str):
+    """Return the latest fiscal year that has a config file, or None if none exist."""
     years = _sp.available_years(llc_name)
-    return years[0] if years else _dt.datetime.now().year
+    return years[0] if years else None
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -105,7 +104,11 @@ class WsCmd:
     def __init__(self, llc_name: str, year: int = None):
         self.llc_name = llc_name
         self.year     = year or _latest_config_year(llc_name)
-        self.llc      = LLC(llc_name, year=self.year)
+        # LLC object only needed for --start; skip silently if profile missing
+        try:
+            self.llc = LLC(llc_name, year=self.year)
+        except Exception:
+            self.llc = None
         self._db      = _db_path(llc_name)
         # Profile lives alongside the ledger DBs in the business repo Accts/
         # (setup_paths.ACCTS_DIR is set by load_config() before WsCmd is instantiated)
@@ -129,13 +132,16 @@ class WsCmd:
         return f"local_{platform.node()}"
 
     def _load_profile(self) -> dict:
+        if not self._profile.exists():
+            return {}
         try:
             return json.loads(self._profile.read_text(encoding="utf-8"))
         except Exception as exc:
-            print(f"  ✗ Cannot read {self._profile.name}: {exc}")
+            print(f"  ✗ Cannot parse {self._profile.name}: {exc}")
             sys.exit(1)
 
     def _save_profile(self, profile: dict) -> None:
+        self._profile.parent.mkdir(parents=True, exist_ok=True)
         self._profile.write_text(
             json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
         )
@@ -379,9 +385,19 @@ def main():
     # Resolve year: explicit arg > auto-detect latest config
     year = args.year or _latest_config_year(args.llcName)
     if not year:
-        ap.error("--year is required (no existing config found to auto-detect)")
+        ap.error(
+            f"No config found for '{args.llcName}' in {_sp.TRACKER_CFG_DIR}.\n"
+            f"  Run first:  python3 wsCmd.py --newBus <bus_repo_path> --year <YEAR>\n"
+            f"  Or pass:    --year <YEAR>"
+        )
 
-    _sp.load_config(args.llcName, year)
+    try:
+        _sp.load_config(args.llcName, year)
+    except FileNotFoundError:
+        print(f"\n  Error: config file not found for '{args.llcName}' year={year}.")
+        print(f"  Expected: {_sp.TRACKER_CFG_DIR / f'{args.llcName}_{year}_config.json'}")
+        print(f"  Run:  python3 wsCmd.py --newBus <bus_repo_path> --year {year}")
+        sys.exit(1)
     ws = WsCmd(args.llcName, year=year)
 
     if args.setup:
