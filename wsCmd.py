@@ -13,12 +13,12 @@ Setup (first time or reset forgotten passphrase):
     python3 wsCmd.py --setup --llcName WBGroupLLC --year 2025
     python3 wsCmd.py --setup --reset --llcName WBGroupLLC --year 2025
 
-Start locally:
-    LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC --year 2025
-    LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC --year 2025 --port 5001 --load
+Start locally (passphrase auto-loaded from profile after --setup):
+    python3 wsCmd.py --start --llcName WBGroupLLC
+    python3 wsCmd.py --start --llcName WBGroupLLC --port 5001 --load
 
 Start hosted (MultiTaskWS — placeholder):
-    python3 wsCmd.py --start --host --llcName WBGroupLLC --year 2025
+    python3 wsCmd.py --start --host --llcName WBGroupLLC
 """
 
 import argparse
@@ -107,7 +107,9 @@ class WsCmd:
         self.year     = year or _latest_config_year(llc_name)
         self.llc      = LLC(llc_name, year=self.year)
         self._db      = _db_path(llc_name)
-        self._profile = _here.parent / "Accts" / f"llcProfile_{llc_name}.json"
+        # Profile lives alongside the ledger DBs in the business repo Accts/
+        # (setup_paths.ACCTS_DIR is set by load_config() before WsCmd is instantiated)
+        self._profile = _sp.ACCTS_DIR / f"llcProfile_{llc_name}.json"
 
     # ── internal helpers ──────────────────────────────────────────────────────
 
@@ -265,8 +267,8 @@ class WsCmd:
         print(f"      json.load(open('{self._profile}'))['MultiTaskWS_Config'],")
         print( "      indent=2))\"")
         print()
-        print("  Start locally:")
-        print(f"    LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName {self.llc_name}")
+        print("  Start locally (passphrase loaded automatically from profile):")
+        print(f"    python3 wsCmd.py --start --llcName {self.llc_name}")
         print("=" * 64)
         print()
 
