@@ -220,9 +220,10 @@ class _llcIRSViewBase:
             dummy.verbose  = False
             dummy.oID      = "Form1065"
             from pathlib import Path
-            dummy.irsDir      = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
-            dummy._root_dir   = dummy.irsDir.parents[4]
-            dummy._accts_dir  = dummy.irsDir.parents[2] / "Accts"
+            from ledger import setup_paths as _sp
+            dummy.irsDir      = Path(_sp.IRS_FORMS_DIR) if _sp.IRS_FORMS_DIR else Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+            dummy._root_dir   = dummy.irsDir.parents[2]
+            dummy._accts_dir  = dummy.irsDir.parents[0] / "Accts"
             self._owners_list = dummy._loadOwners()
             self._entity, self._f1065 = dummy._loadProfile()
         except Exception:

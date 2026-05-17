@@ -106,14 +106,22 @@ class irsForm:
         if self.verbose:
             print(f"irsForm Entry: oID:{self.oID}, verbose:{self.verbose}") 
         
-        # Resolve irsDir from the LLC object
-        self.irsDir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
-
-        # Derived data directories
-        # irsDir = …/AccountingData/<yr>/YE_Tax_Records/Forms_IRS
+        # Resolve irsDir — prefer setup_paths.IRS_FORMS_DIR (books/<yr>/Forms/)
+        # over the legacy YE_Tax_Records/Forms_IRS path.
         try:
-            self._root_dir  = self.irsDir.parents[4]           # LLC-WB-Group/
-            self._accts_dir = self.irsDir.parents[2] / "Accts" # …/AccountingData/Accts/
+            from ledger import setup_paths as _sp
+            if _sp.IRS_FORMS_DIR:
+                self.irsDir = Path(_sp.IRS_FORMS_DIR)
+            else:
+                self.irsDir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+        except Exception:
+            self.irsDir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+
+        # irsDir = books/<yr>/Forms/
+        # parents[0] = books/<yr>/   parents[1] = books/   parents[2] = repo root
+        try:
+            self._root_dir  = self.irsDir.parents[2]           # LLC-WB-Group/
+            self._accts_dir = self.irsDir.parents[0] / "Accts" # books/<yr>/Accts/
         except IndexError:
             self._root_dir  = self.irsDir.parent
             self._accts_dir = self.irsDir.parent
@@ -479,9 +487,11 @@ class irsForm:
         Returns (entity_data, f1065_data).  Handles the concatenated dual-JSON
         format used by llcProfile_WBGroupLLC.json.
         """
+        llc_nm = getattr(self.llc, 'objName', 'WBGroupLLC')
         for candidate in [
-            self._root_dir / "llcProfile_WBGroupLLC.json",
-            self._root_dir / "pages" / "AccountingData" / "llcProfile_WBGroupLLC.json",
+            self._accts_dir / f"llcProfile_{llc_nm}.json",
+            self._root_dir / f"llcProfile_{llc_nm}.json",
+            self._root_dir / "pages" / "AccountingData" / f"llcProfile_{llc_nm}.json",
         ]:
             if candidate.exists():
                 profile_path = candidate
@@ -510,8 +520,9 @@ class irsForm:
 
     def _loadOwners(self) -> List[Dict]:
         """Load llcOwners JSON, returns list of owner dicts."""
+        llc_nm = getattr(self.llc, 'objName', 'WBGroupLLC')
         for candidate in [
-            self._accts_dir / "llcOwners_WBGroupLLC.json",
+            self._accts_dir / f"llcOwners_{llc_nm}.json",
         ]:
             if candidate.exists():
                 try:

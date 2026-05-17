@@ -85,11 +85,8 @@ class llcFormK1:
     # ── Public interface ────────────────────────────────────────────────────
 
     def _irs_dir(self) -> Optional[Path]:
-        llc = self._llc()
-        if llc is None:
-            return None
         try:
-            return Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+            return Path(self.eSession.paths.irs_forms_dir)
         except Exception:
             return None
 

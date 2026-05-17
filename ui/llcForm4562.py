@@ -70,12 +70,9 @@ class llcForm4562:
 
     # ── Public interface ────────────────────────────────────────────────────
     def pdf_path(self) -> Optional[Path]:
-        '''Absolute path to Forms_IRS/Form4562_FILL.pdf for the current LLC.'''
-        llc = self._llc()
-        if llc is None:
-            return None
+        '''Absolute path to Forms/<FORM_ID>_FILL.pdf via eSession.paths.'''
         try:
-            irs_dir = Path(llc.acctDir(dirName="ye")) / "Forms_IRS"
+            irs_dir = Path(self.eSession.paths.irs_forms_dir)
         except Exception:
             return None
         p = irs_dir / f"{self.FORM_ID}_FILL.pdf"
