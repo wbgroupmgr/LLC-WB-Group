@@ -44,6 +44,10 @@ class LLC(object):
             except AttributeError:
                 self.yr = datetime.datetime.now().year
 
+        # TOP resolution: profile field → setup_paths.TOP (always set after load_config)
+        if not getattr(self, 'TOP', None):
+            self.TOP = setup_paths.TOP
+
         self.coa = llccoa(self)
 
         self.debug = kwargs.get('debug', self.debug)
