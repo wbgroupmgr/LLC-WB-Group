@@ -44,9 +44,11 @@ class LLC(object):
             except AttributeError:
                 self.yr = datetime.datetime.now().year
 
-        # TOP resolution: profile field → setup_paths.TOP (always set after load_config)
+        # TOP / dirAccounting: profile fields → setup_paths fallbacks (set by load_config)
         if not getattr(self, 'TOP', None):
             self.TOP = setup_paths.TOP
+        if not getattr(self, 'dirAccounting', None):
+            self.dirAccounting = setup_paths.BOOKS_DIR or 'books'
 
         self.coa = llccoa(self)
 

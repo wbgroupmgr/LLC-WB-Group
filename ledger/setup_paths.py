@@ -31,6 +31,7 @@ EXPENSES_DIR:  Path | None = None   # books/<year>/Expenses/
 IRS_FORMS_DIR: Path | None = None   # books/<year>/Forms/
 BANK_STMTS:    Path | None = None   # books/<year>/BankStmts/
 YEAR:          int  | None = None
+BOOKS_DIR:     str  | None = None   # "books" (relative name from TOP)
 
 
 @dataclass
@@ -83,7 +84,7 @@ def load_bootstrap(llc_name: str) -> dict:
 
 def load_config(llcName: str, year: int) -> dict:
     """Read ~/.llcRentalTracker/<llcName>_<year>_config.json and populate all path constants."""
-    global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR
+    global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR, BOOKS_DIR
 
     cfg_path = TRACKER_CFG_DIR / f"{llcName}_{year}_config.json"
     with open(cfg_path) as f:
@@ -94,6 +95,7 @@ def load_config(llcName: str, year: int) -> dict:
     yr    = int(cfg["year"])
 
     TOP           = base
+    BOOKS_DIR     = cfg["books_dir"]
     ACCT_DATA_DIR = books
     ACCTS_DIR     = books / str(yr) / "Accts"
     EXPENSES_DIR  = books / str(yr) / "Expenses"
