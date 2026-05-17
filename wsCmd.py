@@ -6,18 +6,19 @@ The LLC Editor is a task application that runs in two modes:
   local  — Flask dev server on this machine
   hosted — registered with a MultiTaskWS dispatcher (PythonAnywhere)
 
-Run from pages/AccountingData/Notebooks/
+Provision a new business repo config:
+    python3 wsCmd.py --newBus ~/GDrive/Family/Assets/LLC-WBGroup --year 2025
 
 Setup (first time or reset forgotten passphrase):
-    python3.10 wsCmd.py --setup --llcName WBGroupLLC
-    python3.10 wsCmd.py --setup --reset --llcName WBGroupLLC
+    python3 wsCmd.py --setup --llcName WBGroupLLC --year 2025
+    python3 wsCmd.py --setup --reset --llcName WBGroupLLC --year 2025
 
 Start locally:
-    LLC_GPG_PASSPHRASE=<pp> python3.10 wsCmd.py --start --llcName WBGroupLLC
-    LLC_GPG_PASSPHRASE=<pp> python3.10 wsCmd.py --start --llcName WBGroupLLC --port 5001 --load
+    LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC --year 2025
+    LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC --year 2025 --port 5001 --load
 
 Start hosted (MultiTaskWS — placeholder):
-    python3.10 wsCmd.py --start --host --llcName WBGroupLLC
+    python3 wsCmd.py --start --host --llcName WBGroupLLC --year 2025
 """
 
 import argparse
@@ -59,28 +60,25 @@ _SEED_USER = {
 
 # ── Business provisioning ─────────────────────────────────────────────────────
 
-def provision_new_bus(bus_repo: str, books_dir: str = "books", year: int | None = None) -> Path:
+def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books") -> Path:
     """
-    Generate ~/.llcRentalTracker/<llcName>_config.json for a new business repo.
+    Generate ~/.llcRentalTracker/<llcName>_<year>_config.json for a business repo + year.
 
     llcName is auto-detected from the repo folder name.
     Returns the path to the written config file.
     """
-    import datetime as _dt
-
     bus_path  = Path(bus_repo).expanduser().resolve()
-    llc_name  = bus_path.name          # e.g. LLC-WBGroup → use as-is, or strip dashes
-    yr        = year or _dt.datetime.now().year
+    llc_name  = bus_path.name
 
     cfg_dir = _sp.TRACKER_CFG_DIR
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    cfg_path = cfg_dir / f"{llc_name}_config.json"
+    cfg_path = cfg_dir / f"{llc_name}_{year}_config.json"
 
     config = {
         "llcName":   llc_name,
         "bus_repo":  str(bus_path),
         "books_dir": books_dir,
-        "year":      yr,
+        "year":      year,
     }
 
     cfg_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -89,8 +87,8 @@ def provision_new_bus(bus_repo: str, books_dir: str = "books", year: int | None 
     print(f"    llcName        : {llc_name}")
     print(f"    bus_repo       : {bus_path}")
     print(f"    books_dir      : {books_dir}")
-    print(f"    year           : {yr}")
-    print(f"\n  Next: python3 wsCmd.py --setup --llcName {llc_name}")
+    print(f"    year           : {year}")
+    print(f"\n  Next: python3 wsCmd.py --setup --llcName {llc_name} --year {year}")
     return cfg_path
 
 
@@ -316,10 +314,12 @@ examples:
 
     ap.add_argument("--llcName", metavar="NAME",
                     help="LLC name, e.g. WBGroupLLC (required for --setup and --start)")
+    ap.add_argument("--year", type=int, required=False, metavar="YEAR",
+                    help="Fiscal year, e.g. 2025 (required for all modes)")
 
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--newBus", metavar="BUS_REPO_PATH",
-                      help="Provision a new business repo — writes ~/.llcRentalTracker/<name>_config.json")
+                      help="Provision a new business repo — writes ~/.llcRentalTracker/<name>_<year>_config.json")
     mode.add_argument("--setup", action="store_true",
                       help="Set up the task app (passphrase, deps, user DB)")
     mode.add_argument("--start", action="store_true",
@@ -328,8 +328,6 @@ examples:
     # --newBus options
     ap.add_argument("--booksDir", default="books", metavar="DIR",
                     help="[--newBus] Accounting sub-directory name (default: books)")
-    ap.add_argument("--year", type=int, default=None, metavar="YEAR",
-                    help="[--newBus] Fiscal year override (default: current year)")
 
     # --setup options
     ap.add_argument("--reset", action="store_true",
@@ -356,16 +354,20 @@ examples:
 
 
 def main():
-    args = _build_parser().parse_args()
+    ap   = _build_parser()
+    args = ap.parse_args()
+
+    if not args.year:
+        ap.error("--year is required for all modes, e.g. --year 2025")
 
     if args.newBus:
-        provision_new_bus(args.newBus, books_dir=args.booksDir, year=args.year)
+        provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir)
         return
 
     if not args.llcName:
-        _build_parser().error("--llcName is required for --setup and --start")
+        ap.error("--llcName is required for --setup and --start")
 
-    _sp.load_config(args.llcName)
+    _sp.load_config(args.llcName, args.year)
     ws = WsCmd(args.llcName)
 
     if args.setup:

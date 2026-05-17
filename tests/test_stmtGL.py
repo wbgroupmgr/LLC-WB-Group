@@ -45,7 +45,7 @@ if _ROOT not in sys.path:
 
 def _llc():
     from ledger import setup_paths as _sp
-    _sp.load_config('WBGroupLLC')
+    _sp.load_config('WBGroupLLC', 2025)
     try:
         from ledger.LLC import LLC
     except ImportError:
