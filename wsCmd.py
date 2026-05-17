@@ -36,6 +36,7 @@ _here = Path(__file__).resolve().parent
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
+from ledger import setup_paths as _sp
 from ledger.LLC import LLC
 from ui.llcLogin_auth import _db_path, _find_user, _hash, _load_users, _save_users
 
@@ -54,6 +55,43 @@ _SEED_USER = {
     "role":       "llcManager",
     "created_at": "2026-01-01T00:00:00",
 }
+
+
+# ── Business provisioning ─────────────────────────────────────────────────────
+
+def provision_new_bus(bus_repo: str, books_dir: str = "books", year: int | None = None) -> Path:
+    """
+    Generate ~/.llcRentalTracker/<llcName>_config.json for a new business repo.
+
+    llcName is auto-detected from the repo folder name.
+    Returns the path to the written config file.
+    """
+    import datetime as _dt
+
+    bus_path  = Path(bus_repo).expanduser().resolve()
+    llc_name  = bus_path.name          # e.g. LLC-WBGroup → use as-is, or strip dashes
+    yr        = year or _dt.datetime.now().year
+
+    cfg_dir = _sp.TRACKER_CFG_DIR
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_path = cfg_dir / f"{llc_name}_config.json"
+
+    config = {
+        "llcName":   llc_name,
+        "bus_repo":  str(bus_path),
+        "books_dir": books_dir,
+        "year":      yr,
+    }
+
+    cfg_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    print(f"  ✓ Config written : {cfg_path}")
+    print(f"    llcName        : {llc_name}")
+    print(f"    bus_repo       : {bus_path}")
+    print(f"    books_dir      : {books_dir}")
+    print(f"    year           : {yr}")
+    print(f"\n  Next: python3 wsCmd.py --setup --llcName {llc_name}")
+    return cfg_path
 
 
 # ── WsCmd class ───────────────────────────────────────────────────────────────
@@ -276,14 +314,22 @@ examples:
 """,
     )
 
-    ap.add_argument("--llcName", required=True, metavar="NAME",
-                    help="LLC name, e.g. WBGroupLLC")
+    ap.add_argument("--llcName", metavar="NAME",
+                    help="LLC name, e.g. WBGroupLLC (required for --setup and --start)")
 
     mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--newBus", metavar="BUS_REPO_PATH",
+                      help="Provision a new business repo — writes ~/.llcRentalTracker/<name>_config.json")
     mode.add_argument("--setup", action="store_true",
                       help="Set up the task app (passphrase, deps, user DB)")
     mode.add_argument("--start", action="store_true",
                       help="Start the task app server")
+
+    # --newBus options
+    ap.add_argument("--booksDir", default="books", metavar="DIR",
+                    help="[--newBus] Accounting sub-directory name (default: books)")
+    ap.add_argument("--year", type=int, default=None, metavar="YEAR",
+                    help="[--newBus] Fiscal year override (default: current year)")
 
     # --setup options
     ap.add_argument("--reset", action="store_true",
@@ -311,7 +357,16 @@ examples:
 
 def main():
     args = _build_parser().parse_args()
-    ws   = WsCmd(args.llcName)
+
+    if args.newBus:
+        provision_new_bus(args.newBus, books_dir=args.booksDir, year=args.year)
+        return
+
+    if not args.llcName:
+        _build_parser().error("--llcName is required for --setup and --start")
+
+    _sp.load_config(args.llcName)
+    ws = WsCmd(args.llcName)
 
     if args.setup:
         ws.setup(reset=args.reset)
