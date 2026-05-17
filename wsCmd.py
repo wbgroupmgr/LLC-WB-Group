@@ -86,8 +86,21 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
     cfg_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = cfg_dir / f"{llc_name}_{year}_config.json"
 
+    # Auto-detect dataName from existing Accts files (e.g. llcAssets_WBGroupLLC.json)
+    accts_dir = bus_path / books_dir / str(year) / "Accts"
+    data_name = llc_name
+    for p in accts_dir.glob("llcAssets_*.json"):
+        stem = p.stem                        # e.g. "llcAssets_WBGroupLLC"
+        candidate = stem[len("llcAssets_"):]
+        if candidate:
+            data_name = candidate
+            break
+    if data_name != llc_name:
+        print(f"  ℹ  dataName auto-detected: '{data_name}' (from Accts files)")
+
     config = {
         "llcName":   llc_name,
+        "dataName":  data_name,
         "bus_repo":  str(bus_path),
         "books_dir": books_dir,
         "year":      year,

@@ -50,6 +50,11 @@ class LLC(object):
         if not getattr(self, 'dirAccounting', None):
             self.dirAccounting = setup_paths.BOOKS_DIR or 'books'
 
+        # dataName: the suffix used by data files (may differ from the config llcName /
+        # folder name).  Overrides objName so all FN() paths resolve to real files.
+        if setup_paths.DATA_NAME and setup_paths.DATA_NAME != self.objName:
+            self.objName = setup_paths.DATA_NAME
+
         self.coa = llccoa(self)
 
         self.debug = kwargs.get('debug', self.debug)
