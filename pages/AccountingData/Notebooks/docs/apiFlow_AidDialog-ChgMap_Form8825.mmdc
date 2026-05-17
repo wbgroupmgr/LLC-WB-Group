@@ -1,0 +1,216 @@
+%% apiFlow_ChangeFieldMap_Form8825.mmdc
+%% Scenario: operator on Form 8825 view opens the Aid for fid F### ,
+%% deletes the existing mapping, adds a Custom (Cplx) mapping, commits
+%% (regenerate FILL.pdf), then a human bookkeeper edits the
+%% _Cplx_F###() method body in stmt{SRC}.py, then the operator
+%% refreshes Form 8825 to see the new value.
+%%
+%% Ambiguities | suggestions | insights:
+%%   • [Q1] M4 (Custom-map source surgery) is currently a stub.  In
+%%     v0.1, POST /api/aid/custom returns HTTP 501 with a hand-off
+%%     message.  This diagram shows the INTENDED M4 flow - when the
+%%     stubs are implemented the source-surgery primitives will run
+%%     instead of returning 501.  Marked with "(M4)" tags.
+%%   • [Q2] The operator's "delete then add Custom" is currently
+%%     two separate API calls.  Suggest a single "Replace with
+%%     Custom" route to make the dialog a one-click action - the
+%%     intermediate "blank" state is never observed by the user.
+%%   • [Q3] Hot-reload of stmt{SRC}.py via importlib.reload after
+%%     human edits is fragile in a long-running Flask process.
+%%     Recommended path: run irsGenCmd.py (v0.2 CLI) in a fresh
+%%     process for the final commit.  The Aid's in-process regenerate
+%%     is for fast iteration only.
+%%   • [Q4] The Aid dialog "Cancel" exits without persisting any
+%%     changes - but each Save/Delete already wrote to disk
+%%     immediately (no in-memory pending state).  Cancel is purely
+%%     a UI-close action.
+%%   • [Q5] Refresh of the Form 8825 view (last step) does NOT
+%%     re-run BookToIRS - it just re-fetches the FILL.pdf the Aid's
+%%     Commit step already produced (with cache-buster ?ts=).
+%%
+sequenceDiagram
+    autonumber
+    participant B as 'UI<br>Browser'
+    participant JS as JavaScript (Frontend)
+    participant API as Flask API (Routes)
+    participant AM as ui.llcMgmt<br>(Middleware.Auth)
+    participant UI as ui.llcForm8825<br>(View)
+    participant IRS as irs.Form8825<br>(Form Processing)
+    participant Bk2Tx as irs.BookToIRS<br>(Bridge)
+    participant Bk as ledger.stmt{SRC}_Tax<br>(BookSvc)
+    participant DB as DB_Json<br>(⛁ OBJs/Profile)
+    participant BookNS as bookNS_{SRC}.json<br>(⛁ Namespace Control)
+    participant FM as Form8825_FILL.pdf<br>(⛁ namespace, FILL)
+    participant Code as ledger stmt{src}<br>(⛁ Python source)
+    participant U as Util (Log-Help)
+    participant H as Bookkeeper (Human)
+
+    Note over B, U: Step 1 - Operator on Form8825 view
+    B->>B: Form 8825 page rendered (FILL.pdf in iframe, 🛠 Bk2Tx button visible)
+
+    Note over B, U: Step 2 - Open Aid + enter fid F###
+    B->>JS: click 🛠 Aid → aidOpen()
+    JS->>JS: aidBackdrop.classList.add('open')
+    JS->>API: GET /api/aid/sources
+    API->>AM: dispatch aid_sources()
+    AM->>IRS: listSources()
+    IRS->>Bk2Tx: BookToIRS.listSources()
+    Bk2Tx-->>IRS: ["Profile","BS","IS","GL"]
+    IRS-->>AM: {sources: [...]}
+    AM-->>API: {sources: [...]}
+    API-->>JS: {sources: [...]}
+    JS->>JS: populate Source dropdown
+    B->>JS: type "F042" + Enter → aidLookup()
+    JS->>API: GET /api/aid/mapping/F042
+    API->>AM: dispatch aid_mapping("F042")
+    AM->>IRS: getMapping(F042)
+    IRS->>Bk2Tx: BookToIRS.getMapping(F042)
+
+    Note over B, U: Step 3.A - Build Book/Form Namespace
+    Bk2Tx->>Bk2Tx: loadNamespace() → Form8825_namespace.json
+
+    Bk2Tx->>Bk: stmtProfile_Tax
+    Bk->>BookNS: load Profile BookNS
+    BookNS-->>Bk: bookNS_Profile.json
+    Bk-->>Bk2Tx: bookNS Profile.json
+    Bk2Tx->>Bk: Tax.loadCustomMapDict(src) (introspect {FORM}_CustomMapDict)
+    Bk-->Bk2Tx: Profile namespace
+
+    Bk2Tx->>Bk: stmtGL_Tax
+    Bk->>BookNS: load GL BookNS
+    BookNS-->>Bk: bookNS_GL.json
+    Bk-->>Bk2Tx: bookNS GL.json
+    Bk2Tx->>Bk: Tax.loadCustomMapDict(src) (introspect {FORM}_CustomMapDict)
+    Bk-->Bk2Tx: GL namespace
+
+    Bk2Tx->>Bk: stmtIS_Tax
+    Bk->>BookNS: load IS BookNS
+    BookNS-->>Bk: bookNS_IS.json
+    Bk-->>Bk2Tx: bookNS IS.json
+    Bk2Tx->>Bk: Tax.loadCustomMapDict(src) (introspect {FORM}_CustomMapDict)
+    Bk-->Bk2Tx: IS namespace
+
+    Bk2Tx->>Bk2Tx: loadCustomMapDict(src) (introspect {FORM}_CustomMapDict)
+    Bk2Tx->>Bk2Tx: isInChkArray(F042)
+    Bk2Tx->>Bk: stmt{SRC}_Tax(llc).loadFillDict("Form8825")
+    
+    Note over B, U: Step 3.B - Get live values
+    Bk->>DB: read profile, GL, BS, IS state
+    DB-->>Bk: live values
+    Bk-->>Bk2Tx: {fid → value} dict per source
+    Bk2Tx->>Bk2Tx: compute liveStatus(F042) - walks priority chain
+    
+    Note over B, U: Step 3.C - Feed Aid Dialog with mapping info
+    Bk2Tx-->>IRS: mapping data
+    IRS-->>AM: {fid, namespace, bookNS, custom, chk_array, live_value, live_status}
+    AM-->>API: mapping JSON
+    API-->>JS: mapping JSON
+    JS->>JS: renderState(CURRENT) - fills aidLive, aidMeta, dropdowns
+
+    JS->>API: GET /api/aid/fields/{src}
+    API->>IRS: listFields(src)
+    IRS->>Bk2Tx: BookToIRS.listFields(src)
+    Bk2Tx-->>IRS: field keys
+    IRS-->>JS: path autocomplete data
+    JS->>API: GET /api/aid/preview?fid=F042
+    API->>IRS: previewValue(fid, src, path)
+    IRS->>Bk2Tx: BookToIRS.previewValue(...)
+    Bk2Tx-->>IRS: {value, chips}
+    IRS-->>JS: {value, chips}
+    JS->>B: dialog shows current mapping + live value + chips
+
+    Note over B, U: Step 3 - Delete current mapping
+    B->>JS: click "Delete" → aidDelete()
+    JS->>JS: confirm() prompt
+    JS->>API: DELETE /api/aid/mapping/F042
+    API->>AM: dispatch aid_delete("F042")
+    AM->>IRS: deleteMapping(F042)
+    IRS->>Bk2Tx: BookToIRS.deleteMapping(F042)
+    Bk2Tx->>BookNS: loadBookNS(src) - every src (Profile, BS, IS, GL)
+    Bk2Tx->>BookNS: backup bookNS files
+    Bk2Tx->>BookNS: write bookNS_OBJ.json atomically (remove F042)
+    Bk2Tx->>Bk2Tx: removeCustomMap(F042, src) mark as deleted
+    Bk2Tx->>Bk2Tx: refresh stmt instances() + llc._Profile() reload
+    Bk2Tx-->>IRS: refreshed getMapping(F042)
+    IRS-->>AM: {ok:true, row}
+    AM-->>API: {ok:true, row: …}
+    API-->>JS: {ok:true, row: …}
+    JS->>JS: flashOK("Deleted F042") and renderState(row)
+
+    Note over B, U: Step 4 - Add a Custom (Cplx) mapping
+    B->>JS: pick Source and Custom map option + note
+    JS->>API: POST /api/aid/custom {fid:F042, src, note}
+    API->>AM: dispatch aid_custom_create
+    AM->>IRS: addCustomMap(F042, src, note)
+    IRS->>Bk2Tx: BookToIRS.addCustomMap(F042, src, note)
+    %% v0.1 returns 501.  When M4 ships, the body below executes:
+    Bk2Tx->>Code: read ledger stmt{src} source file
+    Bk2Tx->>Code: scan for existing _Cplx_F042  (decision §12 Q5 - refuse if exists -offer Re-link)
+    Bk2Tx->>Code: insert F042 → "_Cplx_F042" between Bk2Tx-MAPS markers
+    Bk2Tx->>Code: append _Cplx_F042(self, formNm) stub between Bk2Tx-CPLX markers
+    Bk2Tx->>Code: atomicWrite() - flush source file to disk
+    Bk2Tx->>Bk2Tx: importlib.reload(ledger.stmt{SRC})
+    Bk2Tx->>Bk2Tx: refresh stmt instances() - re-instantiate stmt{SRC}_Tax(llc)
+    Bk2Tx-->>IRS: row (status=complex)
+    IRS-->>AM: {ok:true, row}
+    AM-->>API: {ok:true, row}
+    API-->>JS: {ok:true, row}
+    JS->>JS: flashOK("Custom map registered") and renderState(row)
+
+    Note over B, U: Step 5 - Commit (Regenerate FILL.pdf)
+    B->>JS: click "Commit (Regenerate FILL.pdf)" → aidRegenerate()
+    JS->>API: POST /api/aid/regenerate
+    API->>AM: dispatch aid_regenerate
+    AM->>IRS: regenerate()
+    IRS->>Bk2Tx: BookToIRS.regenerate()
+    Bk2Tx->>Bk2Tx: refresh stmt instances()
+    Bk2Tx->>Bk2Tx: get form class() → import irs.Form8825.Form8825
+    Bk2Tx->>IRS: Form8825(llc).loadFieldsDF()
+    IRS->>FM: read Form8825_namespace.json
+    FM-->>IRS: 221 fids meta
+    IRS-->>Bk2Tx: df_fields
+    Bk2Tx->>Bk: stmt{SRC}_Tax(llc).loadFillDict("Form8825") for each src
+    Bk->>BookNS: read bookNS_{SRC}.json
+    Bk->>DB: read live profile, GL, BS, IS
+    Bk-->>Bk2Tx: per-source {fid → value} (Custom Cplx → "Complex")
+    Bk2Tx->>Bk2Tx: pandas merge → df_fields × df_book → add status and value
+    Bk2Tx->>IRS: Form8825.saveFILL_FromDF(df)  (auto_regenerate=True)
+    IRS->>FM: write Form8825_FILL.pdf (atomic)
+    FM-->>IRS: out_path
+    IRS-->>Bk2Tx: pdf_fields, filled, check, complex, blank
+    Bk2Tx-->>IRS: regen summary + ts
+    IRS-->>AM: {ok:true, fill_path, totals}
+    AM-->>JS: {ok:true, fill_path, totals}
+    JS->>JS: refresh iframe.src += ?ts=<unix_ts> (cache-buster)
+    JS->>B: PDF iframe re-fetches Form8825.pdf with cache-buster
+
+    Note over B, H: Step 6 - Human bookkeeper customizes the _Cplx stub
+    H->>Code: open stmt{src} Python source in editor
+    H->>Code: replace COMPLEX_SENTINEL placeholder with real calc body<br>(e.g. compute from llc.assets, Profile , IS)
+    H->>Code: save file
+    %% [Q6] If the Flask app is still running, the Aid's importlib.reload
+    %% from Step 4 used a stale snapshot.  Operator must click Commit
+    %% AGAIN to pick up the bookkeeper's edits, OR run irsGenCmd.py.
+
+    Note over B, U: Step 7 - Operator refreshes the Form 8825 view
+    B->>JS: click browser refresh OR re-click 🛠 Aid → Commit
+    JS->>API: POST /api/aid/regenerate (refresh)
+    API->>AM: dispatch aid_regenerate
+    AM->>IRS: regenerate()
+    IRS->>Bk2Tx: BookToIRS.regenerate()
+    Bk2Tx->>Bk2Tx: importlib.reload(ledger.stmt{SRC})  (picks up human edits)
+    Bk2Tx->>Bk2Tx: refresh stmt instances()
+    Bk2Tx->>IRS: Form8825(llc).loadFieldsDF()
+    Bk2Tx->>Bk: stmt{SRC}_Tax(llc).loadFillDict("Form8825")
+    Bk->>Code: invoke _Cplx_F042(self, "Form8825")  (real calc body)
+    Code-->>Bk: computed value (e.g. 1, "single-family", or numeric)
+    Bk-->>Bk2Tx: {fid → value} now contains real value (status=filled)
+    Bk2Tx->>IRS: saveFILL_FromDF(df) → updated Form8825_FILL.pdf
+    Bk2Tx-->>IRS: regen summary (filled count incremented, complex count decremented)
+    IRS-->>AM: {ok:true, ...}
+    AM-->>API: {ok:true, ...}
+    API-->>JS: {ok:true, ...}
+    JS->>API: GET Form8825.pdf with cache-buster
+    API->>FM: send_file(Form8825_FILL.pdf)
+    FM-->>JS: refreshed PDF bytes
+    JS->>B: iframe renders new value in F042 cell

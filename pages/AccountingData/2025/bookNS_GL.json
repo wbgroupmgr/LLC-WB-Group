@@ -1,0 +1,13 @@
+{
+  "_doc": {
+    "purpose": "Book NSpace mapping table — IRS form fid → General-Ledger Acct UAS path. The GL layer is the lowest-priority IRS field provider and is intended as a direct-account fallback for fields that have no stmtBS / stmtIS / stmtProfile mapping.",
+    "format": "[ 'F###', '<Acct UAS>' ]   The GL Tax resolver only handles UAS paths starting with 'Acct.' (resolves to Σ Debit − Σ Credit for that COA account across the GL period). UAS prefixes Profile./BS./IS. are owned by their respective stmtOBJ_Tax modules and will be skipped here.",
+    "scope": "This file should remain small. Most Form1065 / Sch L / M-1 / M-2 fields are sourced from stmtBS or stmtIS aggregates and live in bookNS_BS.json or bookNS_IS.json. A field belongs in bookNS_GL.json only when (a) the value is a direct single-account balance with no aggregation, AND (b) no other stmt provides it.",
+    "resolver": "irsForm.savePDF() walks the resolver chain Profile → BS → IS → GL. The GL layer (this file) is consulted last; entries here override nothing and are picked up only if upstream stmts return None. stmtGL_Tax._resolve_acct(uas) returns _acct_balance(acct) for 'Acct.*' UAS, else None.",
+    "perPartner": "Sch_K1 entries here are partnership-level totals. irsForm.savePDF() multiplies them by partner.pct from llcOwners when emitting per-partner FILL pdfs."
+  },
+  "Form1065": [],
+  "Sch_K1": [],
+  "Form4562": [],
+  "Form8825": []
+}
