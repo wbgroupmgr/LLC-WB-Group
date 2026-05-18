@@ -243,7 +243,7 @@
       {% endfor %}
     {% endwith %}
 
-    <form method="POST" action="/register" autocomplete="on" novalidate>
+    <form method="POST" action="{{ url_for('register') }}" autocomplete="on" novalidate>
 
       <!-- ── Personal info ── -->
       <div class="section-label">Personal Information</div>

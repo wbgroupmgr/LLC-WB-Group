@@ -305,7 +305,7 @@
       {% endfor %}
     {% endwith %}
 
-    <form method="POST" action="/login" autocomplete="on">
+    <form method="POST" action="{{ url_for('login') }}" autocomplete="on">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
 
       <!-- Next URL carried through login -->
@@ -350,7 +350,7 @@
     </form>
 
     <div class="card-footer">
-      <span>New member? <a class="link" href="/register">Request access</a></span>
+      <span>New member? <a class="link" href="{{ url_for('register') }}">Request access</a></span>
       {% if version %}
         <span>ui {{ version }}</span>
       {% endif %}

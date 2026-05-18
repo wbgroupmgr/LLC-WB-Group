@@ -141,7 +141,7 @@
         {% if current_user %}
         <div style="margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;color:#9ca3af;">
             <span>{{ current_user }}{% if current_role %} &middot; <em>{{ current_role }}</em>{% endif %}</span>
-            <a href="/logout" style="color:#9ca3af;background:#374151;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:12px;">Sign out</a>
+            <a href="{{ url_for('logout') }}" style="color:#9ca3af;background:#374151;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:12px;">Sign out</a>
         </div>
         {% endif %}
     </div>

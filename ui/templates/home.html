@@ -175,7 +175,7 @@
         </div>
         <div class="toolbar-row">
             {% if available_years | length > 1 %}
-            <form method="POST" action="/switch_year" style="display:inline-flex;align-items:center;gap:6px;margin:0">
+            <form method="POST" action="{{ url_for('switch_year') }}" style="display:inline-flex;align-items:center;gap:6px;margin:0">
                 <label for="yearSelect" style="font-size:13px;color:#6b7280;white-space:nowrap">Fiscal Year</label>
                 <select id="yearSelect" name="year"
                         style="font-size:13px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px;background:#fff"
@@ -227,7 +227,7 @@
             {% for vname in group.views %}
                 {% set vlabel = view_labels.get(vname, vname) %}
                 {% set vicon_sub = icons.get(vname, ("📋", "")) %}
-                <a href="/view/{{ vname }}"
+                <a href="{{ url_for('view_object', obj_type=vname) }}"
                    class="view-card"
                    title="{{ vlabel }}">
                     <span class="vc-icon">{{ vicon_sub[0] }}</span>

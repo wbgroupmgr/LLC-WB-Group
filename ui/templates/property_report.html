@@ -143,9 +143,9 @@
                 <details>
                     <summary>☰</summary>
                     <div class="dropdown">
-                        <a href="/">LLC Accounts</a>
+                        <a href="{{ url_for('home') }}">LLC Accounts</a>
                         {% for v in available_views %}
-                        <a href="/view/{{ v.name }}">{{ v.label }}</a>
+                        <a href="{{ url_for('view_object', obj_type=v.name) }}">{{ v.label }}</a>
                         {% endfor %}
                     </div>
                 </details>

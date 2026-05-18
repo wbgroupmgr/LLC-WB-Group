@@ -2,7 +2,7 @@
    Requires context vars: view_groups, view_labels  (both injected by context_processor).
    obj_type is optional; when present the current view is highlighted. #}
 <div class="dropdown nav-dropdown">
-    <a href="/" class="nav-home">🏠 LLC Accounts</a>
+    <a href="{{ url_for('home') }}" class="nav-home">🏠 LLC Accounts</a>
     {% for group in view_groups %}
     <div class="nav-group-header">
         <span class="nav-gi">{{ group.icon }}</span>
@@ -10,7 +10,7 @@
     </div>
     {% for vname in group.views %}
     {% set _vlabel = view_labels.get(vname, vname) %}
-    <a href="/view/{{ vname }}"
+    <a href="{{ url_for('view_object', obj_type=vname) }}"
        class="nav-view-link{% if obj_type is defined and obj_type == vname %} nav-active{% endif %}"
        title="{{ _vlabel }}">{{ _vlabel }}</a>
     {% endfor %}
