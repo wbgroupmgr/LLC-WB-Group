@@ -769,7 +769,7 @@ class llcMgmt:
                 try:
                     _ns = self.eSession.paths.irs_forms_dir / f"{form_nm}_namespace.pdf"
                     if _ns.exists():
-                        ns_pdf_url = f"/forms/{form_nm}_NS.pdf"
+                        ns_pdf_url = url_for("serve_irs_ns_pdf", form_id=form_nm)
                 except Exception:
                     pass
                 return render_template(
@@ -777,7 +777,7 @@ class llcMgmt:
                     title=self.title,
                     obj_type=obj_type,
                     view_title=self.VIEW_TITLES.get(obj_type, obj_type),
-                    pdf_url=f"/forms/{form_nm}.pdf",
+                    pdf_url=url_for("serve_irs_pdf", form_id=form_nm),
                     ns_pdf_url=ns_pdf_url,
                     stats=manager.stats(),
                     stats_labels=self._stats_labels(manager.stats()),
