@@ -197,11 +197,20 @@ class llcMgmt:
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
 
-        import os, hashlib
+        import os, hashlib, json
         _key = os.environ.get("LLC_SECRET_KEY")
         if not _key:
-            # Derive a stable key from the config path so all uWSGI workers agree.
-            # Random token_hex() would differ per worker and break session verification.
+            # Try MultiTaskWS config — works whether loaded via MultiTaskWS or standalone.
+            _mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
+            if _mw_cfg.exists():
+                try:
+                    _mw = json.loads(_mw_cfg.read_text())
+                    _key = (_mw.get("rentalTracker", {}).get("WEB_SECRET_KEY")
+                            or _mw.get("WEB_SECRET_KEY"))
+                except Exception:
+                    pass
+        if not _key:
+            # Stable derived fallback — all workers agree, never random.
             from ledger import setup_paths as _sp
             _seed = f"llcRentalTracker:{_sp.CONFIG_FILE}:{self.llc_name or 'LLC'}"
             _key = hashlib.sha256(_seed.encode()).hexdigest()
