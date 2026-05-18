@@ -354,9 +354,14 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
                     or request.args.get("next")
                     or ""
                 )
+                _home = url_for("home")
+                app.logger.warning(
+                    "LOGIN DEBUG: script_root=%r path=%r next_url=%r url_for_home=%r",
+                    request.script_root, request.path, next_url, _home
+                )
                 if next_url and next_url.startswith("/") and not next_url.startswith("//"):
                     return redirect(next_url)
-                return redirect(url_for("home"))
+                return redirect(_home)
 
             flash("Invalid username or password.", "error")
 
