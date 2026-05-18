@@ -542,12 +542,16 @@ class llcMgmt:
 
         @app.before_request
         def _require_login():
-            if request.endpoint in self._PUBLIC_ENDPOINTS:
+            # endpoint is None during trailing-slash redirects — treat as public
+            if not request.endpoint or request.endpoint in self._PUBLIC_ENDPOINTS:
                 return
             if not session.get("logged_in"):
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "authentication required"}), 401
-                return redirect(url_for("login", next=request.path))
+                # Include script_root (SCRIPT_NAME) so the post-login redirect
+                # stays within the dispatcher mount prefix (e.g. /rentalTracker).
+                next_path = request.script_root + request.path
+                return redirect(url_for("login", next=next_path))
 
         @app.route("/.well-known/appspecific/com.chrome.devtools.json")
         def chrome_devtools_json():
