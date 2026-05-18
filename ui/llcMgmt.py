@@ -26,8 +26,10 @@ Timestamp of last change: 2026.04.24  (v0.2.4.7 — PDF-embed tax views)
 '''
 
 import json
+import logging
 import math
 import threading
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
@@ -199,23 +201,31 @@ class llcMgmt:
 
         import os, hashlib, json
         _key = os.environ.get("LLC_SECRET_KEY")
+        _key_src = "env"
         if not _key:
-            # Try MultiTaskWS config — works whether loaded via MultiTaskWS or standalone.
             _mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
             if _mw_cfg.exists():
                 try:
                     _mw = json.loads(_mw_cfg.read_text())
                     _key = (_mw.get("rentalTracker", {}).get("WEB_SECRET_KEY")
                             or _mw.get("WEB_SECRET_KEY"))
+                    if _key:
+                        _key_src = "mw_config"
                 except Exception:
                     pass
         if not _key:
-            # Stable derived fallback — all workers agree, never random.
             from ledger import setup_paths as _sp
             _seed = f"llcRentalTracker:{_sp.CONFIG_FILE}:{self.llc_name or 'LLC'}"
             _key = hashlib.sha256(_seed.encode()).hexdigest()
+            _key_src = "derived"
         self.app.secret_key = _key
         self.app._llc_version = self.version
+
+        self._setup_logging()
+        self.app.logger.info(
+            "startup: llc=%s year=%s secret_key_src=%s",
+            self.llc_name, getattr(self.eSession, "year", "?"), _key_src,
+        )
 
         # Store eSession and llc_name in app.config so auth routes and Switch Year can access them
         self.app.config['_esession']  = eSession
@@ -531,6 +541,21 @@ class llcMgmt:
             return None
         return obj
 
+    def _setup_logging(self) -> None:
+        log_dir = Path(__file__).resolve().parent.parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+        fmt = logging.Formatter("%(asctime)s %(levelname)s [%(module)s] %(message)s",
+                                datefmt="%Y-%m-%d %H:%M:%S")
+        fh = RotatingFileHandler(log_dir / "llcRentalTracker.log",
+                                 maxBytes=1_000_000, backupCount=3)
+        fh.setFormatter(fmt)
+        sh = logging.StreamHandler()   # stderr → PA error log
+        sh.setFormatter(fmt)
+        self.app.logger.setLevel(logging.INFO)
+        self.app.logger.addHandler(fh)
+        self.app.logger.addHandler(sh)
+        self.app.logger.propagate = False
+
     def _parse_changed_ids(self) -> Set[str]:
         raw = request.args.get("chg", "")
         if not raw:
@@ -564,9 +589,11 @@ class llcMgmt:
             if not session.get("logged_in"):
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "authentication required"}), 401
-                # Include script_root (SCRIPT_NAME) so the post-login redirect
-                # stays within the dispatcher mount prefix (e.g. /rentalTracker).
                 next_path = request.script_root + request.path
+                app.logger.info(
+                    "auth: redirect to login — endpoint=%s script_root=%r path=%r next=%r",
+                    request.endpoint, request.script_root, request.path, next_path,
+                )
                 return redirect(url_for("login", next=next_path))
 
         @app.route("/.well-known/appspecific/com.chrome.devtools.json")

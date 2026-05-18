@@ -355,14 +355,15 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
                     or ""
                 )
                 _home = url_for("home")
-                app.logger.warning(
-                    "LOGIN DEBUG: script_root=%r path=%r next_url=%r url_for_home=%r",
-                    request.script_root, request.path, next_url, _home
+                _dest = next_url if (next_url and next_url.startswith("/")
+                                     and not next_url.startswith("//")) else _home
+                app.logger.info(
+                    "auth: login ok user=%s script_root=%r next_url=%r url_for_home=%r dest=%r",
+                    username, request.script_root, next_url, _home, _dest,
                 )
-                if next_url and next_url.startswith("/") and not next_url.startswith("//"):
-                    return redirect(next_url)
-                return redirect(_home)
+                return redirect(_dest)
 
+            app.logger.warning("auth: login failed user=%s", username)
             flash("Invalid username or password.", "error")
 
         return render_template(
@@ -373,6 +374,7 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
     # ── /logout ───────────────────────────────────────────────────────────────
     @app.route("/logout")
     def logout():
+        app.logger.info("auth: logout user=%s", session.get("username", "?"))
         session.clear()
         flash("You have been signed out.", "info")
         return redirect(url_for("login"))
