@@ -286,9 +286,17 @@ class WsCmd:
             with open(cFN, 'r') as fio:
                 cfgDict = json.load(fio)
             tList = cfgDict['Trackers']
-            if any(tDict['name'] == TRACKER_DICT['name'] for tDict in tList):
-                return
-            entry = dict(TRACKER_DICT, sys_path=str(Path(__file__).resolve().parent))
+            # If stanza exists, patch in secret_key if missing then return.
+            for tDict in tList:
+                if tDict['name'] == TRACKER_DICT['name']:
+                    if 'secret_key' not in tDict:
+                        tDict['secret_key'] = secrets.token_hex(32)
+                        with open(cFN, 'w') as fio:
+                            json.dump(cfgDict, fio, indent=2)
+                    return
+            entry = dict(TRACKER_DICT,
+                         sys_path=str(Path(__file__).resolve().parent),
+                         secret_key=secrets.token_hex(32))
             cfgDict['Trackers'].append(entry)
             with open(cFN, 'w') as fio:
                 json.dump(cfgDict, fio, indent=2)

@@ -15,7 +15,16 @@ import os
 import sys
 from pathlib import Path
 
-# Load secrets from ~/.llcRentalTracker/.env (never committed to git).
+# Load LLC_SECRET_KEY from the MultiTaskWS tracker stanza (primary source).
+import json as _json
+_mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
+if _mw_cfg.exists():
+    for _t in _json.loads(_mw_cfg.read_text()).get("Trackers", []):
+        if _t.get("name") == "llcRentalTracker" and _t.get("secret_key"):
+            os.environ.setdefault("LLC_SECRET_KEY", _t["secret_key"])
+            break
+
+# Fallback: ~/.llcRentalTracker/.env (key=value lines, never committed to git).
 _env_file = Path.home() / ".llcRentalTracker" / ".env"
 if _env_file.exists():
     for _ln in _env_file.read_text().splitlines():
