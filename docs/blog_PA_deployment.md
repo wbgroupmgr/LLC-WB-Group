@@ -1,6 +1,6 @@
 # From Notebook to Production: Two Months Building an LLC Accounting App with Claude
 
-*A story about real estate, double-entry bookkeeping, and the surprisingly philosophical experience of debugging session cookies at 3am.*
+*A story about real estate, double-entry bookkeeping, and the surprisingly philosophical experience of debugging session cookies - an 8hr session.*
 
 ---
 
@@ -14,7 +14,7 @@ The goal: a proper double-entry ledger, automated IRS form population, and a Fla
 
 The plan: build it with Claude.
 
-Two months later, we have `v0.3.0` tagged, all views live on PythonAnywhere, and I'm writing this instead of fixing bugs. That's either a good sign or dangerous overconfidence.
+Two months later, we have `v0.7.0` tagged, all views live on PythonAnywhere, and I'm writing this instead of fixing bugs. That's either a good sign or dangerous overconfidence.
 
 ---
 
@@ -30,31 +30,68 @@ The weird part: context limits. A coding session is not a conversation — it ha
 
 ---
 
-## Theme 2: The Architecture Journey — Or, How a Jupyter Notebook Became Three Git Repos
+## Theme 2: The Architecture Journey — Or, How a Jupyter Notebook Becomes a Multi-tier Business Solution
 
-Version 0.1 was a single Jupyter notebook. By v0.3, we have:
+Version 0.1 started as a single Jupyter notebook with no github and 2 `core` simple json databases:
+- llcAssets.json - manual entry of property purchase: simple "purchase a house"
+- llcExpRev.json - bank -> expenses and revenues;  with simple pattern matching to classify transactions
 
-- **`pyMultiTaskWS`** — a Werkzeug DispatcherMiddleware platform that mounts multiple Flask tracker apps under one uWSGI server. Think of it as the building that houses the apps.
-- **`llcRentalTracker`** — the actual LLC financial management app. Double-entry ledger, financial statements, IRS form pipeline, Flask web editor.
-- **`LLC-WBGroup`** — the business data repo. JSON ledger files, PDF outputs, bank statements. Completely separate from app code.
+By v0.7, we have 3 repositories
 
-Splitting the business data from the application code sounds obvious in retrospect. It was not obvious at the time. It took a dedicated architecture session where we drew out the data flow, realized the notebooks directory had become a God module, and methodically split responsibilities across packages.
+- **`pyMultiTaskWS`** — a web server (pythonanywhere.com) that allows multiple web apps to co-exist on 1 host. Think of it as the building that houses the apps.  Used claude to  expand my limited knowledge of web hosting. [Disciplines: hosting, WSGI, Werkzeug DispatcherMiddleware platform, provisioning multiple Flask tracker apps under one uWSGI server]. 
+- **`llcRentalTracker`** — the actual LLC financial management app that implements an end to end accounting pipeline. [Discipline: accounting/IRS standards, COA, double-entry ledger, financial statements, IRS form pipeline, Flask web editor, data::service separation]
+- **`LLC-WBGroup`** — This contains the Property Rental LLC business files/data - completely separate from app code..   The original collection of LLC incorporation, house purchase and rental and operating procedures.  [Discipline: rental business, LLC, accounting account ledgers/Databases, JSON ledger files, PDF outputs, bank statements.] 
 
-The accounting engine (`ledger/`) doesn't know about Flask. The statement objects (`stmt/`) are immutable once constructed — attribute writes raise `StmtImmutableError`. The Flask layer (`ui/`) is thin wiring. The IRS pipeline (`irs/`) maps ledger accounts to form line items without touching the database.
+Splitting the business data from the application code sounds obvious in retrospect. It was not obvious at the time. It took iterations and understanding the different disciplines to arrive at semi multi-discipline architecture drawn out across several iterations.   Key was documenting both the data flow and the code flow.  
+
+The biggest transformation is realizing the original jupyter notebooks directory had become the God module, and methodically each discipline was split into "micro services".  Each had its own responsibilities across packages.
+
+The accounting engine (`ledger/`) doesn't know about Flask. The statement objects (`stmt/`) are immutable (can not change) once constructed — attribute writes raise `StmtImmutableError`. The Flask layer (`ui/`) is thin wiring. The IRS pipeline (`irs/`) maps ledger accounts to form line items without touching the database.
 
 This separation meant we could test the accounting logic independently of the web layer. When a Balance Sheet number was wrong, we knew the bug was in `ledger/` or `stmt/`, not in a template. That's boring, predictable debugging — which is exactly what you want.
 
 ---
 
-## Theme 3: The Deployment Gauntlet — Everything That Can Go Wrong Under uWSGI
+## Theme 3: The art of learning 
+
+In software development they have the art of `debugging` - finding & correcting faults in the code.
+In accounting bookkeeping they have the art of `auditing` - finding & correcting faults in the books.
+In religious communities they have the art of `santification` - finding & correcting faults in oneself.
+And on and on across all disciplines. 
+
+Every discipline has the art of `finding and correcting faults`. For AI this discipline is the `art of finding and correcting faults in learning`.  Let me explain.
+
+I consider myself to be a mediocre software programmer, a nerd. I know a little about everything and I could claim to specialize in "data analysis". 
+
+For the 1st time in my 70 years of life I am starting an LLC in the Property Rental business.  I know very little about LLC's, rental management, accounting, user interface and  web hosting - basically a child novice is all of these.   But the progression shows that within 1 year with AI I am pulling it off.
+
+Finding faults in the books versus asking AI to find the faults -- THE MAJOR INSIGHT.  A case in point.   In building the General Ledger, I first relied on my data analysis skills to ask claud to generate a dataframe/excel spreadsheet from aggregating all the transaction.   This is all a General Ledger is.  Simple, right?
+
+Well then I learned about "dual entry" accounting requirements, ie. the best practice as the means to ensure `the financial books` were in order.   Dual entry is a devil requiring one to develop quantum skills in multiple universes.  The concept is simple - for every transaction against the bank, one has to record its dual entry into its associated "account" (assets, equity, liability).  Then one finds there are standard Charts of Account naming practices. Ok, I can manage this. 
+
+Sorry, i get bogged down in the details.   
+
+So after lots of learning, and faults in my learning I get the General Ledger view working -- but there is a simple rule of GL.  The Debits must equal the Credits.   Think of it simply: the transactions against the bank has match the recording in the financial accounts (assets, equity and liabilities). Then I learned about `Trial Balance` which is to aggregate all the accounts to simplify the view of all the transaction per accounts. 
+
+After composing the the GL and generating the trial balance - the golden rule of my LLC GL shows that my Debits does not equal my Credits!  Spent several days seeking... then the art of learning AI sparks.   I asked claude AI to develop an "auditor service" that I can invoke from the GL view and to report where it suspects the inbalance is.
+
+Eurika!  The report found the duplicate transactions across 2 different databases.   This allowed me to fix it. 
+
+The insight to develop the `auditor service` reflects the `art of learning` with claude AI. Overall, we are all novice in dealing with AI as a co-worker.  This too is the art of learning. 
+
+---
+
+## Theme 4: The Deployment Gauntlet — Everything That Can Go Wrong Under uWSGI
 
 Here's where the project got *educational*.
 
-PythonAnywhere runs your app under uWSGI with three worker processes. uWSGI uses preforking: the master process initializes the app, then forks three workers. This is great for performance. It is terrible if your Flask `secret_key` is `secrets.token_hex(32)` — random at initialization time.
+PythonAnywhere.com is a hosting service.  It runs your app under `uWSGI` - an open source hosting service.  For novice, think of WSGI as "the host" that routes internet traffic to your app.   It is a LOT of techie lingo and technology.   Having three worker processes to distribute workload. uWSGI uses preforking: the master process initializes the app, then forks three workers. This is great for performance. 
+
+Learning about `secret key` - a long random identifier for each app.   It is terrible if your Flask `secret_key` is `secrets.token_hex(32)` — random at initialization time.
 
 What happens: Worker 1 handles your login POST, sets a session cookie signed with key `abc123`. Worker 2 handles the next request with key `xyz789`. Session invalid. Not logged in. Redirect to `/login`. 
 
-We chased this bug through three other layers first:
+This is where claude AI has it max value.   It chased this bug through three other layers first:
 
 **Layer 1:** Templates with hardcoded paths (`action="/login"`, `href="/logout"`). Under `DispatcherMiddleware`, your app is mounted at `/rentalTracker`. Hardcoded `/login` goes to the root server. Fixed with `url_for()` everywhere.
 
@@ -74,11 +111,13 @@ Total time debugging deployment: approximately four sessions. Total lines change
 
 ## What's Next
 
-Tomorrow: 2025 bookkeeping. Reconcile bank statements, enter transactions, balance the books, generate the K-1s.
+With all the accounting books now in place, the actual LLC bookkeeping can begin to ensure all the transactions are journaled correctly and the final sheets are balanced.   Reconcile bank statements, enter transactions, balance the books, generate the K-1s.
 
 The app exists to do exactly this. That's a strange feeling — building a tool for months and then actually using it for its intended purpose.
 
-The next milestone: v0.4 will be about data quality — bank reconciliation, audit trail, and the kind of double-checking that accountants do before they hand anything to the IRS.
+Once the books are balanced and the IRS forms filled in, we will declare release/v1.0 -- MAJOR RELEASE. 
+
+The next milestone: v2.0 will be about data quality — bank reconciliation, audit trail, and the kind of double-checking that accountants do before they hand anything to the IRS.
 
 We'll also be cleaning up the codebase. Two months of active development leaves fingerprints: a function that should be a method, a constant that should be config, a comment that explains what the code does instead of why. None of it is broken. All of it could be better.
 
@@ -86,4 +125,4 @@ We'll also be cleaning up the codebase. Two months of active development leaves 
 
 *W&B Group, LLC — Built with Claude Code. Tested in production. Probably fine.*
 
-*`v0.3.0` tagged 2026-05-18.*
+*`v0.7.0` tagged 2026-05-18.*
