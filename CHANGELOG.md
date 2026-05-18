@@ -6,6 +6,70 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-05-18  **PythonAnywhere Production Milestone**
+
+First version fully operational on PythonAnywhere under MultiTaskWS
+DispatcherMiddleware. All views — Transactions, Financial Statements, and
+IRS Tax Aids — confirmed working in production. Login, session, and auth
+fully functional across uWSGI workers.
+
+### Added
+- **Structured logging** (`_setup_logging` in `llcMgmt`): rotating file log
+  at `logs/llcRentalTracker.log` + stderr (captured by PA error log).
+  Logs startup (llc, year, secret-key source, GPG passphrase status),
+  auth events (login ok/fail, logout), and before-request guard redirects.
+- **Unified `~/.llcRentalTracker/config.json`**: single config replaces
+  per-file `<llcName>_<year>_config.json`. Supports `default` entry and
+  `llcList` array. Backward-compatible fallback reads legacy per-file configs.
+- **`addTracker()`** in `wsCmd.py`: registers `llcRentalTracker` stanza into
+  `~/.MultiTaskWS/MultiTaskWS_config.json` on `--setup`, including `sys_path`.
+- **`wsgi.py`** secrets loader: reads `WEB_SECRET_KEY` from MultiTaskWS config
+  (per-tracker stanza then top-level fallback) before importing `llcMgmt`.
+- **`--newBus --llcName`** flag: overrides folder-name auto-detect for data-file
+  suffix (e.g. `LLC-WBGroup` folder → `WBGroupLLC` data files).
+- **Switch Year** on home page: fiscal year selector persists to session.
+- **Form 4562** full pipeline: BookToIRS, UI view, Review modal with Part
+  disposition + depreciation reconciliation.
+- **Schedule K-1** per-partner PDF pipeline and member selector.
+- **Aid dialog**: full UAS universe, Profile.Form8825 source, value labels,
+  edit/delete BookVal literals.
+- **IS ByProperty / ByPropertyDetails** views with property columns unstacked.
+- **IS PerMemberDetails** view + Rental/Ordinary income split.
+- **GL Auditor Service** (`ledger/auditor.py`) + API routes + GL view panel.
+
+### Fixed — PythonAnywhere / DispatcherMiddleware
+- All templates replaced hardcoded paths (`/login`, `/logout`, `/home`) with
+  `url_for()` so SCRIPT_NAME prefix (`/rentalTracker`) is honoured.
+- `_require_login` guard: handle `request.endpoint is None` on trailing-slash
+  redirects; use `request.script_root + request.path` for `next=` URL.
+- `login_required` decorator: same `script_root + path` fix.
+- `Flask.secret_key`: was `secrets.token_hex(32)` (random per worker) →
+  now read from MultiTaskWS config then derived-hash fallback. Fixes session
+  invalidation across uWSGI workers.
+- `LLC_GPG_PASSPHRASE`: injected from `eSession.llc.MultiTaskWS_Config` in
+  `llcMgmt.__init__` so the user DB can be decrypted without a pre-set env var.
+- IRS PDF `url_for()`: `pdf_url` and `ns_pdf_url` replaced hardcoded
+  `/forms/<id>.pdf` strings — was 404 under dispatcher mount prefix.
+
+### Fixed — Setup / Config
+- `wsCmd.py --setup`: no longer crashes on missing config or profile.
+- `LLC.__init__`: `setup_paths` values always win over stale profile JSON
+  (TOP, BOOKS_DIR, DATA_NAME).
+- `llcBank.dwnLdCSV`: guard against missing BankStmts directory on fresh deploy.
+- `wsCmd.py` line 296: removed U+00A0 non-breaking space that caused
+  `SyntaxError` on PythonAnywhere Python 3.10.
+- `addTracker()`: corrected config filename, fixed invalid list comprehension,
+  added `sys_path` field.
+
+### Changed
+- `wsgi.py`: `LLC_NAME` / `LLC_YEAR` no longer constants — derived from
+  `setup_paths.get_default()` so deployment works without code edits.
+- `ledger/LLC.py`: `dataName` (file suffix) decoupled from `llcName` (folder).
+- GL `stmtGeneralLedger` absorbed `ledgerGeneral`; `ledgerGeneral.py` deleted.
+- IS default view changed to `PerMember`.
+
+---
+
 ## [0.2.0-dev] — Unreleased (started 2026-04-16)
 
 Scaffold + first round of v0.2 feature work.  See `ROADMAP_v0.2.md` for
