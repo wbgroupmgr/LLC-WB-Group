@@ -288,7 +288,7 @@ def login_required(view_func: Callable) -> Callable:
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not session.get("logged_in"):
-            return redirect(url_for("login", next=request.path))
+            return redirect(url_for("login", next=request.script_root + request.path))
         return view_func(*args, **kwargs)
     return wrapper
 
