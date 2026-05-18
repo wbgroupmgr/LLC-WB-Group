@@ -293,7 +293,7 @@ class WsCmd:
                 json.dump(cfgDict, fio, indent=2)
         except Exception as err:
             print(f"WARNING: wsCmd -- addTracker failed.  Ok for local, needed for MultiTaskWS", err)
-            
+            
 
     # ── public commands ───────────────────────────────────────────────────────
 
