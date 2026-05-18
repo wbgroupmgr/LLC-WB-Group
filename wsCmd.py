@@ -63,6 +63,18 @@ _SEED_USER = {
     "created_at": "2026-01-01T00:00:00",
 }
 
+# Used by addTracker
+MULTITASKWS_CONFIG_BN = '.MultiTaskWS/MultiTaskWS_config.json'
+TRACKER_DICT = {
+      "name": "llcRentalTracker",
+      "mount": "/rentalTracker",
+      "url": "/rentalTracker/",
+      "description": "rentalTracker : Financial Mgmt App for Property Rental LLC",
+      "status": "online",
+      "builtin": False,
+      "stanza_key": "rentalTracker"
+    }
+
 
 # ── Business provisioning ─────────────────────────────────────────────────────
 
@@ -265,6 +277,24 @@ class WsCmd:
         _save_users(self.llc_name, users)
         print(f"  ✓ Saved → {self._db}")
 
+
+    def addTracker(self):
+        """Add this tracker's stanza into ~/.MultiTaskWS/MultiTaskWS_config.json."""
+        cFN = os.path.join(Path.home(), MULTITASKWS_CONFIG_BN)
+        try:
+            with open(cFN, 'r') as fio:
+                cfgDict = json.load(fio)
+            tList = cfgDict['Trackers']
+            if any(tDict['name'] == TRACKER_DICT['name'] for tDict in tList):
+                return
+            entry = dict(TRACKER_DICT, sys_path=str(Path(__file__).resolve().parent))
+            cfgDict['Trackers'].append(entry)
+            with open(cFN, 'w') as fio:
+                json.dump(cfgDict, fio, indent=2)
+        except Exception as err:
+            print(f"WARNING: wsCmd -- addTracker failed.  Ok for local, needed for MultiTaskWS", err)
+            
+
     # ── public commands ───────────────────────────────────────────────────────
 
     def setup(self, reset: bool = False) -> None:
@@ -281,6 +311,7 @@ class WsCmd:
         self._install_deps()
         self._write_profile_config(passphrase)
         self._seed_userdb()
+        self.addTracker()
 
         print()
         print("=" * 64)
