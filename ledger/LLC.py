@@ -44,15 +44,20 @@ class LLC(object):
             except AttributeError:
                 self.yr = datetime.datetime.now().year
 
-        # TOP / dirAccounting: profile fields → setup_paths fallbacks (set by load_config)
-        if not getattr(self, 'TOP', None):
+        # setup_paths (loaded from config.json via load_config) is authoritative.
+        # Always override profile JSON values — the profile may contain stale paths.
+        if setup_paths.TOP:
             self.TOP = setup_paths.TOP
-        if not getattr(self, 'dirAccounting', None):
-            self.dirAccounting = setup_paths.BOOKS_DIR or 'books'
+        elif not getattr(self, 'TOP', None):
+            self.TOP = Path('.')
 
-        # dataName: the suffix used by data files (may differ from the config llcName /
-        # folder name).  Overrides objName so all FN() paths resolve to real files.
-        if setup_paths.DATA_NAME and setup_paths.DATA_NAME != self.objName:
+        if setup_paths.BOOKS_DIR:
+            self.dirAccounting = setup_paths.BOOKS_DIR
+        elif not getattr(self, 'dirAccounting', None):
+            self.dirAccounting = 'books'
+
+        # dataName is the file-suffix (e.g. WBGroupLLC) which may differ from llcName.
+        if setup_paths.DATA_NAME:
             self.objName = setup_paths.DATA_NAME
 
         self.coa = llccoa(self)
