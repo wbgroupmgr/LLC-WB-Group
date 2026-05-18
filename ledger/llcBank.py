@@ -74,6 +74,8 @@ class llcBank(ledgerObject):
 
     def dwnLdCSV(self, **kwargs):
         DIR = self.csvDIR()
+        if not os.path.isdir(DIR):
+            return None
         csvList = [b for b in os.listdir(DIR) if ('csv' in b) and ('.csv' in b)]
         try:
             csvBN = csvList[kwargs.get('csvIndex',-1)]
