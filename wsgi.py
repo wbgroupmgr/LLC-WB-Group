@@ -15,23 +15,17 @@ import os
 import sys
 from pathlib import Path
 
-# Load LLC_SECRET_KEY from the MultiTaskWS tracker stanza (primary source).
+# Load WEB_SECRET_KEY from MultiTaskWS config.
+# Prefer the per-tracker stanza (cfg["rentalTracker"]["WEB_SECRET_KEY"]);
+# fall back to the top-level WEB_SECRET_KEY.
 import json as _json
 _mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
 if _mw_cfg.exists():
-    for _t in _json.loads(_mw_cfg.read_text()).get("Trackers", []):
-        if _t.get("name") == "llcRentalTracker" and _t.get("secret_key"):
-            os.environ.setdefault("LLC_SECRET_KEY", _t["secret_key"])
-            break
-
-# Fallback: ~/.llcRentalTracker/.env (key=value lines, never committed to git).
-_env_file = Path.home() / ".llcRentalTracker" / ".env"
-if _env_file.exists():
-    for _ln in _env_file.read_text().splitlines():
-        _ln = _ln.strip()
-        if _ln and not _ln.startswith("#") and "=" in _ln:
-            _k, _, _v = _ln.partition("=")
-            os.environ.setdefault(_k.strip(), _v.strip())
+    _mw = _json.loads(_mw_cfg.read_text())
+    _secret = (_mw.get("rentalTracker", {}).get("WEB_SECRET_KEY")
+               or _mw.get("WEB_SECRET_KEY"))
+    if _secret:
+        os.environ.setdefault("LLC_SECRET_KEY", _secret)
 
 _app_root = Path(__file__).resolve().parent
 if str(_app_root) not in sys.path:
