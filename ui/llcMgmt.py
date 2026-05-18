@@ -221,10 +221,19 @@ class llcMgmt:
         self.app.secret_key = _key
         self.app._llc_version = self.version
 
+        # Inject LLC_GPG_PASSPHRASE from the LLC profile if not already in env.
+        # eSession.llc._Profile() loaded llcProfile_<name>.json and set MultiTaskWS_Config.
+        if not os.environ.get("LLC_GPG_PASSPHRASE"):
+            _mw_cfg_profile = getattr(getattr(eSession, "llc", None), "MultiTaskWS_Config", None)
+            _pp = (_mw_cfg_profile or {}).get("LLC_GPG_PASSPHRASE")
+            if _pp:
+                os.environ["LLC_GPG_PASSPHRASE"] = _pp
+
         self._setup_logging()
         self.app.logger.info(
-            "startup: llc=%s year=%s secret_key_src=%s",
+            "startup: llc=%s year=%s secret_key_src=%s gpg_passphrase=%s",
             self.llc_name, getattr(self.eSession, "year", "?"), _key_src,
+            "set" if os.environ.get("LLC_GPG_PASSPHRASE") else "MISSING",
         )
 
         # Store eSession and llc_name in app.config so auth routes and Switch Year can access them
