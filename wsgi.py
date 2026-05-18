@@ -11,8 +11,18 @@
 # Run:  python3 wsCmd.py --newBus <bus_repo_path> --year <year>
 #       python3 wsCmd.py --setup
 #
+import os
 import sys
 from pathlib import Path
+
+# Load secrets from ~/.llcRentalTracker/.env (never committed to git).
+_env_file = Path.home() / ".llcRentalTracker" / ".env"
+if _env_file.exists():
+    for _ln in _env_file.read_text().splitlines():
+        _ln = _ln.strip()
+        if _ln and not _ln.startswith("#") and "=" in _ln:
+            _k, _, _v = _ln.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 _app_root = Path(__file__).resolve().parent
 if str(_app_root) not in sys.path:
