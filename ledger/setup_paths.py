@@ -3,16 +3,21 @@ ledger/setup_paths.py
 ---------------------
 Config-driven path resolver for llcRentalTracker.
 
-Per-business config lives at:
-    ~/.llcRentalTracker/<llcName>_<year>_config.json
+All business configs live in a single file:
+    ~/.llcRentalTracker/config.json
 
-Fields:
-    bus_repo   — absolute path to the LLC business repo
-    books_dir  — subdirectory name for accounting books (e.g. "books")
-    year       — fiscal year (int)
+Format:
+    {
+      "default": ["<llcName>", <year>],
+      "llcList": [
+        {"llcName": "...", "bus_repo": "...", "books_dir": "books",
+         "year": 2025, "dataName": "..."},
+        ...
+      ]
+    }
 
 Call load_config(llcName, year) once at startup (sets module globals).
-Use load_year(llcName, year) to get a SessionPaths without touching module globals.
+Call get_default() to read the default (llcName, year) without loading globals.
 """
 
 import json
@@ -22,6 +27,7 @@ from pathlib import Path
 
 _APP_ROOT       = Path(__file__).resolve().parents[1]   # repo root (llcRentalTracker/)
 TRACKER_CFG_DIR = Path.home() / ".llcRentalTracker"
+CONFIG_FILE     = TRACKER_CFG_DIR / "config.json"
 
 # ── Runtime paths — populated by load_config() ───────────────────────────────
 TOP:           Path | None = None   # business repo root
@@ -45,27 +51,67 @@ class SessionPaths:
     year:          int
 
 
+# ── Unified config I/O ────────────────────────────────────────────────────────
+
+def read_config() -> dict:
+    """Read ~/.llcRentalTracker/config.json. Returns empty structure if missing."""
+    if not CONFIG_FILE.exists():
+        return {"default": None, "llcList": []}
+    with open(CONFIG_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_config(cfg: dict) -> None:
+    """Write ~/.llcRentalTracker/config.json."""
+    TRACKER_CFG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def get_default() -> tuple | None:
+    """Return (llcName, year) from the default entry, or None if not set."""
+    d = read_config().get("default")
+    if not d:
+        return None
+    return (str(d[0]), int(d[1]))
+
+
+def find_stanza(llc_name: str, year: int) -> dict | None:
+    """Return the llcList stanza matching (llc_name, year), or None."""
+    for s in read_config().get("llcList", []):
+        if s["llcName"] == llc_name and int(s["year"]) == year:
+            return s
+    return None
+
+
+# ── Public helpers ────────────────────────────────────────────────────────────
+
 def available_years(llc_name: str) -> list:
-    """Return sorted-descending list of fiscal years that have a config file."""
-    years = []
-    for p in TRACKER_CFG_DIR.glob(f"{llc_name}_*_config.json"):
-        stem = p.stem                          # e.g. "WBGroupLLC_2025_config"
-        part = stem[len(llc_name) + 1:]       # e.g. "2025_config"
-        try:
-            years.append(int(part.split("_")[0]))
-        except (ValueError, IndexError):
-            continue
+    """Return sorted-descending list of fiscal years registered for llc_name."""
+    years = [int(s["year"]) for s in read_config().get("llcList", [])
+             if s["llcName"] == llc_name]
+    # Fallback: scan legacy per-file configs that predate the unified format
+    if not years:
+        for p in TRACKER_CFG_DIR.glob(f"{llc_name}_*_config.json"):
+            stem = p.stem
+            part = stem[len(llc_name) + 1:]
+            try:
+                years.append(int(part.split("_")[0]))
+            except (ValueError, IndexError):
+                continue
     return sorted(years, reverse=True)
 
 
 def load_year(llc_name: str, year: int) -> SessionPaths:
     """Return a SessionPaths for (llc_name, year). Does NOT update module globals."""
-    cfg_path = TRACKER_CFG_DIR / f"{llc_name}_{year}_config.json"
-    with open(cfg_path) as f:
-        cfg = json.load(f)
-    base  = Path(cfg["bus_repo"]).expanduser().resolve()
-    books = base / cfg["books_dir"]
-    yr    = int(cfg["year"])
+    stanza = find_stanza(llc_name, year)
+    if stanza is None:
+        # Fallback to legacy per-file config
+        cfg_path = TRACKER_CFG_DIR / f"{llc_name}_{year}_config.json"
+        with open(cfg_path, encoding="utf-8") as f:
+            stanza = json.load(f)
+    base  = Path(stanza["bus_repo"]).expanduser().resolve()
+    books = base / stanza["books_dir"]
+    yr    = int(stanza["year"])
     return SessionPaths(
         accts_dir     = books / str(yr) / "Accts",
         expenses_dir  = books / str(yr) / "Expenses",
@@ -75,8 +121,16 @@ def load_year(llc_name: str, year: int) -> SessionPaths:
     )
 
 
-def load_bootstrap(llc_name: str) -> dict:
-    """Load config for the latest available year and set module globals."""
+def load_bootstrap(llc_name: str = None) -> dict:
+    """Load config for llc_name (or the default if omitted) and set module globals."""
+    if llc_name is None:
+        default = get_default()
+        if default is None:
+            raise FileNotFoundError(
+                f"No default LLC configured in {CONFIG_FILE}. "
+                "Run: python3 wsCmd.py --newBus <path> --year <year>"
+            )
+        return load_config(default[0], default[1])
     years = available_years(llc_name)
     if not years:
         raise FileNotFoundError(f"No config found for {llc_name} in {TRACKER_CFG_DIR}")
@@ -84,20 +138,28 @@ def load_bootstrap(llc_name: str) -> dict:
 
 
 def load_config(llcName: str, year: int) -> dict:
-    """Read ~/.llcRentalTracker/<llcName>_<year>_config.json and populate all path constants."""
+    """Find stanza for (llcName, year) and populate all module-level path constants."""
     global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR, BOOKS_DIR, DATA_NAME
 
-    cfg_path = TRACKER_CFG_DIR / f"{llcName}_{year}_config.json"
-    with open(cfg_path) as f:
-        cfg = json.load(f)
+    stanza = find_stanza(llcName, year)
+    if stanza is None:
+        # Fallback to legacy per-file config
+        cfg_path = TRACKER_CFG_DIR / f"{llcName}_{year}_config.json"
+        if not cfg_path.exists():
+            raise FileNotFoundError(
+                f"No config for {llcName}/{year}. "
+                f"Run: python3 wsCmd.py --newBus <path> --year {year}"
+            )
+        with open(cfg_path, encoding="utf-8") as f:
+            stanza = json.load(f)
 
-    base  = Path(cfg["bus_repo"]).expanduser().resolve()
-    books = base / cfg["books_dir"]
-    yr    = int(cfg["year"])
+    base  = Path(stanza["bus_repo"]).expanduser().resolve()
+    books = base / stanza["books_dir"]
+    yr    = int(stanza["year"])
 
     TOP           = base
-    BOOKS_DIR     = cfg["books_dir"]
-    DATA_NAME     = cfg.get("dataName", cfg["llcName"])
+    BOOKS_DIR     = stanza["books_dir"]
+    DATA_NAME     = stanza.get("dataName", stanza["llcName"])
     ACCT_DATA_DIR = books
     ACCTS_DIR     = books / str(yr) / "Accts"
     EXPENSES_DIR  = books / str(yr) / "Expenses"
@@ -109,14 +171,17 @@ def load_config(llcName: str, year: int) -> dict:
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
 
-    return cfg
+    return stanza
 
 
 if __name__ == "__main__":
     import datetime as _dt
-    llc = sys.argv[1] if len(sys.argv) > 1 else "WBGroupLLC"
-    yr  = int(sys.argv[2]) if len(sys.argv) > 2 else _dt.datetime.now().year
-    load_config(llc, yr)
+    llc = sys.argv[1] if len(sys.argv) > 1 else None
+    yr  = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    if llc and yr:
+        load_config(llc, yr)
+    else:
+        load_bootstrap(llc)
     print(f"TOP           : {TOP}")
     print(f"books         : {ACCT_DATA_DIR}")
     print(f"Accts         : {ACCTS_DIR}")

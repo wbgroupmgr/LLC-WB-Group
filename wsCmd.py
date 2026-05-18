@@ -43,7 +43,7 @@ from ui.llcLogin_auth import _db_path, _find_user, _hash, _load_users, _save_use
 
 
 def _latest_config_year(llc_name: str):
-    """Return the latest fiscal year that has a config file, or None if none exist."""
+    """Return the latest fiscal year registered for llc_name, or None."""
     years = _sp.available_years(llc_name)
     return years[0] if years else None
 
@@ -79,30 +79,25 @@ TRACKER_DICT = {
 # ── Business provisioning ─────────────────────────────────────────────────────
 
 def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
-                      llc_name: str = None) -> Path:
+                      llc_name: str = None) -> None:
     """
-    Generate ~/.llcRentalTracker/<llcName>_<year>_config.json for a business repo + year.
+    Add a business stanza to ~/.llcRentalTracker/config.json and set it as default.
 
-    llcName defaults to the repo folder name but can be overridden via --llcName
-    so it matches the suffix used by existing data files (e.g. WBGroupLLC).
-    Returns the path to the written config file.
+    llcName defaults to the repo folder name but can be overridden via --llcName.
+    The last --newBus issued becomes the default for wsgi.py and --setup/--start.
     """
-    bus_path     = Path(bus_repo).expanduser().resolve()
-    detected     = bus_path.name
-    llc_name     = llc_name or detected
+    bus_path = Path(bus_repo).expanduser().resolve()
+    detected = bus_path.name
+    llc_name = llc_name or detected
 
     if llc_name != detected:
         print(f"  ℹ  llcName overridden: '{detected}' (folder) → '{llc_name}' (--llcName)")
-
-    cfg_dir = _sp.TRACKER_CFG_DIR
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    cfg_path = cfg_dir / f"{llc_name}_{year}_config.json"
 
     # Auto-detect dataName from existing Accts files (e.g. llcAssets_WBGroupLLC.json)
     accts_dir = bus_path / books_dir / str(year) / "Accts"
     data_name = llc_name
     for p in accts_dir.glob("llcAssets_*.json"):
-        stem = p.stem                        # e.g. "llcAssets_WBGroupLLC"
+        stem = p.stem
         candidate = stem[len("llcAssets_"):]
         if candidate:
             data_name = candidate
@@ -110,7 +105,7 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
     if data_name != llc_name:
         print(f"  ℹ  dataName auto-detected: '{data_name}' (from Accts files)")
 
-    config = {
+    stanza = {
         "llcName":   llc_name,
         "dataName":  data_name,
         "bus_repo":  str(bus_path),
@@ -118,15 +113,21 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
         "year":      year,
     }
 
-    cfg_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    cfg = _sp.read_config()
+    # Replace existing entry for same (llcName, year) if present
+    cfg["llcList"] = [s for s in cfg.get("llcList", [])
+                      if not (s["llcName"] == llc_name and int(s["year"]) == year)]
+    cfg["llcList"].append(stanza)
+    cfg["default"] = [llc_name, year]
+    _sp.write_config(cfg)
 
-    print(f"  ✓ Config written : {cfg_path}")
+    print(f"  ✓ Registered in  : {_sp.CONFIG_FILE}")
     print(f"    llcName        : {llc_name}")
     print(f"    bus_repo       : {bus_path}")
     print(f"    books_dir      : {books_dir}")
     print(f"    year           : {year}")
+    print(f"    default        : {llc_name} / {year}")
     print(f"\n  Next: python3 wsCmd.py --setup --llcName {llc_name} --year {year}")
-    return cfg_path
 
 
 # ── WsCmd class ───────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ examples:
 
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--newBus", metavar="BUS_REPO_PATH",
-                      help="Provision a new business repo — writes ~/.llcRentalTracker/<name>_<year>_config.json")
+                      help="Register a business repo — adds stanza to ~/.llcRentalTracker/config.json and sets it as default")
     mode.add_argument("--setup", action="store_true",
                       help="Set up the task app (passphrase, deps, user DB)")
     mode.add_argument("--start", action="store_true",
