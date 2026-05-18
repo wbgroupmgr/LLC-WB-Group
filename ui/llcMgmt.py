@@ -197,8 +197,15 @@ class llcMgmt:
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
 
-        import os, secrets
-        self.app.secret_key = os.environ.get("LLC_SECRET_KEY", secrets.token_hex(32))
+        import os, hashlib
+        _key = os.environ.get("LLC_SECRET_KEY")
+        if not _key:
+            # Derive a stable key from the config path so all uWSGI workers agree.
+            # Random token_hex() would differ per worker and break session verification.
+            from ledger import setup_paths as _sp
+            _seed = f"llcRentalTracker:{_sp.CONFIG_FILE}:{self.llc_name or 'LLC'}"
+            _key = hashlib.sha256(_seed.encode()).hexdigest()
+        self.app.secret_key = _key
         self.app._llc_version = self.version
 
         # Store eSession and llc_name in app.config so auth routes and Switch Year can access them
