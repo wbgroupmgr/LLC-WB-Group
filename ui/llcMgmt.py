@@ -242,7 +242,6 @@ class llcMgmt:
         self.app.config['_llc_name']  = self.llc_name or "LLC"
 
         make_auth_routes(self.app, llc_name=self.app.config['_llc_name'])
-        bind_closing_routes(self.app, self.objects, self._sanitize)
 
         self.objects = self._build_objects()
 
@@ -1540,6 +1539,8 @@ class llcMgmt:
                 raise
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
+
+        bind_closing_routes(app, self.objects, self._sanitize)
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:
