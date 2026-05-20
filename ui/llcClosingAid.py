@@ -26,9 +26,10 @@ def bind_closing_routes(app, objects, sanitize):
     @app.route('/api/closing/classify', methods=['POST'])
     def closing_classify():
         try:
-            body = request.get_json(force=True) or {}
-            rows = body.get('rows', [])
-            classified = _aid.classify(rows)
+            body          = request.get_json(force=True) or {}
+            rows          = body.get('rows', [])
+            session_rules = body.get('session_rules', [])
+            classified    = _aid.classify(rows, session_rules=session_rules)
             return jsonify({'ok': True, 'classified': _safe_json(classified)})
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500

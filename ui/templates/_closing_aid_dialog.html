@@ -66,9 +66,32 @@
     }
     .ca-table td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
     .ca-table tr:hover td { background: #fafafa; }
+    .ca-table tr.unmatched td { background: #fff7ed; }
+    .ca-table tr.unmatched:hover td { background: #fed7aa33; }
     .ca-table input, .ca-table select {
         padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px;
         font: inherit; width: 100%;
+    }
+    .ca-table tr.unmatched input,
+    .ca-table tr.unmatched select { border-color: #f97316; }
+    /* Unmatched rule-definition panel */
+    .ca-rule-panel {
+        background: #fff7ed; border: 1px solid #f97316; border-radius: 8px;
+        padding: 12px 14px; margin: 8px 0 4px 0; font-size: 12px;
+    }
+    .ca-rule-panel .rp-header {
+        font-weight: 700; color: #9a3412; margin-bottom: 8px; font-size: 13px;
+    }
+    .ca-rule-panel .rp-row {
+        display: grid; grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 6px; align-items: center; margin: 4px 0;
+    }
+    .ca-rule-panel input, .ca-rule-panel select {
+        padding: 4px 7px; border: 1px solid #f97316; border-radius: 5px;
+        font: inherit; width: 100%;
+    }
+    .ca-rule-panel .rp-hint {
+        font-size: 11px; color: #9a3412; margin-top: 6px;
     }
     /* Balance box */
     .ca-bal-box {
@@ -201,7 +224,46 @@
     <!-- ── Step 2: Review ─────────────────────────────────────────────────── -->
     <div id="caPane2" style="display:none">
       <div class="ca-sec">Classified Line Items — review &amp; correct</div>
-      <div id="caReviewMsg" style="font-size:12px; color:#6b7280; margin-bottom:6px;"></div>
+      <div id="caReviewMsg" style="font-size:12px; color:#6b7280; margin-bottom:4px;"></div>
+
+      <!-- Unmatched-row rule-definition panel (hidden until there are unmatched rows) -->
+      <div id="caRulePanel" class="ca-rule-panel" style="display:none">
+        <div class="rp-header">⚠ Unmatched rows — no classification rule found</div>
+        <p style="margin:0 0 8px 0; color:#92400e;">
+          Rows highlighted in orange were not recognized. Select the correct GL Account
+          and Tax Treatment in the table below, then continue.<br>
+          Optionally add a keyword rule here so it auto-classifies next time:
+        </p>
+        <div style="font-size:11px; font-weight:700; color:#9a3412; margin:6px 0 4px 0;">
+          ADD RULE — keyword match (saved to session, applies on re-classify):
+        </div>
+        <div class="rp-row" style="grid-template-columns:1fr 1fr 1fr auto;">
+          <input  id="caRuleKeyword"  placeholder="keyword in description (lowercase)"
+                  style="font-family:monospace">
+          <select id="caRuleBucket">
+            <option value="Capitalize">Capitalize</option>
+            <option value="Amortize">Amortize</option>
+            <option value="Expense">Expense</option>
+          </select>
+          <select id="caRuleAcct">
+            <option value="Acct.Fixed.Tangible.InService">Acct.Fixed.Tangible.InService</option>
+            <option value="Acct.Fixed.Land">Acct.Fixed.Land</option>
+            <option value="Acct.Cash.Bank">Acct.Cash.Bank</option>
+            <option value="Acct.Equity.Owner.Capital.Funds">Acct.Equity.Owner.Capital.Funds</option>
+            <option value="Acct.Liab.Morgage">Acct.Liab.Morgage</option>
+            <option value="Acct.Exp.Operating">Acct.Exp.Operating</option>
+          </select>
+          <button type="button" class="btn btn-primary" onclick="caAddRule()"
+                  style="white-space:nowrap; font-size:12px; padding:4px 10px;">
+            + Add &amp; Re-classify
+          </button>
+        </div>
+        <div class="rp-hint">
+          Tip: keyword is matched case-insensitively against the Description field.
+          Example: "hoa transfer" → Expense → Acct.Exp.Operating
+        </div>
+      </div>
+
       <div style="overflow-x:auto;">
         <table class="ca-table" id="caReviewTable">
           <thead>
@@ -212,6 +274,7 @@
               <th style="text-align:right">Amount</th>
               <th>GL Account</th>
               <th>Tax Treatment</th>
+              <th style="font-size:10px;">Rule</th>
             </tr>
           </thead>
           <tbody id="caReviewBody"></tbody>
@@ -291,10 +354,12 @@
 
     const STEPS = 5;
     let _step = 0;
-    let _classified = [];   // last classify result
-    let _preface    = {};   // collected in step 0
-    let _balance    = {};   // step 3 check result
-    let _records    = [];   // step 4 preview (from property_basis)
+    let _classified   = [];   // last classify result
+    let _preface      = {};   // collected in step 0
+    let _balance      = {};   // step 3 check result
+    let _records      = [];   // step 4 preview (from property_basis)
+    let _sessionRules = [];   // [{keyword, tax_bucket, acct}] added this session
+    let _rawRows      = [];   // saved for re-classify after adding a rule
 
     const ACCT_OPTIONS = [
         'Acct.Fixed.Tangible.InService',
@@ -394,8 +459,13 @@
                 $('caParseErr').textContent = 'JSON parse error: ' + e.message;
                 return;
             }
-            const r = await caPost('/api/closing/classify', { rows });
-            if (!r.ok) { caFlash(r.json.error || 'Classify failed', true); return; }
+            _rawRows = rows;   // save for re-classify after adding a rule
+            const r = await caPost('/api/closing/classify', { rows, session_rules: _sessionRules });
+            if (!r.ok) {
+                const msg = (r.json && r.json.error) || 'Classify failed';
+                caFlash(`<strong>Classification error:</strong> ${msg}`, true);
+                return;
+            }
             _classified = r.json.classified || [];
             _renderReview();
             _renderStep(2);
@@ -431,25 +501,44 @@
     // ── Step 2: Review table ─────────────────────────────────────────────────
 
     function _renderReview() {
-        $('caReviewMsg').textContent = `${_classified.length} line item(s) classified.`;
+        const unmatched = _classified.filter(r => r._matched === false);
+        const total     = _classified.length;
+
+        // Summary line
+        if (unmatched.length > 0) {
+            $('caReviewMsg').innerHTML =
+                `${total} line item(s) classified — ` +
+                `<span style="color:#c2410c; font-weight:700;">` +
+                `⚠ ${unmatched.length} row(s) not recognized (highlighted in orange)</span>. ` +
+                `Correct GL Account &amp; Tax Treatment below or add a keyword rule.`;
+            $('caRulePanel').style.display = '';
+        } else {
+            $('caReviewMsg').textContent = `${total} line item(s) classified — all rules matched.`;
+            $('caRulePanel').style.display = 'none';
+        }
+
         const tbody = $('caReviewBody');
         tbody.innerHTML = '';
         _classified.forEach((r, i) => {
             const tr = document.createElement('tr');
             tr.dataset.idx = i;
+            if (r._matched === false) tr.classList.add('unmatched');
 
             const acctSel = ACCT_OPTIONS.map(a =>
                 `<option value="${a}" ${a===r.acct?'selected':''}>${a}</option>`).join('');
             const bucketSel = BUCKET_OPTIONS.map(b =>
                 `<option value="${b}" ${b===r.tax_bucket?'selected':''}>${b}</option>`).join('');
-            const bucketClass = (r.tax_bucket||'').toLowerCase();
+            const lineNum = r._row_idx != null ? r._row_idx : (i + 1);
+            const ruleCell = r._matched === false
+                ? `<span title="No rule matched — fallback used" style="color:#f97316; font-size:13px;">⚠</span>`
+                : `<span title="Rule matched" style="color:#16a34a; font-size:13px;">✓</span>`;
 
             tr.innerHTML = `
-              <td>${i+1}</td>
+              <td style="color:#6b7280;font-size:11px">${lineNum}</td>
               <td><input value="${(r.Description||r.desc||'').replace(/"/g,'&quot;')}"
                          data-field="Description" style="min-width:180px"></td>
               <td><select data-field="aType">
-                    <option ${r.aType==='Debit'?'selected':''}>Debit</option>
+                    <option ${r.aType==='Debit' ?'selected':''}>Debit</option>
                     <option ${r.aType==='Credit'?'selected':''}>Credit</option>
                   </select></td>
               <td style="text-align:right">
@@ -458,6 +547,7 @@
               </td>
               <td><select data-field="acct">${acctSel}</select></td>
               <td><select data-field="tax_bucket">${bucketSel}</select></td>
+              <td style="text-align:center">${ruleCell}</td>
             `;
             tbody.appendChild(tr);
         });
@@ -474,6 +564,34 @@
             });
         });
     }
+
+    // ── Add session rule + re-classify ───────────────────────────────────────
+
+    window.caAddRule = async function() {
+        const kw     = ($('caRuleKeyword').value || '').trim().toLowerCase();
+        const bucket = $('caRuleBucket').value;
+        const acct   = $('caRuleAcct').value;
+        if (!kw) { caFlash('Enter a keyword before adding a rule.', true); return; }
+
+        // Append to session rules (sent to server on every classify call)
+        _sessionRules = _sessionRules.filter(r => r.keyword !== kw);  // dedup
+        _sessionRules.push({ keyword: kw, tax_bucket: bucket, acct });
+
+        // Re-collect any manual edits the user already made, then re-classify
+        _collectReviewEdits();
+        const r = await caPost('/api/closing/classify', {
+            rows:          _rawRows,
+            session_rules: _sessionRules,
+        });
+        if (!r.ok) {
+            caFlash(`Re-classify failed: ${(r.json && r.json.error) || 'unknown'}`, true);
+            return;
+        }
+        _classified = r.json.classified || [];
+        $('caRuleKeyword').value = '';
+        _renderReview();
+        caFlash(`Rule added: "${kw}" → ${bucket} / ${acct.split('.').pop()}`);
+    };
 
     // ── Step 3: Balance ──────────────────────────────────────────────────────
 

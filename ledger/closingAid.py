@@ -34,15 +34,26 @@ _RULES: List[tuple] = [
 ]
 
 
-def _is_null_amt(v) -> bool:
+def _parse_amt(v) -> Optional[float]:
+    """Parse an amount value that may be a currency-formatted string like '$300,000'."""
     if v is None:
-        return True
-    if isinstance(v, float) and math.isnan(v):
-        return True
+        return None
+    if isinstance(v, (int, float)):
+        return None if (isinstance(v, float) and math.isnan(v)) else float(v)
+    s = str(v).strip().replace('$', '').replace(',', '').replace(' ', '')
+    if not s or s == '-':
+        return None
+    if s.startswith('(') and s.endswith(')'):  # accounting negative: (1,234.56)
+        s = '-' + s[1:-1]
     try:
-        return float(v) == 0.0
-    except Exception:
-        return True
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _is_null_amt(v) -> bool:
+    parsed = _parse_amt(v)
+    return parsed is None or parsed == 0.0
 
 
 def _norm_dt(raw: str) -> str:
@@ -51,40 +62,62 @@ def _norm_dt(raw: str) -> str:
     return raw.replace('-', '.').replace('/', '.')
 
 
-def _classify_one(row: Dict) -> Optional[Dict]:
-    debit  = row.get('Debit')
-    credit = row.get('Credit')
+def _classify_one(row: Dict, extra_rules: Optional[List[tuple]] = None) -> Optional[Dict]:
+    debit  = _parse_amt(row.get('Debit'))
+    credit = _parse_amt(row.get('Credit'))
     if _is_null_amt(debit) and _is_null_amt(credit):
         return None
     if str(row.get('Description', '')).strip().lower() in ('totals', 'total'):
         return None
 
     aType = 'Debit' if not _is_null_amt(debit) else 'Credit'
-    amt   = float(debit if aType == 'Debit' else credit)
+    amt   = debit if aType == 'Debit' else credit
     desc_lower = str(row.get('Description', '')).lower()
 
-    for keyword, tax_bucket, acct in _RULES:
+    # Session rules take priority over built-in rules
+    all_rules = list(extra_rules or []) + _RULES
+    for keyword, tax_bucket, acct in all_rules:
         if keyword in desc_lower:
             r = dict(row)
-            r.update(acct=acct, Ledger=None, aType=aType, amt=amt, tax_bucket=tax_bucket)
+            r.update(acct=acct, Ledger=None, aType=aType, amt=amt,
+                     tax_bucket=tax_bucket, _matched=True)
             return r
 
-    # Fallback: debits capitalize to property, credits reduce cash
+    # No rule matched — use fallback but flag for user review
     fallback = 'Acct.Fixed.Tangible.InService' if aType == 'Debit' else 'Acct.Cash.Bank'
     r = dict(row)
-    r.update(acct=fallback, Ledger=None, aType=aType, amt=amt, tax_bucket=CAPITALIZE)
+    r.update(acct=fallback, Ledger=None, aType=aType, amt=amt,
+             tax_bucket=CAPITALIZE, _matched=False)
     return r
 
 
 class ClosingAid:
 
-    def classify(self, rows: List[Dict]) -> List[Dict]:
-        """Map raw settlement rows to COA accounts with tax bucket classification."""
+    def classify(self, rows: List[Dict],
+                 session_rules: Optional[List[Dict]] = None) -> List[Dict]:
+        """
+        Map raw settlement rows to COA accounts. Sets _matched=False on rows with no rule.
+        session_rules: [{keyword, tax_bucket, acct}] prepended before _RULES (highest priority).
+        """
+        extra: List[tuple] = []
+        if session_rules:
+            for sr in session_rules:
+                kw = str(sr.get('keyword', '')).strip().lower()
+                tb = str(sr.get('tax_bucket', CAPITALIZE))
+                ac = str(sr.get('acct', 'Acct.Fixed.Tangible.InService'))
+                if kw:
+                    extra.append((kw, tb, ac))
+
         result = []
-        for row in rows:
-            classified = _classify_one(row)
-            if classified is not None:
-                result.append(classified)
+        for i, row in enumerate(rows):
+            try:
+                classified = _classify_one(row, extra_rules=extra)
+                if classified is not None:
+                    classified['_row_idx'] = i + 1
+                    result.append(classified)
+            except Exception as e:
+                desc = str(row.get('Description', '?'))[:40]
+                raise ValueError(f"Line {i + 1} — '{desc}': {e}") from e
         return result
 
     def toBalanceSheet(self, classified: List[Dict]) -> Dict:
