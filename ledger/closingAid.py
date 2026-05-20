@@ -10,27 +10,61 @@ class ClosingBalanceError(ValueError):
     pass
 
 
-# (keyword_lower, tax_bucket, acct) — first match wins
+# (keyword_lower, tax_bucket, acct) — first match wins.
+# More specific keywords must come BEFORE broader ones (e.g. 'settlement or closing fee' before 'title').
+# Validated against 805 High Mesa ALTA statement (20250820-ClosingToLedger.ipynb ccDict).
 _RULES: List[tuple] = [
-    ('sale price',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('contract sales price',    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('title',                   CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('recording fee',           CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('recording charges',       CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('government recording',    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('county tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('property tax',            CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('deposit or earnest',      CAPITALIZE, 'Acct.Cash.Bank'),
-    ('earnest money',           CAPITALIZE, 'Acct.Cash.Bank'),
-    ('option money',            CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
-    ('cash to close',           CAPITALIZE, 'Acct.Cash.Bank'),
-    ('balance due',             CAPITALIZE, 'Acct.Cash.Bank'),
-    ('loan origination',        AMORTIZE,   'Acct.Liab.Morgage'),
-    ('origination fee',         AMORTIZE,   'Acct.Liab.Morgage'),
-    ('loan points',             AMORTIZE,   'Acct.Liab.Morgage'),
-    ('appraisal fee',           AMORTIZE,   'Acct.Liab.Morgage'),
-    ('hoa',                     EXPENSE,    'Acct.Exp.Operating'),
-    ('homeowners association',  EXPENSE,    'Acct.Exp.Operating'),
+
+    # ── Purchase Price ─────────────────────────────────────────────────────────
+    ('sale price',                CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('contract sales price',      CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
+    # ── Title / Closing / Settlement Fees ──────────────────────────────────────
+    # More specific variants before the broad 'title' catch-all
+    ('settlement or closing fee', CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('closing fee',               CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('settlement fee',            CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('title',                     CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
+    # ── Recording / E-Recording ────────────────────────────────────────────────
+    # 'e-recording' before 'recording fee' — "e-recording service fee" ≠ "recording fee"
+    ('e-recording',               CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('recording fee',             CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('recording charges',         CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('government recording',      CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
+    # ── Taxes & Prorations (IRS Pub 551 — included in basis) ───────────────────
+    ('county tax',                CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('property tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('transfer tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
+    # ── Deposits & Cash Funding ────────────────────────────────────────────────
+    ('deposit or earnest',        CAPITALIZE, 'Acct.Cash.Bank'),
+    ('earnest money',             CAPITALIZE, 'Acct.Cash.Bank'),
+    ('option money',              CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
+    ('cash to close',             CAPITALIZE, 'Acct.Cash.Bank'),
+    ('balance due',               CAPITALIZE, 'Acct.Cash.Bank'),
+
+    # ── Mortgage / New Loan Principal (Credit — lender funds purchase) ─────────
+    # 'principal amount' and 'new loan' before 'loan origination' to avoid mis-match
+    ('principal amount',          AMORTIZE,   'Acct.Liab.Morgage'),
+    ('new loan',                  AMORTIZE,   'Acct.Liab.Morgage'),
+    ('loan origination',          AMORTIZE,   'Acct.Liab.Morgage'),
+    ('origination fee',           AMORTIZE,   'Acct.Liab.Morgage'),
+    ('loan points',               AMORTIZE,   'Acct.Liab.Morgage'),
+    ('appraisal fee',             AMORTIZE,   'Acct.Liab.Morgage'),
+
+    # ── Other Capitalized Acquisition Costs (IRS Pub 551) ─────────────────────
+    ('survey',                    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('notary',                    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
+    # ── HOA & Immediate Expenses ───────────────────────────────────────────────
+    # 'hoa' catches "HOA Transfer Fees"; 'homeowners association' catches spelled-out dues
+    ('hoa',                       EXPENSE,    'Acct.Exp.Operating'),
+    ('homeowners association',    EXPENSE,    'Acct.Exp.Operating'),
+    ('home warranty',             EXPENSE,    'Acct.Exp.Operating'),
+    ('inspection',                EXPENSE,    'Acct.Exp.Operating'),
+    ('wire fee',                  EXPENSE,    'Acct.Exp.Operating'),
 ]
 
 
