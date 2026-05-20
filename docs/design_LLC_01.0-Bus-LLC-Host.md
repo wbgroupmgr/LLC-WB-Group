@@ -1,10 +1,40 @@
-# Next Session Plan — Post v0.3.0
+# LLC Restructure Plans and Design 
+
+- LLC-WBGroup - Business Files for LLC
+- pyMultiTaskWS - Web Server
+- llcRentalTracker - Property Rental LLC Services
 
 *Written 2026-05-18. Starting point for the next work session.*
 
 ---
+## 1. LLC-WBGroup repo
 
-## 1. pyMultiTaskWS repo
+### 1.1 Docs
+Create `docs/` with:
+- `README.md` — explain repo structure (books/, Assets/, pages/, Notebooks/)
+- `SOP-PropertyRental.md` — standard operating procedures for rental LLC:
+  - Monthly: collect rent, record expenses, reconcile bank
+  - Quarterly: review P&L, check depreciation schedule
+  - Year-end: close books, generate financial statements, send K-1s to partners
+  - Year-start: open new books/, set up new Accts/ directory, update profile
+
+### 1.2 New Year Setup
+Changes needed when starting a new fiscal year (e.g., 2025 → 2026):
+1. Create `books/2026/Accts/` directory structure
+2. Copy empty template JSONs (llcAssets, llcExpRev, llcPayables, llcReceivables)
+3. Copy `llcProfile_WBGroupLLC.json` to new Accts/ (update year)
+4. Run `wsCmd.py --newBus ~/llc/LLC-WBGroup --year 2026`
+5. Update `~/.llcRentalTracker/config.json` default to new year
+6. Set up `books/2026/BankStmts/` directory for CSV drops
+
+### 1.3 Bank reconciliation setup
+- Create `books/2026/BankStmts/` before first CSV upload
+- Monthly task: download Wells Fargo CSV, drop in BankStmts/, reconcile in app
+
+---
+
+
+## 2. pyMultiTaskWS repo
 
 **Update `docs/design_*.md`** — especially provisioning:
 - Add a "Setup & Provisioning" section covering the exact sequence:
@@ -31,9 +61,9 @@
 
 ---
 
-## 2. llcRentalTracker repo
+## 3. llcRentalTracker repo
 
-### 2.1 Notebooks — bring back from LLC-WBGroup
+### 3.1 Notebooks — bring back from LLC-WBGroup
 Notebooks found in `LLC-WBGroup` that belong in `llcRentalTracker`:
 - `pages/AccountingData/2025/2025 IRS Filing Notes.ipynb` — tax filing notes
 - `docs/irs/displayDoc.ipynb` — already in llcRentalTracker
@@ -43,13 +73,13 @@ Business-analysis notebooks (stay in LLC-WBGroup):
 - `Assets/805HighMesa/805HighMesa.ipynb`
 - `pages/Taxes/2026/2025-CostSegStudy.ipynb`
 
-### 2.2 Help button — implement `design_help_button.md`
+### 3.2 Help button — implement `design_help_button.md`
 - Flask route `/help/<doc_name>`
 - Slide-in drawer in `base.html`
 - Per-view `help_doc=` context var
 - Feedback mailto link to wbgroupmgr@gmail.com
 
-### 2.3 Docs restructure — per audit
+### 3.3 Docs restructure — per audit
 Delete redundant files:
 - `LLC_AccountingWorkflow.md` (dup of `design_LLC_AccountingWorkflow.md`)
 - `LLC_AccountingDesign.md` (dup of `design_LLC_App-Accounting.md`)
@@ -64,7 +94,7 @@ Create missing docs:
 - `docs/04-Fiscal-Year-Start-End/Fiscal-Year-Procedures.md`
 - `docs/05-Operations-SOP/Troubleshooting.md`
 
-### 2.4 Code cleanup (SW design review)
+### 3.4 Code cleanup (SW design review)
 Priority areas identified:
 - `llcMgmt.py` — over 900 lines; split view routing into per-view files
 - `wsCmd.py` — `_write_profile_config` generates its own `LLC_SECRET_KEY`
@@ -76,31 +106,6 @@ Priority areas identified:
 
 ---
 
-## 3. LLC-WBGroup repo
-
-### 3.1 Docs
-Create `docs/` with:
-- `README.md` — explain repo structure (books/, Assets/, pages/, Notebooks/)
-- `SOP-PropertyRental.md` — standard operating procedures for rental LLC:
-  - Monthly: collect rent, record expenses, reconcile bank
-  - Quarterly: review P&L, check depreciation schedule
-  - Year-end: close books, generate financial statements, send K-1s to partners
-  - Year-start: open new books/, set up new Accts/ directory, update profile
-
-### 3.2 New Year Setup
-Changes needed when starting a new fiscal year (e.g., 2025 → 2026):
-1. Create `books/2026/Accts/` directory structure
-2. Copy empty template JSONs (llcAssets, llcExpRev, llcPayables, llcReceivables)
-3. Copy `llcProfile_WBGroupLLC.json` to new Accts/ (update year)
-4. Run `wsCmd.py --newBus ~/llc/LLC-WBGroup --year 2026`
-5. Update `~/.llcRentalTracker/config.json` default to new year
-6. Set up `books/2026/BankStmts/` directory for CSV drops
-
-### 3.3 Bank reconciliation setup
-- Create `books/2026/BankStmts/` before first CSV upload
-- Monthly task: download Wells Fargo CSV, drop in BankStmts/, reconcile in app
-
----
 
 ## 4. Local folder `LLC-WB-Group.v05`
 

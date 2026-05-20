@@ -608,6 +608,13 @@
             </select>
             {% endif %}
 
+            {% if obj_type == 'llcAssets' %}
+            <button class="btn btn-secondary" onclick="closingAidOpen()"
+                    title="Import settlement statement as ledger entries"
+                    style="font-size:12px; padding:5px 12px;">
+                ClosingAid
+            </button>
+            {% endif %}
             <div class="actions-menu">
                 <details id="actionsMenu">
                     <summary>Actions ▾</summary>
@@ -736,4 +743,9 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
     });
 });
 </script>
+
+{% if obj_type == 'llcAssets' %}
+{% include '_closing_aid_dialog.html' %}
+{% endif %}
+
 {% endblock %}

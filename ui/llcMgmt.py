@@ -50,6 +50,7 @@ from ui.llcFormK1           import llcFormK1
 from ui.llcForm8825         import llcForm8825
 from ui.llcForm4562         import llcForm4562
 from ui.llcLogin_auth       import make_auth_routes
+from ui.llcClosingAid       import bind_closing_routes
 
 
 class llcMgmt:
@@ -241,6 +242,7 @@ class llcMgmt:
         self.app.config['_llc_name']  = self.llc_name or "LLC"
 
         make_auth_routes(self.app, llc_name=self.app.config['_llc_name'])
+        bind_closing_routes(self.app, self.objects, self._sanitize)
 
         self.objects = self._build_objects()
 

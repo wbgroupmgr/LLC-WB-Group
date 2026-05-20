@@ -11,11 +11,20 @@
     - llcAssets : purchase/sale  of properties
     - llcPayable : AP accounts payable - not done thru the bank
     - llcReceivable : AR account receivables - not done thru the bank
+- Phase Beginning, Phase End
+    - This `Transactional` accounting phase is defined by the specific busines operatitations.
+    - For a Property Rental LLC business the `Transactional` phase cycle on 2 levels:
+    - Monthly Rent Phase - rent payment
+    - IRS Tax Fiscal Year (1st - last transaction within the IRS fiscal period).
 2. **Book**
 - This is the `bookkeeping` foundational level focused on recording all transactions
 - Ensure the transactional objects are correct.
 - Tasks: Data entry, invoicing, bank reconciliation, and payroll.
 - Goal: To ensure every dollar is tracked and the General Ledger is accurate and current. 
+- Phase Beginning, Phase End
+    - This `Book` accounting phase is linked to
+    - A. periodic Reconcilation per each Bank Statements
+    - B. the period end is defined at the time of `closed book` (usally aligned with IRS fiscal period)
 3. **Analytical** (Accounting)
 - This level focuses on interpreting the data produced by the transactional level. 
 - Tasks: Preparing financial statements
@@ -23,18 +32,31 @@
     - Balance Sheet
     - Advanced: identifying trends, and ensuring regulatory compliance.
 - Goal: To explain what the data means for the business's current performance. 
+- Phase Beginning, Phase End
+    - This `Analytical` accounting phase is linked typically tied to the end of the fiscal period. 
+    - A. The key import is closed books (see prior phase). periodic Reconcilation with Bank Statements
+    - B.IRS fiscal periods. 
 4. **Tax Prepariness** (Tax activities)
 - manage mappnig book data (GL) to tax forms
 - reconciling Tax Forms with Financial Books
 - Preparing Financial Reports and Letters to aid downstream consumers (IRS, auditors)
+- Phase Beginning, Phase End
+    - This `Tax` accounting phase is linked to the end of the IRS fiscal period. 
+    - A. The key import is closed books at the end of the IRS Fiscal Period).
 5. **Strategic** (Controller/CFO)
 - The highest level involves oversight and planning. 
 - Tasks: Long-term financial forecasting, tax strategy, and risk assessment.
 - Goal: To guide the company's future growth and ensure sound financial health. 
+- Phase Beginning, Phase End
+    - This `Strategic` accounting phase is linked to the closing of the books.
+    - A. The key import is closed books at the end of the IRS Fiscal Period).
 6. **Verification** (Auditing)
 - Auditing is a separate, independent process that verifies the work of the other levels. 
 - Tasks: Examining records and internal controls to provide an unbiased opinion on financial accuracy.
 - Goal: To add credibility to the financial statements for external parties
+- Phase Beginning, Phase End
+    - This `Strategic` accounting phase is linked to the closing of the books.
+    - A. The key import is closed books at the end of the IRS Fiscal Period).
 
 ## LLC Accounting App - Understand the Services
 

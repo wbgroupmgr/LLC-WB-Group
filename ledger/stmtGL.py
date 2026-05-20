@@ -206,7 +206,12 @@ class ledgerGeneral(ledgerObject):
         '''
         result = []
         for r in records:
-            ledger_acct = (r.get('Ledger') or '').strip()
+            _lv = r.get('Ledger')
+            ledger_acct = (
+                '' if (_lv is None or (isinstance(_lv, float) and _lv != _lv)
+                       or str(_lv).strip().lower() == 'nan')
+                else str(_lv).strip()
+            )
 
             src_tid = r.get('tID', '') or ''
             e1 = {k: v for k, v in r.items() if k not in ('Ledger', 'tID')}

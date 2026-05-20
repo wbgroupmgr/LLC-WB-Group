@@ -200,7 +200,10 @@ class ledgerDB(ledgerObject):
         # =========== Convert Dual accounts (acct, Ledger) into a single Acct columns        
         
         # ---- dfL make acct = Ledger; clear out Ledger
+        # Only include rows that actually have a Ledger account (1-sided closing entries have Ledger=NaN)
         dfL = fromDF.copy()
+        _lmask = fromDF['Ledger'].notna() & (fromDF['Ledger'].astype(str).str.strip().str.lower() != 'nan')
+        dfL = dfL[_lmask].copy()
         dfL.acct = dfL.Ledger
         dfL.Ledger = np.nan
         #      Reverse sign of amt depending on aType [Debit/Credit]
