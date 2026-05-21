@@ -482,7 +482,7 @@
 
         } else if (_step === 3) {
             if (!_balance.balanced) {
-                caFlash('Journal is not balanced — go back to Step 2 and correct the entries.', true);
+                caFlash('Journal is not balanced — add the missing funding row in Step 1 (Input) and re-classify.', true);
                 return;
             }
             // Fetch property basis + build commit preview
@@ -601,7 +601,24 @@
         const bal = _balance.balanced;
         $('caBalStatus').textContent    = bal ? '✓ BALANCED' : '✗ UNBALANCED';
         $('caBalStatus').className      = 'val ' + (bal ? 'ca-balanced' : 'ca-unbalanced');
-        $('caDeltaRow').textContent     = bal ? '' : `Delta: $${_fmt(Math.abs(_balance.delta))} — go back and correct entries.`;
+        if (!bal) {
+            const delta = Math.abs(_balance.delta);
+            const needCredit = _balance.delta > 0;
+            const side    = needCredit ? 'credits' : 'debits';
+            const suggest = needCredit
+                ? `Add a <strong>Credit</strong> row for <strong>$${_fmt(delta)}</strong> — e.g. <em>"Cash to Close"</em> → Acct.Cash.Bank (cash purchase) or <em>"New Loan Amount"</em> → Acct.Liab.Morgage (financed).`
+                : `Add a <strong>Debit</strong> row for <strong>$${_fmt(delta)}</strong> — check for missing charges in the settlement statement.`;
+            $('caDeltaRow').innerHTML = `
+                <div style="margin-top:10px; padding:10px 14px; background:#fef9c3; border:1px solid #fde047; border-radius:7px; font-size:12px; text-align:left;">
+                  <strong style="color:#713f12;">Missing $${_fmt(delta)} in ${side}.</strong><br>
+                  <span style="color:#713f12;">${suggest}</span><br>
+                  <span style="color:#92400e; font-size:11px;">Go back to Step 1 and add the missing row to the JSON, then re-classify.</span><br>
+                  <button type="button" class="btn btn-secondary" onclick="_renderStep(1);caFlash('')"
+                          style="margin-top:8px; font-size:12px; padding:4px 12px;">← Back to Input (Step 1)</button>
+                </div>`;
+        } else {
+            $('caDeltaRow').innerHTML = '';
+        }
     }
 
     // ── Step 4: Basis & Commit ───────────────────────────────────────────────
