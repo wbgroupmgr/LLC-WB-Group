@@ -88,6 +88,27 @@ def bind_closing_routes(app, objects, sanitize):
             print(f'[ClosingAid balance_assist ERROR]\n{tb}')
             return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
 
+    @app.route('/api/closing/check_existing', methods=['POST'])
+    def closing_check_existing():
+        try:
+            body         = request.get_json(force=True) or {}
+            classified   = body.get('classified', [])
+            closing_date = body.get('closingDate', '')
+            gl_rows = []
+            for key in ('llcExpRev', 'llcAssets', 'llcPayables', 'llcReceivables'):
+                mgr = objects.get(key)
+                if mgr:
+                    try:
+                        gl_rows.extend(mgr.load() or [])
+                    except Exception:
+                        pass
+            matches = _aid.check_existing(classified, closing_date, gl_rows)
+            return jsonify({'ok': True, 'matches': _safe_json(matches)})
+        except Exception as err:
+            tb = traceback.format_exc()
+            print(f'[ClosingAid check_existing ERROR]\n{tb}')
+            return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
+
     @app.route('/api/closing/commit', methods=['POST'])
     def closing_commit():
         try:

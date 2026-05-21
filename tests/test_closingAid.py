@@ -135,10 +135,10 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(by_desc['Sale Price of Property']['aType'], 'Debit')
         self.assertAlmostEqual(by_desc['Sale Price of Property']['amt'], 220000.0)
         self.assertEqual(by_desc['Sale Price of Property']['acct'], 'Acct.Fixed.Tangible.InService')
-        # Seller column → Credit
+        # Seller column → Credit; deposit flows through escrow → Owner Capital (not bank)
         self.assertEqual(by_desc['Deposit or Earnest Money']['aType'], 'Credit')
         self.assertAlmostEqual(by_desc['Deposit or Earnest Money']['amt'], 5000.0)
-        self.assertEqual(by_desc['Deposit or Earnest Money']['acct'], 'Acct.Cash.Bank')
+        self.assertEqual(by_desc['Deposit or Earnest Money']['acct'], 'Acct.Equity.Owner.Capital.Funds')
         # Tax proration (Seller → Credit, Capitalize to basis)
         self.assertEqual(by_desc['County taxes proration']['aType'], 'Credit')
         self.assertEqual(by_desc['County taxes proration']['acct'], 'Acct.Fixed.Tangible.InService')
@@ -304,7 +304,8 @@ class TestBalanceAssist(unittest.TestCase):
         ]
         self._closing_date = '2025-08-26'
 
-    def test_balanced_returns_early(self):
+    def test_balanced_returns_context(self):
+        # When balanced, balance_assist still returns gl_context for the funding chain display
         balanced = [
             {'aType': 'Debit',  'amt': 100.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
             {'aType': 'Credit', 'amt': 100.0, 'acct': 'Acct.Cash.Bank',                'tax_bucket': CAPITALIZE},
@@ -312,6 +313,8 @@ class TestBalanceAssist(unittest.TestCase):
         result = self.aid.balance_assist(balanced, self._closing_date, self._gl_rows)
         self.assertTrue(result['balanced'])
         self.assertEqual(result['delta'], 0)
+        self.assertIn('gl_context', result)    # always present now
+        self.assertIn('total_funded', result)
 
     def test_unbalanced_returns_context(self):
         result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
@@ -362,6 +365,55 @@ class TestBalanceAssist(unittest.TestCase):
         result = self.aid.balance_assist(nearly, self._closing_date, [])
         self.assertTrue(result['balanced'])
         self.assertNotIn('suggestion', result)
+
+
+# ---------------------------------------------------------------------------
+# 9. ClosingAid.check_existing
+# ---------------------------------------------------------------------------
+class TestCheckExisting(unittest.TestCase):
+
+    def setUp(self):
+        self.aid = ClosingAid()
+        self._closing_date = '2025-08-26'
+        self._classified = [
+            {'_row_idx': 1, 'aType': 'Debit',  'amt': 220000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+            {'_row_idx': 2, 'aType': 'Credit', 'amt': 5000.0,   'acct': 'Acct.Equity.Owner.Capital.Funds', 'tax_bucket': CAPITALIZE},
+            {'_row_idx': 3, 'aType': 'Credit', 'amt': 625.0,    'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+        ]
+        self._gl_rows = [
+            {'tID': 'r20250825_01', 'dt': '2025.08.25', 'aType': 'Debit',  'amt': 220000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'desc': 'Sale Price existing'},
+            {'tID': 'r20250101_01', 'dt': '2025.01.01', 'aType': 'Debit',  'amt': 1000.0,   'acct': 'Acct.Exp.Operating',            'desc': 'Unrelated expense'},
+            {'tID': 'r20240101_01', 'dt': '2024.01.01', 'aType': 'Debit',  'amt': 220000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'desc': 'Prior year — excluded'},
+        ]
+
+    def test_finds_same_year_match(self):
+        matches = self.aid.check_existing(self._classified, self._closing_date, self._gl_rows)
+        row_indices = [m['_row_idx'] for m in matches]
+        self.assertIn(1, row_indices)  # $220k Debit matches
+
+    def test_excludes_different_year(self):
+        matches = self.aid.check_existing(self._classified, self._closing_date, self._gl_rows)
+        # The 2024 row must not be returned as a candidate
+        for m in matches:
+            for c in m['candidates']:
+                self.assertNotEqual(c['tID'], 'r20240101_01')
+
+    def test_no_false_positive_on_different_atype(self):
+        matches = self.aid.check_existing(self._classified, self._closing_date, self._gl_rows)
+        # Row 2 ($5000 Credit) has no GL match → not flagged
+        row_indices = [m['_row_idx'] for m in matches]
+        self.assertNotIn(2, row_indices)
+
+    def test_candidate_fields_present(self):
+        matches = self.aid.check_existing(self._classified, self._closing_date, self._gl_rows)
+        self.assertTrue(len(matches) > 0)
+        c = matches[0]['candidates'][0]
+        for field in ('tID', 'dt', 'desc', 'acct'):
+            self.assertIn(field, c)
+
+    def test_empty_gl_returns_no_matches(self):
+        matches = self.aid.check_existing(self._classified, self._closing_date, [])
+        self.assertEqual(matches, [])
 
 
 if __name__ == '__main__':

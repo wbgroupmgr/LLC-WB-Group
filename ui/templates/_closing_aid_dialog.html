@@ -312,6 +312,7 @@
 
     <!-- ── Step 4: Basis & Commit ─────────────────────────────────────────── -->
     <div id="caPane4" style="display:none">
+      <div id="caPrefaceSummary"></div>
       <div class="ca-sec">Property Basis &amp; Land/Building Split</div>
       <div id="caBasisBox" class="ca-basis-box"></div>
       <div class="ca-sec">Generated Journal Entries (preview)</div>
@@ -321,11 +322,13 @@
             <tr>
               <th>tID</th>
               <th>Date</th>
+              <th>Description</th>
               <th>Account</th>
               <th>Dr/Cr</th>
               <th style="text-align:right">Amount</th>
               <th>Tax Bucket</th>
               <th>Ref Doc</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody id="caCommitBody"></tbody>
@@ -490,12 +493,12 @@
             if (!r.ok) { caFlash(r.json.error || 'Balance check failed', true); return; }
             _balance = r.json;
             _renderBalance();
-            if (!_balance.balanced) _fetchBalanceAssist();
+            _fetchBalanceAssist();   // always — shows funding chain even when balanced
             _renderStep(3);
 
         } else if (_step === 3) {
             if (!_balance.balanced) {
-                caFlash('Journal is not balanced — add the missing funding row in Step 1 (Input) and re-classify.', true);
+                caFlash('Journal is not balanced — add the missing funding row or use Balance Assist below.', true);
                 return;
             }
             // Fetch property basis + build commit preview
@@ -504,9 +507,19 @@
                 landPct:    _preface.landPct,
             });
             if (!r.ok) { caFlash(r.json.error || 'Basis calculation failed', true); return; }
+            _renderPrefaceSummary();
             _renderBasis(r.json);
             _buildCommitPreview();
-            $('caBtnCommit').disabled = !_balance.balanced;
+            // Check for entries already in the GL (parallel to the render, apply when ready)
+            caPost('/api/closing/check_existing', {
+                classified:  _classified,
+                closingDate: _preface.closingDate || '',
+            }).then(chk => {
+                if (chk.ok && chk.json.matches && chk.json.matches.length) {
+                    _markExistingRows(chk.json.matches);
+                }
+            });
+            $('caBtnCommit').disabled = false;
             _renderStep(4);
         }
     };
@@ -671,8 +684,6 @@
     }
 
     function _buildCommitPreview() {
-        // Re-apply land split locally for preview using current classified + landPct
-        // (the actual split happens server-side on /api/closing/commit)
         const tbody = $('caCommitBody');
         tbody.innerHTML = '';
         const prefix = _preface.tID_Prefix || 'closing';
@@ -680,23 +691,73 @@
         const propNm = _preface.propNm || '';
         const doc    = _preface.closingDoc || '';
 
-        // Use classified as-is for preview (server will apply land split)
         _classified.forEach((r, i) => {
             const tID    = `${prefix}_${String(i+1).padStart(2,'0')}`;
             const bucket = r.tax_bucket || 'Capitalize';
             const refDoc = `${propNm}, Closing Docs, ${bucket}, ${doc}`;
+            const desc   = (r.Description || r.desc || '').replace(/</g,'&lt;');
+            const rowIdx = r._row_idx != null ? r._row_idx : (i + 1);
             const tr = document.createElement('tr');
+            tr.dataset.rowIdx = rowIdx;
             tr.innerHTML = `
               <td style="font-family:monospace;font-size:11px">${tID}</td>
               <td>${dt}</td>
+              <td style="font-size:11px;max-width:160px;word-break:break-word">${desc}</td>
               <td style="font-size:11px">${r.acct||''}</td>
               <td>${r.aType||''}</td>
               <td style="text-align:right">$${_fmt(r.amt||0)}</td>
               <td><span class="ca-chip ${bucket.toLowerCase()}">${bucket}</span></td>
               <td style="font-size:10px;color:#6b7280">${refDoc}</td>
+              <td id="ca-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
             `;
             tbody.appendChild(tr);
         });
+    }
+
+    function _renderPrefaceSummary() {
+        const p = _preface;
+        const fields = [
+            ['Property',  p.propNm  || '—'],
+            ['Address',   p.propAddr || '—'],
+            ['Closing',   (p.closingDate||'').replace(/-/g,'.')],
+            ['tID Prefix',p.tID_Prefix || '—'],
+            ['Asset Type',p.assetType  || '—'],
+            ['State',     p.assetState || '—'],
+            ['Owners',    p.propOwners || '—'],
+            ['Doc',       p.closingDoc || '—'],
+        ];
+        const cells = fields.map(([lbl,val]) =>
+            `<div style="min-width:140px;margin:4px 12px 4px 0;">
+               <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;">${lbl}</div>
+               <div style="font-size:12px;font-weight:600;color:#1e293b;">${val}</div>
+             </div>`
+        ).join('');
+        $('caPrefaceSummary').innerHTML = `
+          <div style="display:flex;flex-wrap:wrap;padding:8px 12px;background:#f8fafc;
+                      border:1px solid #e2e8f0;border-radius:7px;margin-bottom:10px;">
+            ${cells}
+          </div>`;
+    }
+
+    function _markExistingRows(matches) {
+        let dupCount = 0;
+        matches.forEach(m => {
+            const statusCell = $(`ca-status-${m._row_idx}`);
+            if (!statusCell) return;
+            dupCount++;
+            const c = (m.candidates || [])[0] || {};
+            const tip = c.tID
+                ? `Possible duplicate: ${c.tID} — ${c.desc} (${c.dt})`
+                : 'Possible duplicate in GL';
+            statusCell.innerHTML =
+                `<span title="${tip}" style="color:#c2410c;cursor:help;">⚠ In GL?</span>`;
+            // Highlight row
+            const tr = statusCell.closest('tr');
+            if (tr) tr.style.background = '#fff7ed';
+        });
+        if (dupCount > 0) {
+            caFlash(`⚠ ${dupCount} row(s) highlighted in orange may already be in the GL — hover for details. Verify before committing.`, true);
+        }
     }
 
     // ── Balance Assist ───────────────────────────────────────────────────────
@@ -712,11 +773,25 @@
 
     function _renderAssist(data) {
         const panel = $('caAssistPanel');
-        if (data.balanced) { panel.style.display = 'none'; return; }
+        const isBalanced = data.balanced;
 
-        let html = `<div style="padding:10px 14px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:7px; font-size:12px;">
-          <strong style="color:#0369a1;">🔍 Balance Assist — GL Funding Context</strong>
-          <p style="color:#0c4a6e; margin:6px 0 4px;">
+        // Hide panel if balanced and no GL context to show
+        if (isBalanced && (!data.gl_context || data.gl_context.length === 0)) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        const bg    = isBalanced ? '#f0fdf4' : '#f0f9ff';
+        const bord  = isBalanced ? '#86efac' : '#7dd3fc';
+        const hdr   = isBalanced ? '#166534' : '#0369a1';
+        const body  = isBalanced ? '#14532d' : '#0c4a6e';
+        const title = isBalanced
+            ? '✅ Funding Chain — Balance Verified'
+            : '🔍 Balance Assist — GL Funding Context';
+
+        let html = `<div style="padding:10px 14px; background:${bg}; border:1px solid ${bord}; border-radius:7px; font-size:12px;">
+          <strong style="color:${hdr};">${title}</strong>
+          <p style="color:${body}; margin:6px 0 4px;">
             Owner capital contributions on or before closing date
             (<strong>$${_fmt(data.total_funded)}</strong> total):
           </p>`;

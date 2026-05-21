@@ -39,8 +39,9 @@ _RULES: List[tuple] = [
     ('transfer tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
 
     # ── Deposits & Cash Funding ────────────────────────────────────────────────
-    ('deposit or earnest',        CAPITALIZE, 'Acct.Cash.Bank'),
-    ('earnest money',             CAPITALIZE, 'Acct.Cash.Bank'),
+    # Earnest/deposit/option flow through escrow — not LLC bank stmt → Owner Capital
+    ('deposit or earnest',        CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
+    ('earnest money',             CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
     ('option money',              CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
     ('cash to close',             CAPITALIZE, 'Acct.Cash.Bank'),
     ('balance due',               CAPITALIZE, 'Acct.Cash.Bank'),
@@ -295,18 +296,12 @@ class ClosingAid:
                        closing_date: str,
                        gl_rows: List[Dict]) -> Dict:
         """
-        When the closing journal is unbalanced, find existing GL transactions
-        (member capital contributions) that explain the funding gap and suggest
-        the single balancing credit/debit entry to add.
-
-        gl_rows: raw records from all loaded managers (llcExpRev, llcAssets, …).
-        Returns read-only context + one suggestion row; never modifies gl_rows.
+        Search GL for capital-contribution funding context and (when unbalanced)
+        suggest a single balancing entry.  Always returns gl_context so Step 3
+        can show the funding chain even after the journal is balanced.
         """
-        bs = self.toBalanceSheet(classified)
-        if bs['balanced']:
-            return {'balanced': True, 'delta': 0}
-
-        delta      = round(bs['delta'], 2)   # positive = credits short, negative = debits short
+        bs         = self.toBalanceSheet(classified)
+        delta      = round(bs['delta'], 2)
         closing_dt = _norm_dt(closing_date) if closing_date else '9999.99.99'
 
         context = []
@@ -320,10 +315,8 @@ class ClosingAid:
             amt    = _parse_amt(row.get('amt'))
             if not amt or amt <= 0:
                 continue
-            desc   = str(row.get('desc', '') or '')
-            # Two forms of a member capital contribution:
-            #   direct : acct=*Capital*, aType=Credit
-            #   dual   : acct=Cash.Bank, Ledger=*Capital*, aType=Debit
+            desc = str(row.get('desc', '') or '')
+            # Direct: acct=*Capital* CR  |  Dual: Ledger=*Capital* DR
             if ('Capital' in acct and atype == 'Credit') or \
                ('Capital' in ledger and atype == 'Debit'):
                 context.append({
@@ -337,6 +330,15 @@ class ClosingAid:
         context.sort(key=lambda r: str(r.get('dt', '')), reverse=True)
         context = context[:15]
         total_funded = round(sum(r['amt'] for r in context), 2)
+
+        if bs['balanced']:
+            return {
+                'balanced':     True,
+                'delta':        0,
+                'gl_context':   context,
+                'total_funded': total_funded,
+                'covers_delta': True,
+            }
 
         need_credit = delta > 0
         suggestion = {
@@ -358,3 +360,42 @@ class ClosingAid:
             'covers_delta': total_funded >= abs(delta) - 0.02,
             'suggestion':   suggestion,
         }
+
+    def check_existing(self, classified: List[Dict], closing_date: str,
+                       gl_rows: List[Dict]) -> List[Dict]:
+        """
+        Flag classified rows that may already exist in the GL.
+        Matches by aType + amt (±$0.01) within the same calendar year as closing.
+        Returns [{_row_idx, candidates: [{tID, dt, desc, acct}]}].
+        """
+        closing_dt   = _norm_dt(closing_date) if closing_date else ''
+        closing_year = closing_dt[:4] if len(closing_dt) >= 4 else ''
+
+        idx: Dict[tuple, List[Dict]] = {}
+        for gl in gl_rows:
+            gl_amt = _parse_amt(gl.get('amt'))
+            if not gl_amt or gl_amt <= 0:
+                continue
+            gl_atype = str(gl.get('aType', '') or '')
+            gl_dt    = _norm_dt(str(gl.get('dt', '') or ''))
+            if closing_year and gl_dt[:4] != closing_year:
+                continue
+            key = (gl_atype, round(gl_amt, 2))
+            idx.setdefault(key, []).append({
+                'tID':  str(gl.get('tID', '') or ''),
+                'dt':   str(gl.get('dt', '')),
+                'desc': str(gl.get('desc', '') or '')[:60],
+                'acct': str(gl.get('acct', '') or ''),
+            })
+
+        matches = []
+        for row in classified:
+            amt   = round(row.get('amt') or 0, 2)
+            atype = str(row.get('aType', '') or '')
+            key   = (atype, amt)
+            if key in idx:
+                matches.append({
+                    '_row_idx':   row.get('_row_idx'),
+                    'candidates': idx[key][:3],
+                })
+        return matches
