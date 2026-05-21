@@ -523,8 +523,8 @@
 
 {# show_detail: True when viewBy == 'Details' — reveals minor/sub/propNm columns #}
 {% set show_detail = frames.view_by == 'Details' %}
-{% set tb_label_cols = 5 if show_detail else 2 %}
-{% set tb_n_cols     = 8 if show_detail else 5 %}
+{% set tb_label_cols = 5 if show_detail else 3 %}
+{% set tb_n_cols     = 8 if show_detail else 6 %}
 
 {# ─────────────── FRAME 1 — Trial Balance (aggregated) ─────────────── #}
 <details class="frame" open>
@@ -547,7 +547,7 @@
                 <tr>
                     <th style="width:110px">acctType</th>
                     <th>acct</th>
-                    {% if show_detail %}<th style="width:160px">Minor</th>{% endif %}
+                    <th style="width:160px">Minor</th>
                     {% if show_detail %}<th style="width:160px">acctSub</th>{% endif %}
                     {% if show_detail %}<th style="width:110px">propNm</th>{% endif %}
                     <th class="num" style="width:120px">Debit</th>
@@ -594,7 +594,7 @@
                     <tr>
                         <td></td>
                         <td class="acct-name">{{ acct_disp }}</td>
-                        {% if show_detail %}<td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_minor }}</td>{% endif %}
+                        <td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_minor }}</td>
                         {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
                         {% if show_detail %}<td style="font-size:12px; color:#6b7280">{{ row.get("propNm", "") }}</td>{% endif %}
                         <td class="num {% if debit > 0 %}amt-pos{% endif %}">
