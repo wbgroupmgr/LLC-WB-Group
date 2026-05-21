@@ -120,6 +120,14 @@
     .ca-chip.capitalize { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
     .ca-chip.amortize   { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
     .ca-chip.expense    { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+    /* Step 4 commit table — sticky header */
+    #caCommitTable thead th {
+        position: sticky;
+        top: 0;
+        background: #f1f5f9;
+        z-index: 3;
+        box-shadow: 0 1px 0 #e2e8f0;
+    }
     /* Action bar */
     .ca-actions {
         display: flex; justify-content: flex-end; align-items: center;
@@ -186,8 +194,15 @@
           <option value="Land">Land</option>
         </select>
 
-        <label for="caAssetState">Asset State (acctSub)</label>
-        <input  id="caAssetState" type="text" value="Closing" placeholder="e.g. Closing, InService">
+        <label for="caAssetState">Asset State</label>
+        <input  id="caAssetState" type="text" value="InService"
+                placeholder="e.g. InService, UnderRehab, Disposed">
+        <span   class="hint">Operational lifecycle state of the property.</span>
+
+        <label for="caAcctSub">acctSub (BS)</label>
+        <input  id="caAcctSub" type="text" value="Closing"
+                placeholder="e.g. Closing, InService">
+        <span   class="hint">Balance Sheet sub-account grouping key — "Closing" marks this as an acquisition entry.</span>
 
         <label for="caPropOwners">Owners</label>
         <input  id="caPropOwners" type="text" placeholder="e.g. Member A, Member B">
@@ -316,8 +331,8 @@
       <div class="ca-sec">Property Basis &amp; Land/Building Split</div>
       <div id="caBasisBox" class="ca-basis-box"></div>
       <div class="ca-sec">Generated Journal Entries (preview)</div>
-      <div style="overflow-x:auto;">
-        <table class="ca-table" id="caCommitTable">
+      <div style="overflow:auto; max-height:340px; border:1px solid #e2e8f0; border-radius:6px;">
+        <table class="ca-table" id="caCommitTable" style="margin:0;">
           <thead>
             <tr>
               <th>tID</th>
@@ -452,6 +467,7 @@
                 tID_Prefix:  $('caTIDPrefix').value.trim(),
                 assetType:   $('caAssetType').value,
                 assetState:  $('caAssetState').value.trim(),
+                acctSub:     $('caAcctSub').value.trim() || 'Closing',
                 propOwners:  $('caPropOwners').value.trim(),
                 landPct:     parseFloat($('caLandPct').value) || 0,
             };
@@ -692,7 +708,7 @@
         const propNm = _preface.propNm || '';
         const doc    = _preface.closingDoc || '';
 
-        const acctSub = _preface.assetState || 'Closing';
+        const acctSub = _preface.acctSub || 'Closing';
         _classified.forEach((r, i) => {
             const tID    = `${prefix}_${String(i+1).padStart(2,'0')}`;
             const bucket = r.tax_bucket || 'Capitalize';
@@ -721,14 +737,15 @@
     function _renderPrefaceSummary() {
         const p = _preface;
         const fields = [
-            ['Property',  p.propNm  || '—'],
-            ['Address',   p.propAddr || '—'],
-            ['Closing',   (p.closingDate||'').replace(/-/g,'.')],
-            ['tID Prefix',p.tID_Prefix || '—'],
-            ['Asset Type',p.assetType  || '—'],
-            ['State',     p.assetState || '—'],
-            ['Owners',    p.propOwners || '—'],
-            ['Doc',       p.closingDoc || '—'],
+            ['Property',    p.propNm    || '—'],
+            ['Address',     p.propAddr  || '—'],
+            ['Closing',     (p.closingDate||'').replace(/-/g,'.')],
+            ['tID Prefix',  p.tID_Prefix || '—'],
+            ['Asset Type',  p.assetType  || '—'],
+            ['Asset State', p.assetState || '—'],
+            ['acctSub',     p.acctSub    || 'Closing'],
+            ['Owners',      p.propOwners || '—'],
+            ['Doc',         p.closingDoc || '—'],
         ];
         const cells = fields.map(([lbl,val]) =>
             `<div style="min-width:140px;margin:4px 12px 4px 0;">

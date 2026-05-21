@@ -269,7 +269,8 @@ class ClosingAid:
         prop_nm    = preface.get('propNm', '')
         prop_addr  = preface.get('propAddr', '')
         tID_prefix = preface.get('tID_Prefix', 'closing')
-        asset_state = preface.get('assetState', '')
+        acct_sub    = preface.get('acctSub',    'Closing')   # BS grouping key
+        asset_state = preface.get('assetState', 'InService') # operational lifecycle
         asset_type  = preface.get('assetType', '')
         prop_owners = preface.get('propOwners', '')
 
@@ -292,8 +293,9 @@ class ClosingAid:
                 'refDoc':   ref_doc,
                 'propNm':   prop_nm,
                 'propRef':  prop_addr,
-                'acctSub':  asset_state,
-                'assetType': asset_type,
+                'acctSub':    acct_sub,
+                'assetState': asset_state,
+                'assetType':  asset_type,
                 'propOwners': prop_owners,
                 'tax_bucket': tax_bucket,
             }
