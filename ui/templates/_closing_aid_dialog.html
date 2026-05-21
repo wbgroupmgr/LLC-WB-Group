@@ -433,6 +433,9 @@
 
     window.caBack = function() { if (_step > 0) _renderStep(_step - 1); };
 
+    // Navigate back to Review table (step 2) so the user can edit rows without re-pasting JSON
+    window.caGoToInput = function() { caFlash(''); _renderStep(2); };
+
     window.caNext = async function() {
         caFlash('');
         if (_step === 0) {
@@ -626,8 +629,8 @@
                   <strong style="color:#713f12;">Missing $${_fmt(delta)} in ${side}.</strong><br>
                   <span style="color:#713f12;">${suggest}</span><br>
                   <span style="color:#92400e; font-size:11px;">Go back to Step 1 and add the missing row to the JSON, then re-classify.</span><br>
-                  <button type="button" class="btn btn-secondary" onclick="_renderStep(1);caFlash('')"
-                          style="margin-top:8px; font-size:12px; padding:4px 12px;">← Back to Input (Step 1)</button>
+                  <button type="button" class="btn btn-secondary" onclick="caGoToInput()"
+                          style="margin-top:8px; font-size:12px; padding:4px 12px;">← Back to Review (Step 3)</button>
                 </div>`;
         } else {
             $('caDeltaRow').innerHTML = '';
