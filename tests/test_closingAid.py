@@ -222,9 +222,33 @@ class TestToAssetRecords(unittest.TestCase):
 
     def test_to_asset_records_schema(self):
         records = self.aid.toAssetRecords(self._classified, self._preface)
-        required = {'tID', 'dt', 'acct', 'Ledger', 'aType', 'amt', 'desc', 'refDoc', 'propNm', 'tax_bucket'}
+        required = {
+            'tID', 'propID', 'dt', 'acct', 'Ledger', 'aType', 'amt',
+            'desc', 'refDoc', 'refDB', 'tDB', 'propNm', 'propAddr',
+            'acctSub', 'propOwners', 'tax_bucket',
+        }
         for rec in records:
             self.assertTrue(required.issubset(rec.keys()), f"Missing keys in {rec}")
+
+    def test_to_asset_records_propID_equals_tID(self):
+        records = self.aid.toAssetRecords(self._classified, self._preface)
+        for rec in records:
+            self.assertEqual(rec['propID'], rec['tID'])
+
+    def test_to_asset_records_propAddr(self):
+        records = self.aid.toAssetRecords(self._classified, self._preface)
+        for rec in records:
+            self.assertEqual(rec['propAddr'], '805 High Mesa Dr')
+        # oID must NOT appear
+        for rec in records:
+            self.assertNotIn('oID',    rec)
+            self.assertNotIn('propRef', rec)
+
+    def test_to_asset_records_tDB_refDB(self):
+        records = self.aid.toAssetRecords(self._classified, self._preface)
+        for rec in records:
+            self.assertEqual(rec['tDB'],  'llcAssets')
+            self.assertEqual(rec['refDB'], 'closingAid')
 
     def test_to_asset_records_desc_prefix(self):
         records = self.aid.toAssetRecords(self._classified, self._preface)

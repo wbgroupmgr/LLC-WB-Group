@@ -282,17 +282,19 @@ class ClosingAid:
 
             desc_raw = str(row.get('Description', row.get('desc', '')))
             record = {
-                'tID':      tID,
-                'oID':      tID_prefix,
-                'dt':       dt,
-                'acct':     row.get('acct', ''),
-                'Ledger':   None,
-                'aType':    row.get('aType', 'Debit'),
-                'amt':      row.get('amt', 0.0),
-                'desc':     f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',
-                'refDoc':   ref_doc,
-                'propNm':   prop_nm,
-                'propRef':  prop_addr,
+                'tID':        tID,
+                'propID':     tID,           # propID == tID; no phantom Ledger side
+                'dt':         dt,
+                'acct':       row.get('acct', ''),
+                'Ledger':     None,          # NaN in pandas → single-sided GL entry
+                'aType':      row.get('aType', 'Debit'),
+                'amt':        row.get('amt', 0.0),
+                'desc':       f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',
+                'refDoc':     ref_doc,
+                'refDB':      'closingAid',
+                'tDB':        'llcAssets',
+                'propNm':     prop_nm,
+                'propAddr':   prop_addr,
                 'acctSub':    acct_sub,
                 'assetState': asset_state,
                 'assetType':  asset_type,

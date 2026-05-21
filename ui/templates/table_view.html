@@ -9,6 +9,7 @@
     const COLUMNS = {{ columns|tojson }};
     const CURRENT_VIEW_MODE = {{ view_mode|tojson }};
     const CURRENT_VIEW_BY = {{ view_by|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};  // '/rentalTracker' on PA, '' locally
     let editorMode = "edit";
     let activeRecordId = null;
 
@@ -54,7 +55,7 @@
             params.set("chg", changedId);
         }
         const query = params.toString();
-        return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        return `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     function applyViewBy(selectEl) {
@@ -67,7 +68,7 @@
             params.set("viewBy", vb);
         }
         const query = params.toString();
-        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     async function postCmd(params) {
@@ -76,7 +77,7 @@
             form.append(k, typeof v === "string" ? v : JSON.stringify(v));
         }
 
-        const res = await fetch(`/api/${OBJ_TYPE}/cmd`, {
+        const res = await fetch(`${_scriptRoot}/api/${OBJ_TYPE}/cmd`, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: form.toString()
@@ -127,7 +128,7 @@
         if (CURRENT_VIEW_BY && CURRENT_VIEW_BY !== "All") {
             params.set("viewBy", CURRENT_VIEW_BY);
         }
-        window.location.href = `/view/${OBJ_TYPE}?${params.toString()}`;
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}?${params.toString()}`;
     }
 
     async function saveWorking() {
@@ -151,7 +152,7 @@
         badge.textContent = "…";
         badge.className = "coa-badge coa-checking";
         try {
-            const res = await fetch(`/api/coa/get?acct=${encodeURIComponent(val)}`);
+            const res = await fetch(`${_scriptRoot}/api/coa/get?acct=${encodeURIComponent(val)}`);
             const data = await res.json();
             if (data.found) {
                 badge.textContent = `✓ ${data.entry.acctType}`;
