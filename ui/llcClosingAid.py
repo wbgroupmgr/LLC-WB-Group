@@ -66,6 +66,28 @@ def bind_closing_routes(app, objects, sanitize):
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500
 
+    @app.route('/api/closing/balance_assist', methods=['POST'])
+    def closing_balance_assist():
+        try:
+            body         = request.get_json(force=True) or {}
+            classified   = body.get('classified', [])
+            closing_date = body.get('closingDate', '')
+            # Load all GL sources for funding context
+            gl_rows = []
+            for key in ('llcExpRev', 'llcAssets', 'llcPayables', 'llcReceivables'):
+                mgr = objects.get(key)
+                if mgr:
+                    try:
+                        gl_rows.extend(mgr.load() or [])
+                    except Exception:
+                        pass
+            result = _aid.balance_assist(classified, closing_date, gl_rows)
+            return jsonify({'ok': True, **_safe_json(result)})
+        except Exception as err:
+            tb = traceback.format_exc()
+            print(f'[ClosingAid balance_assist ERROR]\n{tb}')
+            return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
+
     @app.route('/api/closing/commit', methods=['POST'])
     def closing_commit():
         try:

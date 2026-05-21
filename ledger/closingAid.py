@@ -290,3 +290,71 @@ class ClosingAid:
             records.append(record)
 
         return records
+
+    def balance_assist(self, classified: List[Dict],
+                       closing_date: str,
+                       gl_rows: List[Dict]) -> Dict:
+        """
+        When the closing journal is unbalanced, find existing GL transactions
+        (member capital contributions) that explain the funding gap and suggest
+        the single balancing credit/debit entry to add.
+
+        gl_rows: raw records from all loaded managers (llcExpRev, llcAssets, …).
+        Returns read-only context + one suggestion row; never modifies gl_rows.
+        """
+        bs = self.toBalanceSheet(classified)
+        if bs['balanced']:
+            return {'balanced': True, 'delta': 0}
+
+        delta      = round(bs['delta'], 2)   # positive = credits short, negative = debits short
+        closing_dt = _norm_dt(closing_date) if closing_date else '9999.99.99'
+
+        context = []
+        for row in gl_rows:
+            row_dt = _norm_dt(str(row.get('dt', '') or ''))
+            if row_dt > closing_dt:
+                continue
+            acct   = str(row.get('acct',   '') or '')
+            ledger = str(row.get('Ledger', '') or '')
+            atype  = str(row.get('aType',  '') or '')
+            amt    = _parse_amt(row.get('amt'))
+            if not amt or amt <= 0:
+                continue
+            desc   = str(row.get('desc', '') or '')
+            # Two forms of a member capital contribution:
+            #   direct : acct=*Capital*, aType=Credit
+            #   dual   : acct=Cash.Bank, Ledger=*Capital*, aType=Debit
+            if ('Capital' in acct and atype == 'Credit') or \
+               ('Capital' in ledger and atype == 'Debit'):
+                context.append({
+                    'dt':    str(row.get('dt', '')),
+                    'desc':  desc[:60],
+                    'acct':  acct,
+                    'aType': atype,
+                    'amt':   round(amt, 2),
+                })
+
+        context.sort(key=lambda r: str(r.get('dt', '')), reverse=True)
+        context = context[:15]
+        total_funded = round(sum(r['amt'] for r in context), 2)
+
+        need_credit = delta > 0
+        suggestion = {
+            'Description': 'Cash to Close',
+            'aType':       'Credit' if need_credit else 'Debit',
+            'acct':        'Acct.Cash.Bank' if need_credit else 'Acct.Fixed.Tangible.InService',
+            'amt':         round(abs(delta), 2),
+            'tax_bucket':  CAPITALIZE,
+            'Ledger':      None,
+            '_matched':    True,
+        } if abs(delta) > 0.02 else None
+
+        return {
+            'balanced':     False,
+            'delta':        delta,
+            'need_credit':  need_credit,
+            'gl_context':   context,
+            'total_funded': total_funded,
+            'covers_delta': total_funded >= abs(delta) - 0.02,
+            'suggestion':   suggestion,
+        }

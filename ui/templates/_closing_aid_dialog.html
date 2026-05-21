@@ -307,6 +307,7 @@
         </div>
       </div>
       <div id="caDeltaRow" style="text-align:center; font-size:12px; color:#6b7280;"></div>
+      <div id="caAssistPanel" style="display:none; margin-top:14px;"></div>
     </div>
 
     <!-- ── Step 4: Basis & Commit ─────────────────────────────────────────── -->
@@ -365,6 +366,7 @@
     let _records      = [];   // step 4 preview (from property_basis)
     let _sessionRules = [];   // [{keyword, tax_bucket, acct}] added this session
     let _rawRows      = [];   // saved for re-classify after adding a rule
+    let _lastAssistSuggestion = null;
 
     const ACCT_OPTIONS = [
         'Acct.Fixed.Tangible.InService',
@@ -485,6 +487,7 @@
             if (!r.ok) { caFlash(r.json.error || 'Balance check failed', true); return; }
             _balance = r.json;
             _renderBalance();
+            if (!_balance.balanced) _fetchBalanceAssist();
             _renderStep(3);
 
         } else if (_step === 3) {
@@ -603,6 +606,9 @@
     // ── Step 3: Balance ──────────────────────────────────────────────────────
 
     function _renderBalance() {
+        $('caAssistPanel').style.display = 'none';
+        $('caAssistPanel').innerHTML     = '';
+        _lastAssistSuggestion = null;
         $('caTotalDebits').textContent  = '$' + _fmt(_balance.total_debits);
         $('caTotalCredits').textContent = '$' + _fmt(_balance.total_credits);
         const bal = _balance.balanced;
@@ -689,6 +695,94 @@
             tbody.appendChild(tr);
         });
     }
+
+    // ── Balance Assist ───────────────────────────────────────────────────────
+
+    async function _fetchBalanceAssist() {
+        const r = await caPost('/api/closing/balance_assist', {
+            classified:  _classified,
+            closingDate: _preface.closingDate || '',
+        });
+        if (!r.ok) return;   // silently skip — delta box already visible
+        _renderAssist(r.json);
+    }
+
+    function _renderAssist(data) {
+        const panel = $('caAssistPanel');
+        if (data.balanced) { panel.style.display = 'none'; return; }
+
+        let html = `<div style="padding:10px 14px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:7px; font-size:12px;">
+          <strong style="color:#0369a1;">🔍 Balance Assist — GL Funding Context</strong>
+          <p style="color:#0c4a6e; margin:6px 0 4px;">
+            Owner capital contributions on or before closing date
+            (<strong>$${_fmt(data.total_funded)}</strong> total):
+          </p>`;
+
+        if (data.gl_context && data.gl_context.length > 0) {
+            html += `<table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:8px;">
+              <thead><tr>
+                <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #bae6fd;">Date</th>
+                <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #bae6fd;">Description</th>
+                <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #bae6fd;">Account</th>
+                <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #bae6fd;">Dr/Cr</th>
+                <th style="text-align:right;padding:2px 6px;border-bottom:1px solid #bae6fd;">Amount</th>
+              </tr></thead><tbody>`;
+            data.gl_context.forEach(row => {
+                html += `<tr>
+                  <td style="padding:2px 6px;">${row.dt}</td>
+                  <td style="padding:2px 6px;">${row.desc}</td>
+                  <td style="padding:2px 6px;font-size:10px;color:#0369a1;">${row.acct}</td>
+                  <td style="padding:2px 6px;">${row.aType}</td>
+                  <td style="text-align:right;padding:2px 6px;">$${_fmt(row.amt)}</td>
+                </tr>`;
+            });
+            html += `</tbody></table>`;
+            const coversMsg = data.covers_delta
+                ? `<span style="color:#15803d;">✓ Funded amount covers the $${_fmt(Math.abs(data.delta))} gap.</span>`
+                : `<span style="color:#c2410c;">⚠ Funded amount ($${_fmt(data.total_funded)}) does not fully cover the $${_fmt(Math.abs(data.delta))} gap.</span>`;
+            html += `<div style="margin-bottom:8px;">${coversMsg}</div>`;
+        } else {
+            html += `<p style="color:#6b7280;font-style:italic;">No capital contribution entries found before closing date.</p>`;
+        }
+
+        if (data.suggestion) {
+            const s = data.suggestion;
+            _lastAssistSuggestion = s;
+            html += `<div style="padding:8px 10px;background:#dcfce7;border:1px solid #86efac;border-radius:5px;">
+              <strong style="color:#166534;">Suggested balancing entry:</strong>
+              <span style="margin-left:8px;color:#15803d;">
+                ${s.aType} $${_fmt(s.amt)} — ${s.Description} → ${s.acct}
+              </span>
+              <button type="button" class="btn btn-primary"
+                      onclick="caAddSuggestedEntry()"
+                      style="margin-left:12px;font-size:11px;padding:3px 10px;">
+                + Add to Journal
+              </button>
+            </div>`;
+        }
+        html += `</div>`;
+        panel.innerHTML = html;
+        panel.style.display = '';
+    }
+
+    window.caAddSuggestedEntry = async function() {
+        if (!_lastAssistSuggestion) return;
+        _classified.push({ ..._lastAssistSuggestion, _row_idx: _classified.length + 1 });
+        _lastAssistSuggestion = null;
+        // Re-run balance check
+        const r = await caPost('/api/closing/balance_sheet', { classified: _classified });
+        if (!r.ok) { caFlash(r.json.error || 'Balance check failed', true); return; }
+        _balance = r.json;
+        _renderBalance();
+        if (!_balance.balanced) _fetchBalanceAssist();
+        _renderReview();   // keep review table in sync
+        caFlash(
+            _balance.balanced
+                ? '✅ Entry added — journal is balanced.'
+                : '⚠ Entry added — journal still unbalanced, check amounts.',
+            !_balance.balanced
+        );
+    };
 
     // ── Commit ───────────────────────────────────────────────────────────────
 

@@ -284,5 +284,85 @@ class TestLandSplit(unittest.TestCase):
         self.assertEqual(result, self._rows)
 
 
+# ---------------------------------------------------------------------------
+# 8. ClosingAid.balance_assist
+# ---------------------------------------------------------------------------
+class TestBalanceAssist(unittest.TestCase):
+
+    def setUp(self):
+        self.aid = ClosingAid()
+        # Unbalanced closing: 300k debit, only 80k credit
+        self._classified = [
+            {'aType': 'Debit',  'amt': 300000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+            {'aType': 'Credit', 'amt': 80000.0,  'acct': 'Acct.Cash.Bank',                'tax_bucket': CAPITALIZE},
+        ]
+        # GL rows: two capital contributions before closing, one after
+        self._gl_rows = [
+            {'dt': '2025.07.01', 'desc': 'Member A contribution', 'acct': 'Acct.Equity.Owner.Capital.Funds', 'Ledger': None,               'aType': 'Credit', 'amt': 150000.0},
+            {'dt': '2025.07.15', 'desc': 'Member B contribution', 'acct': 'Acct.Cash.Bank',                  'Ledger': 'Acct.Equity.Owner.Capital.Funds', 'aType': 'Debit',  'amt': 100000.0},
+            {'dt': '2025.09.01', 'desc': 'Post-closing capital',  'acct': 'Acct.Equity.Owner.Capital.Funds', 'Ledger': None,               'aType': 'Credit', 'amt': 50000.0},
+        ]
+        self._closing_date = '2025-08-26'
+
+    def test_balanced_returns_early(self):
+        balanced = [
+            {'aType': 'Debit',  'amt': 100.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+            {'aType': 'Credit', 'amt': 100.0, 'acct': 'Acct.Cash.Bank',                'tax_bucket': CAPITALIZE},
+        ]
+        result = self.aid.balance_assist(balanced, self._closing_date, self._gl_rows)
+        self.assertTrue(result['balanced'])
+        self.assertEqual(result['delta'], 0)
+
+    def test_unbalanced_returns_context(self):
+        result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
+        self.assertFalse(result['balanced'])
+        self.assertAlmostEqual(result['delta'], 220000.0)   # 300k - 80k
+
+    def test_gl_context_excludes_post_closing(self):
+        result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
+        # Post-closing row (2025.09.01) must be excluded
+        dates = [r['dt'] for r in result['gl_context']]
+        self.assertNotIn('2025.09.01', dates)
+        self.assertEqual(len(result['gl_context']), 2)
+
+    def test_total_funded(self):
+        result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
+        self.assertAlmostEqual(result['total_funded'], 250000.0)  # 150k + 100k
+
+    def test_covers_delta(self):
+        result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
+        # 250k funded >= 220k delta
+        self.assertTrue(result['covers_delta'])
+
+    def test_suggestion_is_credit_when_debits_exceed(self):
+        result = self.aid.balance_assist(self._classified, self._closing_date, self._gl_rows)
+        s = result['suggestion']
+        self.assertIsNotNone(s)
+        self.assertEqual(s['aType'], 'Credit')
+        self.assertAlmostEqual(s['amt'], 220000.0)
+        self.assertEqual(s['acct'], 'Acct.Cash.Bank')
+
+    def test_suggestion_is_debit_when_credits_exceed(self):
+        flipped = [
+            {'aType': 'Credit', 'amt': 300000.0, 'acct': 'Acct.Cash.Bank',                'tax_bucket': CAPITALIZE},
+            {'aType': 'Debit',  'amt': 80000.0,  'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+        ]
+        result = self.aid.balance_assist(flipped, self._closing_date, self._gl_rows)
+        s = result['suggestion']
+        self.assertIsNotNone(s)
+        self.assertEqual(s['aType'], 'Debit')
+        self.assertAlmostEqual(s['amt'], 220000.0)
+
+    def test_no_suggestion_when_within_tolerance(self):
+        # delta=0.01 is within the $0.02 tolerance → treated as balanced → no suggestion key
+        nearly = [
+            {'aType': 'Debit',  'amt': 100.00, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+            {'aType': 'Credit', 'amt': 99.99,  'acct': 'Acct.Cash.Bank',                'tax_bucket': CAPITALIZE},
+        ]
+        result = self.aid.balance_assist(nearly, self._closing_date, [])
+        self.assertTrue(result['balanced'])
+        self.assertNotIn('suggestion', result)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
