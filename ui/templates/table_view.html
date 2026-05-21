@@ -369,6 +369,15 @@
         }
         window.location.href = buildViewUrl();
     }
+
+    // Measure the Actions column width after render so the Chg sticky offset is exact.
+    document.addEventListener("DOMContentLoaded", () => {
+        const actTh = document.querySelector(".records-table th.col-actions");
+        if (actTh) {
+            document.querySelector(".records-table").style
+                .setProperty("--actions-col-w", actTh.offsetWidth + "px");
+        }
+    });
 </script>
 
 <style>
@@ -539,6 +548,34 @@
         min-width: 28rem;
         width: 28rem;
     }
+    /* ── Sticky Actions + Chg columns ── */
+    /* Actions col: always pinned to the left edge */
+    .records-table th.col-actions,
+    .records-table td.col-actions {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        background: #f8fafc;
+        box-shadow: 2px 0 4px rgba(0,0,0,0.07);
+        white-space: nowrap;
+    }
+    .records-table thead th.col-actions {
+        background: #e2e8f0;   /* match thead shading */
+        z-index: 3;
+    }
+    /* Chg col: pinned right next to Actions */
+    .records-table th.col-chg,
+    .records-table td.col-chg {
+        position: sticky;
+        left: var(--actions-col-w, 90px);
+        z-index: 2;
+        background: #f8fafc;
+        box-shadow: 2px 0 4px rgba(0,0,0,0.07);
+    }
+    .records-table thead th.col-chg {
+        background: #e2e8f0;
+        z-index: 3;
+    }
     .changed-cell {
         text-align: center;
         font-size: 16px;
@@ -666,8 +703,8 @@
         <table class="records-table">
             <thead>
                 <tr>
-                    {% if not read_only %}<th class="nowrap">Actions</th>
-                    <th title="Shows a checkmark only for records changed in this session view">Chg</th>{% endif %}
+                    {% if not read_only %}<th class="col-actions nowrap">Actions</th>
+                    <th class="col-chg" title="Shows a checkmark only for records changed in this session view">Chg</th>{% endif %}
                     {% for col in columns %}
                     <th class="{% if col == 'desc' %}col-desc{% endif %}" title="Field: {{ col }}">{{ col }}</th>
                     {% endfor %}
@@ -677,12 +714,12 @@
                 {% for row in rows %}
                 <tr>
                     {% if not read_only %}
-                    <td class="nowrap">
+                    <td class="col-actions nowrap">
                         <button class="btn btn-primary icon-btn" title="Edit this record" onclick='openEditEditor({{ row._record_id|tojson }})'>✎</button>
                         <button class="btn btn-warning icon-btn" title="Edit this record as raw JSON" onclick='openEditJsonEditor({{ row._record_id|tojson }})'>{}</button>
                         <button class="btn btn-danger icon-btn" title="Delete this record" onclick='deleteRow({{ row._record_id|tojson }})'>✕</button>
                     </td>
-                    <td class="changed-cell" title="{% if row._changed %}This record has been changed{% else %}No change{% endif %}">{% if row._changed %}✓{% endif %}</td>
+                    <td class="col-chg changed-cell" title="{% if row._changed %}This record has been changed{% else %}No change{% endif %}">{% if row._changed %}✓{% endif %}</td>
                     {% endif %}
                     {% for col in columns %}
                     {% set value = row.data.get(col, "") %}
