@@ -386,6 +386,7 @@
     let _sessionRules = [];   // [{keyword, tax_bucket, acct}] added this session
     let _rawRows      = [];   // saved for re-classify after adding a rule
     let _lastAssistSuggestion = null;
+    let _committed = false;         // set true after a successful commit → triggers page reload on close
 
     const ACCT_OPTIONS = [
         'Acct.Fixed.Tangible.InService',
@@ -410,6 +411,7 @@
         _classified = [];
         _balance    = {};
         _records    = [];
+        _committed  = false;
         caFlash('');
         _renderStep(0);
         $('caBackdrop').classList.add('open');
@@ -419,6 +421,10 @@
     window.caClose = function() {
         $('caBackdrop').classList.remove('open');
         caFlash('');
+        if (_committed) {
+            _committed = false;
+            window.location.reload();   // show the new records in the asset table
+        }
     };
 
     document.addEventListener('keydown', ev => {
@@ -899,8 +905,11 @@
                 caFlash((r.json && r.json.error) || 'Commit failed', true);
                 return;
             }
-            caFlash(`✅ Committed ${r.json.committed} entries to the ledger.`);
+            caFlash(`✅ Committed ${r.json.committed} entries to the ledger. Click Done to close.`);
+            _committed = true;
             btn.textContent = '✓ Done';
+            btn.disabled = false;
+            btn.onclick = () => caClose();   // repurpose commit button as close
             $('caBtnNext').style.display = 'none';
             $('caBtnBack').style.display = 'none';
         } catch(e) {
