@@ -177,6 +177,12 @@ class stmtGL_View:
         '''
         tx_rows = self.load(view_by=view_by)
         tb_rows = self.tb_rows(view_by=view_by, with_totals=True)
+        # All view: drop zero-balance rows with no acctMinor (seed/unused accounts)
+        if view_by == 'All':
+            tb_rows = [r for r in tb_rows
+                       if r.get('acctType') == 'TOTAL'
+                       or float(r.get('Balance') or 0) != 0
+                       or r.get('acctMinor')]
         return {
             'view_by':         view_by,
             'view_by_options': list(self.VIEW_BY_OPTIONS),
