@@ -177,12 +177,17 @@ class stmtGL_View:
         '''
         tx_rows = self.load(view_by=view_by)
         tb_rows = self.tb_rows(view_by=view_by, with_totals=True)
-        # All view: drop zero-balance rows with no acctMinor (seed/unused accounts)
+        # All view: keep only non-zero-balance rows whose acct has < 2 acctMinor breakdowns
         if view_by == 'All':
+            from collections import Counter
+            minor_counts = Counter(
+                r['acct'] for r in tb_rows
+                if r.get('acctMinor') and r.get('acctType') != 'TOTAL'
+            )
             tb_rows = [r for r in tb_rows
                        if r.get('acctType') == 'TOTAL'
-                       or float(r.get('Balance') or 0) != 0
-                       or r.get('acctMinor')]
+                       or (float(r.get('Balance') or 0) != 0
+                           and minor_counts.get(r.get('acct', ''), 0) < 2)]
         return {
             'view_by':         view_by,
             'view_by_options': list(self.VIEW_BY_OPTIONS),
