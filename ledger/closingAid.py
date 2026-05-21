@@ -286,7 +286,7 @@ class ClosingAid:
                 'propID':     tID,           # propID == tID; no phantom Ledger side
                 'dt':         dt,
                 'acct':       row.get('acct', ''),
-                'Ledger':     None,          # NaN in pandas → single-sided GL entry
+                'Ledger':     'nan',          # single-sided: no GL propagation; displays as 'nan'
                 'aType':      row.get('aType', 'Debit'),
                 'amt':        row.get('amt', 0.0),
                 'desc':       f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',

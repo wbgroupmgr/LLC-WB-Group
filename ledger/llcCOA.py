@@ -96,14 +96,15 @@ class ChartOfAccounts(ledgerDB):
         '''
         tDict = dict(recDict)
         if fromField is None:
-            # determine account type based on Debit/Credit
             aType = tDict.get('aType')
-            if aType == 'Debit' :
-                acct = tDict.get('Ledger')
+            if aType == 'Debit':
+                ledger = tDict.get('Ledger')
+                # Single-sided entry (Ledger=NaN/None/'nan'): fall back to acct
+                _lv = str(ledger).strip().lower() if ledger is not None else ''
+                acct = tDict.get('acct') if (_lv in ('nan', '', 'none')) else ledger
             else:
                 acct = tDict.get('acct')
-        else:                
-            # Force account type
+        else:
             acct = tDict.get(fromField)
             
         acct_type = self._Type(acct)

@@ -268,10 +268,12 @@ class TestToAssetRecords(unittest.TestCase):
             self.assertIn('H_805HighMesa', rec['refDoc'])
             self.assertIn('ALTA_2025.pdf', rec['refDoc'])
 
-    def test_to_asset_records_ledger_is_none(self):
+    def test_to_asset_records_ledger_is_nan_string(self):
+        # Ledger stored as string 'nan' so the view renders it (not blank) and
+        # toGL() mask excludes it from the Ledger side of double-entry.
         records = self.aid.toAssetRecords(self._classified, self._preface)
         for rec in records:
-            self.assertIsNone(rec['Ledger'])
+            self.assertEqual(rec['Ledger'], 'nan')
 
     def test_to_asset_records_raises_on_imbalance(self):
         bad = [self._classified[0]]   # debit only, no credit

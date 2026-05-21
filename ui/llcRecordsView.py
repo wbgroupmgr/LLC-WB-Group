@@ -78,6 +78,12 @@ class llcRecordsView:
             # Sanitise NaN / Inf that COA pandas lookups can inject (e.g. acctSub)
             for k in list(tDict.keys()):
                 tDict[k] = self._clean_value(tDict[k])
+            # Normalise Ledger: null/empty/'nan'/float-nan all → string 'nan'
+            # so toGL() mask works uniformly and the UI displays 'nan' not blank.
+            if 'Ledger' in tDict:
+                lv = tDict['Ledger']
+                if lv is None or (isinstance(lv, str) and lv.strip().lower() in ('nan', '')):
+                    tDict['Ledger'] = 'nan'
 
         self.wk.save(payload)
         return
