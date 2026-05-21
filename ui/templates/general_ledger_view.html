@@ -32,6 +32,7 @@
     /* ── Minimal JS: ViewBy navigation + JSON-pane toggles ────────── */
     const OBJ_TYPE = {{ obj_type|tojson }};
     const CURRENT_VIEW_BY = {{ frames.view_by|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
 
     function applyViewBy(selectEl) {
         const vb = selectEl.value;
@@ -40,7 +41,7 @@
             params.set("viewBy", vb);
         }
         const query = params.toString();
-        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     function buildViewUrl() {
@@ -49,7 +50,7 @@
             params.set("viewBy", CURRENT_VIEW_BY);
         }
         const query = params.toString();
-        return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        return `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     function togglePane(id) {
@@ -74,7 +75,7 @@
         panel.innerHTML = '<div class="aud-loading">⏳ Running GL Audit…</div>';
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        fetch('/api/audit/gl')
+        fetch(_scriptRoot + '/api/audit/gl')
             .then(r => r.json())
             .then(data => {
                 _auditReport = data;
@@ -168,7 +169,7 @@
         const panel = document.getElementById('auditPanel');
         panel.innerHTML = '<div class="aud-loading">⏳ Applying corrections…</div>';
 
-        fetch('/api/audit/apply', {
+        fetch(_scriptRoot + '/api/audit/apply', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ corrections }),

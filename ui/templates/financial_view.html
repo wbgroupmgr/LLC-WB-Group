@@ -8,6 +8,7 @@
     const CURRENT_VIEW_MODE = {{ view_mode|tojson }};
     const CURRENT_VIEW_BY = {{ view_by|tojson }};
     const BS_CHECK = {{ (bs_check or {})|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
 
     function buildViewUrl() {
         const params = new URLSearchParams();
@@ -15,7 +16,7 @@
             params.set("viewBy", CURRENT_VIEW_BY);
         }
         const query = params.toString();
-        return `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        return `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     function applyViewBy(selectEl) {
@@ -25,7 +26,7 @@
             params.set("viewBy", vb);
         }
         const query = params.toString();
-        window.location.href = `/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}${query ? "?" + query : ""}`;
     }
 
     function toggleJsonPane() {

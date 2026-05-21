@@ -5,9 +5,10 @@
 {% block head_extra %}
 <script>
     const OBJ_TYPE = "llcBank";
+    const _scriptRoot = {{ request.script_root | tojson }};
 
     function buildViewUrl() {
-        return `/view/llcBank`;
+        return `${_scriptRoot}/view/llcBank`;
     }
 
     function toggleJsonPane() {
@@ -33,7 +34,7 @@
         btn.textContent = "Uploading…";
 
         try {
-            const res = await fetch("/api/llcBank/upload_csv", {
+            const res = await fetch(_scriptRoot + "/api/llcBank/upload_csv", {
                 method: "POST",
                 body: formData,
             });

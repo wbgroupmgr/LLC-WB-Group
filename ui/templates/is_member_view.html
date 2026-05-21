@@ -6,13 +6,14 @@
 <script>
     const OBJ_TYPE = {{ obj_type|tojson }};
     const CURRENT_VIEW_BY = {{ view_by|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
 
     function applyViewBy(selectEl) {
         const vb = selectEl.value;
         const params = new URLSearchParams();
         if (vb && vb !== "All") params.set("viewBy", vb);
         const q = params.toString();
-        window.location.href = `/view/${OBJ_TYPE}${q ? "?" + q : ""}`;
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}${q ? "?" + q : ""}`;
     }
     function toggleJsonPane() {
         const pane = document.getElementById("jsonPane");
@@ -159,7 +160,7 @@
                 {% endfor %}
             </select>
             {% endif %}
-            <button class="btn btn-secondary" onclick="window.location.href='/view/'+OBJ_TYPE+'?viewBy=PerMember'">Refresh</button>
+            <button class="btn btn-secondary" onclick="window.location.href=_scriptRoot+'/view/'+OBJ_TYPE+'?viewBy=PerMember'">Refresh</button>
             <button class="btn btn-warning" onclick="toggleJsonPane()">JSON</button>
         </div>
     </div>
