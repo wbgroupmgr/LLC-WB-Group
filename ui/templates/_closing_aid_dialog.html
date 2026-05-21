@@ -466,8 +466,10 @@
             _rawRows = rows;   // save for re-classify after adding a rule
             const r = await caPost('/api/closing/classify', { rows, session_rules: _sessionRules });
             if (!r.ok) {
-                const msg = (r.json && r.json.error) || 'Classify failed';
-                caFlash(`<strong>Classification error:</strong> ${msg}`, true);
+                const msg = (r.json && r.json.error) || `HTTP ${r.status} — no error detail`;
+                const tb  = r.json && r.json.traceback
+                    ? `<pre style="font-size:10px;margin-top:6px;white-space:pre-wrap;max-height:160px;overflow:auto;">${r.json.traceback}</pre>` : '';
+                caFlash(`<strong>Classification error:</strong> ${msg}${tb}`, true);
                 return;
             }
             _classified = r.json.classified || [];
@@ -737,6 +739,7 @@
         const el = $('caFlash');
         if (!msg) { el.innerHTML = ''; return; }
         el.innerHTML = `<div class="ca-flash ${isErr?'err':'ok'}">${msg}</div>`;
+        if (isErr) el.scrollIntoView({behavior:'smooth', block:'nearest'});
     }
 
     // Expose for toolbar button

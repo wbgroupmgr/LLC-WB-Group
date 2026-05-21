@@ -3,6 +3,7 @@ Flask route bindings for the ClosingAid service.
 Talks to /api/closing/... endpoints consumed by _closing_aid_dialog.html.
 """
 import math
+import traceback
 from flask import jsonify, request
 
 from ledger.closingAid import ClosingAid, ClosingBalanceError
@@ -32,7 +33,9 @@ def bind_closing_routes(app, objects, sanitize):
             classified    = _aid.classify(rows, session_rules=session_rules)
             return jsonify({'ok': True, 'classified': _safe_json(classified)})
         except Exception as err:
-            return jsonify({'ok': False, 'error': str(err)}), 500
+            tb = traceback.format_exc()
+            print(f'[ClosingAid classify ERROR]\n{tb}')   # → PA error log
+            return jsonify({'ok': False, 'error': str(err) or repr(err), 'traceback': tb}), 500
 
     @app.route('/api/closing/balance_sheet', methods=['POST'])
     def closing_balance_sheet():
