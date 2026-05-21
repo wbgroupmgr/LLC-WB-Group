@@ -226,6 +226,12 @@ class TestToAssetRecords(unittest.TestCase):
         for rec in records:
             self.assertTrue(required.issubset(rec.keys()), f"Missing keys in {rec}")
 
+    def test_to_asset_records_desc_prefix(self):
+        records = self.aid.toAssetRecords(self._classified, self._preface)
+        for rec in records:
+            self.assertTrue(rec['desc'].startswith('Purchase Property: '),
+                            f"desc missing prefix: {rec['desc']}")
+
     def test_to_asset_records_tid_prefix(self):
         records = self.aid.toAssetRecords(self._classified, self._preface)
         self.assertEqual(records[0]['tID'], 'p20250826-Mesa_01')
@@ -414,6 +420,21 @@ class TestCheckExisting(unittest.TestCase):
     def test_empty_gl_returns_no_matches(self):
         matches = self.aid.check_existing(self._classified, self._closing_date, [])
         self.assertEqual(matches, [])
+
+    def test_unique_account_match_on_different_amount(self):
+        # A Acct.Fixed.Tangible.InService entry with a different amount should still be flagged
+        classified = [
+            {'_row_idx': 1, 'aType': 'Debit', 'amt': 220000.0,
+             'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
+        ]
+        gl_with_different_amt = [
+            {'tID': 'r20250826_01', 'dt': '2025.08.26', 'aType': 'Debit',
+             'amt': 213936.95, 'acct': 'Acct.Fixed.Tangible.InService', 'desc': 'Existing entry'},
+        ]
+        matches = self.aid.check_existing(classified, '2025-08-26', gl_with_different_amt)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]['_row_idx'], 1)
+        self.assertEqual(matches[0]['candidates'][0]['tID'], 'r20250826_01')
 
 
 if __name__ == '__main__':

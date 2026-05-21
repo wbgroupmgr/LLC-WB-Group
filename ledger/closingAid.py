@@ -10,6 +10,14 @@ class ClosingBalanceError(ValueError):
     pass
 
 
+# Accounts that are typically unique per closing — flag any same-acct+aType in same year
+_UNIQUE_CLOSING_ACCTS = frozenset({
+    'Acct.Fixed.Tangible.InService',
+    'Acct.Fixed.Land',
+    'Acct.Liab.Morgage',
+})
+
+
 # (keyword_lower, tax_bucket, acct) — first match wins.
 # More specific keywords must come BEFORE broader ones (e.g. 'settlement or closing fee' before 'title').
 # Validated against 805 High Mesa ALTA statement (20250820-ClosingToLedger.ipynb ccDict).
@@ -271,6 +279,7 @@ class ClosingAid:
             ref_doc    = f"{prop_nm}, Closing Docs, {tax_bucket}, {closing_doc}"
             tID        = f"{tID_prefix}_{seq + 1:02d}"
 
+            desc_raw = str(row.get('Description', row.get('desc', '')))
             record = {
                 'tID':      tID,
                 'oID':      tID_prefix,
@@ -279,7 +288,7 @@ class ClosingAid:
                 'Ledger':   None,
                 'aType':    row.get('aType', 'Debit'),
                 'amt':      row.get('amt', 0.0),
-                'desc':     str(row.get('Description', row.get('desc', ''))),
+                'desc':     f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',
                 'refDoc':   ref_doc,
                 'propNm':   prop_nm,
                 'propRef':  prop_addr,
@@ -365,37 +374,50 @@ class ClosingAid:
                        gl_rows: List[Dict]) -> List[Dict]:
         """
         Flag classified rows that may already exist in the GL.
-        Matches by aType + amt (±$0.01) within the same calendar year as closing.
+        Two matching strategies (within same calendar year as closing):
+          1. Exact  : aType + amt match (catches different-account dupes)
+          2. Unique : for Acct.Fixed.*/Acct.Liab.Morgage, same acct+aType any amount
+                      (catches re-entries at slightly different amounts, e.g. $220k vs $213k)
         Returns [{_row_idx, candidates: [{tID, dt, desc, acct}]}].
         """
         closing_dt   = _norm_dt(closing_date) if closing_date else ''
         closing_year = closing_dt[:4] if len(closing_dt) >= 4 else ''
 
-        idx: Dict[tuple, List[Dict]] = {}
+        amt_idx:  Dict[tuple, List[Dict]] = {}   # (aType, rounded_amt) → entries
+        acct_idx: Dict[tuple, List[Dict]] = {}   # (aType, acct) → entries (unique accts only)
+
         for gl in gl_rows:
-            gl_amt = _parse_amt(gl.get('amt'))
+            gl_amt   = _parse_amt(gl.get('amt'))
             if not gl_amt or gl_amt <= 0:
                 continue
             gl_atype = str(gl.get('aType', '') or '')
+            gl_acct  = str(gl.get('acct',  '') or '')
             gl_dt    = _norm_dt(str(gl.get('dt', '') or ''))
             if closing_year and gl_dt[:4] != closing_year:
                 continue
-            key = (gl_atype, round(gl_amt, 2))
-            idx.setdefault(key, []).append({
+            entry = {
                 'tID':  str(gl.get('tID', '') or ''),
                 'dt':   str(gl.get('dt', '')),
                 'desc': str(gl.get('desc', '') or '')[:60],
-                'acct': str(gl.get('acct', '') or ''),
-            })
+                'acct': gl_acct,
+            }
+            amt_idx.setdefault((gl_atype, round(gl_amt, 2)), []).append(entry)
+            if gl_acct in _UNIQUE_CLOSING_ACCTS:
+                acct_idx.setdefault((gl_atype, gl_acct), []).append(entry)
 
         matches = []
         for row in classified:
             amt   = round(row.get('amt') or 0, 2)
             atype = str(row.get('aType', '') or '')
-            key   = (atype, amt)
-            if key in idx:
+            acct  = str(row.get('acct',  '') or '')
+
+            candidates = list(amt_idx.get((atype, amt), [])[:3])
+            if not candidates and acct in _UNIQUE_CLOSING_ACCTS:
+                candidates = list(acct_idx.get((atype, acct), [])[:3])
+
+            if candidates:
                 matches.append({
                     '_row_idx':   row.get('_row_idx'),
-                    'candidates': idx[key][:3],
+                    'candidates': candidates,
                 })
         return matches

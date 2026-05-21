@@ -186,8 +186,8 @@
           <option value="Land">Land</option>
         </select>
 
-        <label for="caAssetState">Asset State</label>
-        <input  id="caAssetState" type="text" placeholder="e.g. InService, UnderRehab">
+        <label for="caAssetState">Asset State (acctSub)</label>
+        <input  id="caAssetState" type="text" value="Closing" placeholder="e.g. Closing, InService">
 
         <label for="caPropOwners">Owners</label>
         <input  id="caPropOwners" type="text" placeholder="e.g. Member A, Member B">
@@ -324,6 +324,7 @@
               <th>Date</th>
               <th>Description</th>
               <th>Account</th>
+              <th>acctSub</th>
               <th>Dr/Cr</th>
               <th style="text-align:right">Amount</th>
               <th>Tax Bucket</th>
@@ -691,11 +692,13 @@
         const propNm = _preface.propNm || '';
         const doc    = _preface.closingDoc || '';
 
+        const acctSub = _preface.assetState || 'Closing';
         _classified.forEach((r, i) => {
             const tID    = `${prefix}_${String(i+1).padStart(2,'0')}`;
             const bucket = r.tax_bucket || 'Capitalize';
             const refDoc = `${propNm}, Closing Docs, ${bucket}, ${doc}`;
-            const desc   = (r.Description || r.desc || '').replace(/</g,'&lt;');
+            const rawDesc = (r.Description || r.desc || '').replace(/</g,'&lt;');
+            const desc   = rawDesc ? `Purchase Property: ${rawDesc}` : 'Purchase Property';
             const rowIdx = r._row_idx != null ? r._row_idx : (i + 1);
             const tr = document.createElement('tr');
             tr.dataset.rowIdx = rowIdx;
@@ -704,6 +707,7 @@
               <td>${dt}</td>
               <td style="font-size:11px;max-width:160px;word-break:break-word">${desc}</td>
               <td style="font-size:11px">${r.acct||''}</td>
+              <td style="font-size:11px;color:#0369a1;">${acctSub}</td>
               <td>${r.aType||''}</td>
               <td style="text-align:right">$${_fmt(r.amt||0)}</td>
               <td><span class="ca-chip ${bucket.toLowerCase()}">${bucket}</span></td>
