@@ -206,17 +206,21 @@
     <div id="caPane1" style="display:none">
       <div class="ca-sec">Paste Settlement Rows (JSON)</div>
       <p style="font-size:12px; color:#6b7280; margin:4px 0 8px 0;">
-        Paste a JSON array of objects with keys: <code>Description</code>, <code>Debit</code>, <code>Credit</code>.
-        Extra keys (line number, etc.) are preserved as metadata.
+        Paste a JSON array with <code>Description</code> plus one of two column formats:<br>
+        &nbsp;•&nbsp;<strong>ALTA title-company format:</strong> <code>Buyer</code> / <code>Seller</code>
+          — Buyer = charges to buyer (Dr), Seller = credits to buyer (Cr).<br>
+        &nbsp;•&nbsp;<strong>Standard format:</strong> <code>Debit</code> / <code>Credit</code>.
+        Extra keys are preserved as metadata. Include a <em>Cash to Close</em> or <em>New Loan Amount</em> row so the journal balances.
       </p>
       <textarea id="caRawJSON" class="ca-json-ta"
         placeholder='[
-  {"Description":"Contract Sales Price","Debit":300000,"Credit":null},
-  {"Description":"Title Insurance","Debit":1500,"Credit":null},
-  {"Description":"Earnest Money","Debit":null,"Credit":10000},
-  {"Description":"Loan Origination Fee","Debit":2000,"Credit":null},
-  {"Description":"Cash To Close","Debit":null,"Credit":73250},
-  {"Description":"Mortgage Payable","Debit":null,"Credit":220000}
+  {"Description":"Sale Price of Property","Buyer":220000,"Seller":null},
+  {"Description":"Deposit or Earnest Money","Buyer":null,"Seller":5000},
+  {"Description":"County taxes proration","Buyer":null,"Seller":1660.64},
+  {"Description":"Title - Settlement or closing fee $1,250.00","Buyer":625,"Seller":null},
+  {"Description":"Recording fees: Deed $29.25","Buyer":29.25,"Seller":null},
+  {"Description":"HOA Transfer Fees","Buyer":100,"Seller":null},
+  {"Description":"Cash to Close","Buyer":null,"Seller":213836.95}
 ]'></textarea>
       <div id="caParseErr" style="color:#dc2626; font-size:12px; margin-top:4px;"></div>
     </div>

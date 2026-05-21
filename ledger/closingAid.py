@@ -97,8 +97,14 @@ def _norm_dt(raw: str) -> str:
 
 
 def _classify_one(row: Dict, extra_rules: Optional[List[tuple]] = None) -> Optional[Dict]:
-    debit  = _parse_amt(row.get('Debit'))
-    credit = _parse_amt(row.get('Credit'))
+    # Auto-detect column format: ALTA title-company (Buyer/Seller) or standard (Debit/Credit).
+    # Buyer = charges TO the buyer (DR in LLC books); Seller = credits TO the buyer (CR in LLC books).
+    if 'Buyer' in row or 'Seller' in row:
+        debit  = _parse_amt(row.get('Buyer'))
+        credit = _parse_amt(row.get('Seller'))
+    else:
+        debit  = _parse_amt(row.get('Debit'))
+        credit = _parse_amt(row.get('Credit'))
     if _is_null_amt(debit) and _is_null_amt(credit):
         return None
     if str(row.get('Description', '')).strip().lower() in ('totals', 'total'):

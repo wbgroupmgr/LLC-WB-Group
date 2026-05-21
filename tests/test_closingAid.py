@@ -118,6 +118,33 @@ class TestClassify(unittest.TestCase):
         result = self.aid.classify(rows)
         self.assertIsNone(result[0]['Ledger'])
 
+    def test_classify_buyer_seller_columns(self):
+        # ALTA title-company format: Buyer = Dr (charge to buyer), Seller = Cr (credit to buyer)
+        rows = [
+            {'Description': 'Sale Price of Property',            'Buyer': 220000.0, 'Seller': None},
+            {'Description': 'Deposit or Earnest Money',          'Buyer': None,     'Seller': 5000.0},
+            {'Description': 'County taxes proration',            'Buyer': None,     'Seller': 1660.64},
+            {'Description': 'Title - Settlement or closing fee', 'Buyer': 625.0,    'Seller': None},
+            {'Description': 'HOA Transfer Fees',                 'Buyer': 100.0,    'Seller': None},
+            {'Description': 'Totals',                            'Buyer': 1234.0,   'Seller': 1234.0},
+        ]
+        result = self.aid.classify(rows)
+        self.assertEqual(len(result), 5)           # Totals skipped
+        by_desc = {r['Description']: r for r in result}
+        # Buyer column → Debit
+        self.assertEqual(by_desc['Sale Price of Property']['aType'], 'Debit')
+        self.assertAlmostEqual(by_desc['Sale Price of Property']['amt'], 220000.0)
+        self.assertEqual(by_desc['Sale Price of Property']['acct'], 'Acct.Fixed.Tangible.InService')
+        # Seller column → Credit
+        self.assertEqual(by_desc['Deposit or Earnest Money']['aType'], 'Credit')
+        self.assertAlmostEqual(by_desc['Deposit or Earnest Money']['amt'], 5000.0)
+        self.assertEqual(by_desc['Deposit or Earnest Money']['acct'], 'Acct.Cash.Bank')
+        # Tax proration (Seller → Credit, Capitalize to basis)
+        self.assertEqual(by_desc['County taxes proration']['aType'], 'Credit')
+        self.assertEqual(by_desc['County taxes proration']['acct'], 'Acct.Fixed.Tangible.InService')
+        # HOA fees (Buyer → Debit, Expense bucket)
+        self.assertEqual(by_desc['HOA Transfer Fees']['tax_bucket'], EXPENSE)
+
 
 # ---------------------------------------------------------------------------
 # 4. ClosingAid.toBalanceSheet
