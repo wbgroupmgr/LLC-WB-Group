@@ -355,6 +355,7 @@
 <script>
 (() => {
     const $ = (id) => document.getElementById(id);
+    const _scriptRoot = {{ request.script_root | tojson }};  // '/rentalTracker' on PA, '' locally
 
     const STEPS = 5;
     let _step = 0;
@@ -723,7 +724,7 @@
 
     async function caPost(url, body) {
         try {
-            const r = await fetch(url, {
+            const r = await fetch(_scriptRoot + url, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body),
