@@ -177,17 +177,27 @@ class stmtGL_View:
         '''
         tx_rows = self.load(view_by=view_by)
         tb_rows = self.tb_rows(view_by=view_by, with_totals=True)
-        # All view: keep only non-zero-balance rows whose acct has < 2 acctMinor breakdowns
+        # All view: aggregate by (acct, acctMinor) to get group Balance and Count,
+        # then apply keep rules:
+        #   Balance != 0              → KEEP
+        #   Balance == 0, Count > 1   → KEEP
+        #   Balance == 0, Count < 2   → DISCARD
         if view_by == 'All':
-            from collections import Counter
-            minor_counts = Counter(
-                r['acct'] for r in tb_rows
-                if r.get('acctMinor') and r.get('acctType') != 'TOTAL'
-            )
-            tb_rows = [r for r in tb_rows
-                       if r.get('acctType') == 'TOTAL'
-                       or (float(r.get('Balance') or 0) != 0
-                           and minor_counts.get(r.get('acct', ''), 0) < 2)]
+            from collections import defaultdict
+            grp_bal = defaultdict(float)
+            grp_cnt = defaultdict(int)
+            for r in tb_rows:
+                if r.get('acctType') == 'TOTAL':
+                    continue
+                key = (r.get('acct', ''), r.get('acctMinor', ''))
+                grp_bal[key] += float(r.get('Balance') or 0)
+                grp_cnt[key] += 1
+            def _keep(r):
+                if r.get('acctType') == 'TOTAL':
+                    return True
+                key = (r.get('acct', ''), r.get('acctMinor', ''))
+                return grp_bal[key] != 0 or grp_cnt[key] > 1
+            tb_rows = [r for r in tb_rows if _keep(r)]
         return {
             'view_by':         view_by,
             'view_by_options': list(self.VIEW_BY_OPTIONS),
