@@ -665,6 +665,12 @@
                             🏠 PurchaseAid — propAgent
                         </button>
                         {% endif %}
+                        {% if obj_type == 'llcExpRev' %}
+                        <button class="act-success" onclick="eaRun(); document.getElementById('actionsMenu').removeAttribute('open')"
+                                title="Normalize acct/Ledger orientation, fill missing acctSub, fill missing propNm">
+                            🧹 ExpenseAgent
+                        </button>
+                        {% endif %}
                     </div>
                 </details>
             </div>
@@ -783,6 +789,122 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
 
 {% if obj_type == 'llcAssets' %}
 {% include '_propAgent_dialog.html' %}
+{% endif %}
+
+{% if obj_type == 'llcExpRev' %}
+<!-- ── ExpenseAgent confirm modal ──────────────────────────────────────── -->
+<div id="eaBackdrop" class="modal-backdrop" onclick="if(event.target===this) eaClose()">
+    <div class="modal" style="max-width:500px">
+        <h3>🧹 ExpenseAgent — Normalize Transactions</h3>
+        <div id="eaStatus" style="margin-bottom:12px;font-size:13px;color:#6b7280">Analyzing…</div>
+        <div id="eaSummary" style="display:none">
+            <table style="width:100%;font-size:13px;margin-bottom:14px;border-collapse:collapse">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:6px 8px;background:#f3f4f6;border:1px solid #e5e7eb">Normalization</th>
+                        <th style="text-align:right;padding:6px 8px;background:#f3f4f6;border:1px solid #e5e7eb">Records Affected</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding:6px 8px;border:1px solid #e5e7eb">🔄 acct/Ledger swapped (Cash side corrected)</td>
+                        <td id="eaCntSwap"  style="text-align:right;padding:6px 8px;border:1px solid #e5e7eb;font-weight:700">0</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 8px;border:1px solid #e5e7eb">🏷️ acctSub filled from account path</td>
+                        <td id="eaCntSub"   style="text-align:right;padding:6px 8px;border:1px solid #e5e7eb;font-weight:700">0</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 8px;border:1px solid #e5e7eb">🏠 propNm set to "propUnknown"</td>
+                        <td id="eaCntProp"  style="text-align:right;padding:6px 8px;border:1px solid #e5e7eb;font-weight:700">0</td>
+                    </tr>
+                    <tr style="background:#f9fafb;font-weight:700">
+                        <td style="padding:6px 8px;border:1px solid #e5e7eb">Total changes</td>
+                        <td id="eaCntTotal" style="text-align:right;padding:6px 8px;border:1px solid #e5e7eb">0</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="font-size:12px;color:#6b7280">
+                Clicking <strong>Commit</strong> saves the normalized records to the
+                working file. Use <em>Save-Publish</em> afterwards to push to the DB.
+            </p>
+        </div>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="eaClose()">Cancel</button>
+            <button id="eaCommitBtn" class="btn btn-success" style="display:none" onclick="eaCommit()">
+                ✅ Commit Changes
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let _eaRows = null;   // normalized rows returned from the API
+
+    window.eaRun = async function () {
+        // Reset state
+        _eaRows = null;
+        document.getElementById('eaStatus').textContent = 'Analyzing…';
+        document.getElementById('eaStatus').style.color = '#6b7280';
+        document.getElementById('eaSummary').style.display = 'none';
+        document.getElementById('eaCommitBtn').style.display = 'none';
+        document.getElementById('eaBackdrop').style.display = 'flex';
+
+        try {
+            const res  = await fetch(`${_scriptRoot}/api/expAgent/normalize`, {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({rows: RAW_ROWS}),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                document.getElementById('eaStatus').textContent = '❌ Error: ' + (data.error || 'unknown');
+                document.getElementById('eaStatus').style.color = '#dc2626';
+                return;
+            }
+            _eaRows = data.rows;
+            const s  = data.summary;
+            document.getElementById('eaCntSwap').textContent  = s.swapped;
+            document.getElementById('eaCntSub').textContent   = s.acctSub_filled;
+            document.getElementById('eaCntProp').textContent  = s.propNm_filled;
+            document.getElementById('eaCntTotal').textContent = s.total_changed;
+
+            if (s.total_changed === 0) {
+                document.getElementById('eaStatus').textContent = '✅ All records are already clean — nothing to change.';
+                document.getElementById('eaStatus').style.color = '#15803d';
+            } else {
+                document.getElementById('eaStatus').textContent = '';
+                document.getElementById('eaSummary').style.display = 'block';
+                document.getElementById('eaCommitBtn').style.display = 'inline-block';
+            }
+        } catch (err) {
+            document.getElementById('eaStatus').textContent = '❌ Network error: ' + err;
+            document.getElementById('eaStatus').style.color = '#dc2626';
+        }
+    };
+
+    window.eaCommit = async function () {
+        if (!_eaRows) return;
+        document.getElementById('eaCommitBtn').disabled = true;
+        document.getElementById('eaCommitBtn').textContent = 'Saving…';
+        const result = await postCmd({cmd: 'save', payload: _eaRows});
+        if (!result.ok) {
+            alert(result.error || 'Save failed');
+            document.getElementById('eaCommitBtn').disabled = false;
+            document.getElementById('eaCommitBtn').textContent = '✅ Commit Changes';
+            return;
+        }
+        eaClose();
+        window.location.href = buildViewUrl();
+    };
+
+    window.eaClose = function () {
+        document.getElementById('eaBackdrop').style.display = 'none';
+        _eaRows = null;
+    };
+})();
+</script>
 {% endif %}
 
 {% endblock %}
