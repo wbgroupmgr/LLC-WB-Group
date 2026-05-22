@@ -470,3 +470,111 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
             form=form,
             version=getattr(app, "_llc_version", None),
         )
+
+    # ── /manage_users ─────────────────────────────────────────────────────────
+    @app.route("/manage_users")
+    @login_required
+    def manage_users():
+        if session.get("role") != "llcManager":
+            flash("Access restricted to LLC Manager.", "error")
+            return redirect(url_for("home"))
+        try:
+            users = _load_users(llc_name)
+        except RuntimeError as exc:
+            app.logger.error("manage_users DB error: %s", exc)
+            flash("Could not load user database.", "error")
+            return redirect(url_for("home"))
+        # Expose a safe fingerprint of the hash (first 12 hex chars) so the
+        # manager can confirm a password is set without seeing the full digest.
+        rows = []
+        for u in users:
+            h = u.get("password", "")
+            rows.append({
+                "username":   u.get("username", ""),
+                "full_name":  u.get("full_name", ""),
+                "phone":      u.get("phone", ""),
+                "role":       u.get("role", ""),
+                "pw_hint":    (h[:12] + "…") if h else "— not set —",
+                "created_at": u.get("created_at", ""),
+            })
+        return render_template(
+            "manage_users.html",
+            users=rows,
+            roles=ALLOWED_ROLES,
+            version=getattr(app, "_llc_version", None),
+        )
+
+    # ── /manage_users/reset_password ──────────────────────────────────────────
+    @app.route("/manage_users/reset_password", methods=["POST"])
+    @login_required
+    def reset_password():
+        if session.get("role") != "llcManager":
+            return {"ok": False, "error": "Forbidden"}, 403
+        target   = (request.form.get("username") or "").strip()
+        new_pw   = request.form.get("new_password") or ""
+        new_pw2  = request.form.get("new_password2") or ""
+        if not target:
+            flash("No username supplied.", "error")
+            return redirect(url_for("manage_users"))
+        if len(new_pw) < 6:
+            flash("Password must be at least 6 characters.", "error")
+            return redirect(url_for("manage_users"))
+        if new_pw != new_pw2:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("manage_users"))
+        try:
+            users = _load_users(llc_name)
+        except RuntimeError as exc:
+            app.logger.error("reset_password DB read error: %s", exc)
+            flash("Could not load user database.", "error")
+            return redirect(url_for("manage_users"))
+        user = _find_user(users, target)
+        if not user:
+            flash(f"User '{target}' not found.", "error")
+            return redirect(url_for("manage_users"))
+        user["password"] = _hash(new_pw)
+        try:
+            _save_users(llc_name, users)
+        except RuntimeError as exc:
+            app.logger.error("reset_password DB write error: %s", exc)
+            flash("Could not save password change.", "error")
+            return redirect(url_for("manage_users"))
+        app.logger.info("auth: password reset for user=%s by manager=%s",
+                        target, session.get("username"))
+        flash(f"Password updated for {target}.", "success")
+        return redirect(url_for("manage_users"))
+
+    # ── /manage_users/delete ──────────────────────────────────────────────────
+    @app.route("/manage_users/delete", methods=["POST"])
+    @login_required
+    def delete_user():
+        if session.get("role") != "llcManager":
+            return {"ok": False, "error": "Forbidden"}, 403
+        target = (request.form.get("username") or "").strip()
+        if not target:
+            flash("No username supplied.", "error")
+            return redirect(url_for("manage_users"))
+        if target == session.get("username"):
+            flash("Cannot delete your own account.", "error")
+            return redirect(url_for("manage_users"))
+        try:
+            users = _load_users(llc_name)
+        except RuntimeError as exc:
+            app.logger.error("delete_user DB read error: %s", exc)
+            flash("Could not load user database.", "error")
+            return redirect(url_for("manage_users"))
+        before = len(users)
+        users = [u for u in users if u.get("username", "").lower() != target.lower()]
+        if len(users) == before:
+            flash(f"User '{target}' not found.", "error")
+            return redirect(url_for("manage_users"))
+        try:
+            _save_users(llc_name, users)
+        except RuntimeError as exc:
+            app.logger.error("delete_user DB write error: %s", exc)
+            flash("Could not save deletion.", "error")
+            return redirect(url_for("manage_users"))
+        app.logger.info("auth: deleted user=%s by manager=%s",
+                        target, session.get("username"))
+        flash(f"User '{target}' deleted.", "success")
+        return redirect(url_for("manage_users"))

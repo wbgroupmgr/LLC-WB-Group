@@ -20,6 +20,11 @@
         <span class="nav-gi">⚙️</span>
         <span>Admin</span>
     </div>
-    <a href="{{ url_for('register') }}" class="nav-view-link">➕ Register New User</a>
+    <a href="{{ url_for('manage_users') }}"
+       class="nav-view-link{% if request.endpoint == 'manage_users' %} nav-active{% endif %}">
+       👥 Manage Users</a>
+    <a href="{{ url_for('register') }}"
+       class="nav-view-link{% if request.endpoint == 'register' %} nav-active{% endif %}">
+       ➕ Register New User</a>
     {% endif %}
 </div>

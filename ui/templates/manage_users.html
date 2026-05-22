@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+<style>
+  .mu-panel {
+    background: white; border-radius: 10px; padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 18px;
+  }
+  .mu-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px; padding-bottom: 12px;
+    border-bottom: 2px solid #e5e7eb;
+  }
+  .mu-header h2 { margin: 0; font-size: 17px; }
+  .mu-header .mu-count {
+    margin-left: auto; font-size: 12px; color: #9ca3af;
+  }
+
+  /* ── Users table ── */
+  .mu-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mu-table th {
+    background: #f3f4f6; text-align: left;
+    padding: 8px 10px; border: 1px solid #e5e7eb;
+    font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: #6b7280;
+  }
+  .mu-table td {
+    padding: 9px 10px; border: 1px solid #e5e7eb;
+    vertical-align: middle;
+  }
+  .mu-table tr:hover td { background: #f9fafb; }
+
+  /* role badge */
+  .role-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  }
+  .role-llcManager  { background: #dbeafe; color: #1e40af; }
+  .role-bookkeeper  { background: #dcfce7; color: #15803d; }
+  .role-accountant  { background: #fef9c3; color: #854d0e; }
+  .role-member      { background: #f3f4f6; color: #374151; }
+
+  /* pw hint */
+  .pw-hint {
+    font-family: 'Courier New', monospace; font-size: 11px;
+    color: #6b7280; letter-spacing: 0.04em;
+  }
+
+  /* action buttons inside table */
+  .btn-sm {
+    border: 0; padding: 4px 10px; border-radius: 5px;
+    cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .btn-sm-reset  { background: #eff6ff; color: #1d4ed8; }
+  .btn-sm-reset:hover  { background: #dbeafe; }
+  .btn-sm-delete { background: #fef2f2; color: #b91c1c; }
+  .btn-sm-delete:hover { background: #fee2e2; }
+
+  /* ── Reset-password modal ── */
+  .mu-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(17,24,39,.5);
+    display: none; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .mu-modal {
+    background: white; width: min(400px, 94vw);
+    border-radius: 12px; padding: 22px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  }
+  .mu-modal h3 { margin: 0 0 14px; font-size: 15px; }
+  .mu-field { margin-bottom: 12px; display: flex; flex-direction: column; gap: 5px; }
+  .mu-field label { font-size: 11px; font-weight: 600; color: #6b7280;
+                    text-transform: uppercase; letter-spacing: 0.05em; }
+  .mu-field input {
+    padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; font-family: 'Courier New', monospace;
+  }
+  .mu-field input:focus { outline: none; border-color: #3b82f6;
+                          box-shadow: 0 0 0 3px #eff6ff; }
+  .mu-modal-toolbar {
+    display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+  }
+
+  /* ── Delete confirm modal ── */
+  #muDeleteModal .mu-modal { max-width: 380px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mu-panel">
+  <div class="mu-header">
+    <span style="font-size:20px">👥</span>
+    <h2>Manage Users</h2>
+    <span class="mu-count">{{ users | length }} account{{ 's' if users | length != 1 }}</span>
+    <a href="{{ url_for('register') }}"
+       style="margin-left:12px;font-size:13px;background:#2563eb;color:white;
+              padding:5px 12px;border-radius:6px;text-decoration:none;">
+      ➕ Register New User
+    </a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=True) %}
+    {% for category, message in messages %}
+      <div style="margin-bottom:12px;padding:9px 13px;border-radius:6px;font-size:13px;
+                  {% if category == 'error' %}background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;
+                  {% elif category == 'success' %}background:#f0fdf4;color:#15803d;border:1px solid #86efac;
+                  {% else %}background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {% if users %}
+  <div class="table-wrap">
+    <table class="mu-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Full Name</th>
+          <th>Phone</th>
+          <th>Role</th>
+          <th>Password</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td><strong style="font-family:monospace">{{ u.username }}</strong></td>
+          <td>{{ u.full_name }}</td>
+          <td style="font-size:12px;color:#6b7280">{{ u.phone }}</td>
+          <td>
+            <span class="role-badge role-{{ u.role }}">{{ u.role }}</span>
+          </td>
+          <td>
+            <span class="pw-hint" title="SHA-256 fingerprint (first 12 chars)">{{ u.pw_hint }}</span>
+          </td>
+          <td style="font-size:11px;color:#9ca3af;white-space:nowrap">
+            {{ u.created_at[:10] if u.created_at else '—' }}
+          </td>
+          <td style="white-space:nowrap">
+            <button class="btn-sm btn-sm-reset"
+                    onclick="openReset('{{ u.username }}')">🔑 Reset PW</button>
+            <button class="btn-sm btn-sm-delete"
+                    onclick="openDelete('{{ u.username }}', '{{ u.full_name }}')">🗑 Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:#9ca3af;font-size:13px">No users registered yet.</p>
+  {% endif %}
+</div>
+
+<!-- ── Reset Password modal ─────────────────────────────────────────── -->
+<div id="muResetModal" class="mu-modal-backdrop"
+     onclick="if(event.target===this) closeReset()">
+  <div class="mu-modal">
+    <h3>🔑 Reset Password</h3>
+    <p id="muResetTarget" style="font-size:13px;color:#6b7280;margin-bottom:14px;
+       font-family:monospace"></p>
+    <form method="POST" action="{{ url_for('reset_password') }}" id="muResetForm">
+      <input type="hidden" name="username" id="muResetUsername">
+      <div class="mu-field">
+        <label>New Password</label>
+        <input type="password" name="new_password" id="muNewPw"
+               placeholder="min 6 characters" required autocomplete="new-password">
+      </div>
+      <div class="mu-field">
+        <label>Confirm Password</label>
+        <input type="password" name="new_password2" id="muNewPw2"
+               placeholder="repeat password" required autocomplete="new-password">
+      </div>
+      <div class="mu-modal-toolbar">
+        <button type="button" class="btn btn-secondary" onclick="closeReset()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Delete User confirm modal ────────────────────────────────────── -->
+<div id="muDeleteModal" class="mu-modal-backdrop"
+     onclick="if(event.target===this) closeDelete()">
+  <div class="mu-modal">
+    <h3>🗑 Delete User?</h3>
+    <p id="muDeleteTarget" style="font-size:13px;margin-bottom:14px"></p>
+    <p style="font-size:12px;color:#9ca3af">This cannot be undone.</p>
+    <form method="POST" action="{{ url_for('delete_user') }}" id="muDeleteForm">
+      <input type="hidden" name="username" id="muDeleteUsername">
+      <div class="mu-modal-toolbar">
+        <button type="button" class="btn btn-secondary" onclick="closeDelete()">Cancel</button>
+        <button type="submit" class="btn btn-danger">Confirm Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function openReset(username) {
+    document.getElementById('muResetUsername').value = username;
+    document.getElementById('muResetTarget').textContent = 'User: ' + username;
+    document.getElementById('muNewPw').value = '';
+    document.getElementById('muNewPw2').value = '';
+    document.getElementById('muResetModal').style.display = 'flex';
+    document.getElementById('muNewPw').focus();
+  }
+  function closeReset() {
+    document.getElementById('muResetModal').style.display = 'none';
+  }
+  function openDelete(username, fullName) {
+    document.getElementById('muDeleteUsername').value = username;
+    document.getElementById('muDeleteTarget').textContent =
+      'Remove "' + fullName + '" (' + username + ') from the system?';
+    document.getElementById('muDeleteModal').style.display = 'flex';
+  }
+  function closeDelete() {
+    document.getElementById('muDeleteModal').style.display = 'none';
+  }
+</script>
+{% endblock %}
