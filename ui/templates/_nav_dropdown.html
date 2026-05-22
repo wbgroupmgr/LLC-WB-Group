@@ -15,4 +15,11 @@
        title="{{ _vlabel }}">{{ _vlabel }}</a>
     {% endfor %}
     {% endfor %}
+    {% if current_role == 'llcManager' %}
+    <div class="nav-group-header">
+        <span class="nav-gi">⚙️</span>
+        <span>Admin</span>
+    </div>
+    <a href="{{ url_for('register') }}" class="nav-view-link">➕ Register New User</a>
+    {% endif %}
 </div>

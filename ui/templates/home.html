@@ -32,15 +32,15 @@
         }
     }
 
-    // ── Logoff: clear session and return to login page ───────────────────
-    function confirmLogoff() {
-        document.getElementById("logoffBackdrop").style.display = "flex";
+    // ── Logout: clear session and return to login page ───────────────────
+    function confirmLogout() {
+        document.getElementById("logoutBackdrop").style.display = "flex";
     }
-    function cancelLogoff() {
-        document.getElementById("logoffBackdrop").style.display = "none";
+    function cancelLogout() {
+        document.getElementById("logoutBackdrop").style.display = "none";
     }
-    function doLogoff() {
-        window.location.href = "/logout";
+    function doLogout() {
+        window.location.href = "{{ url_for('logout') }}";
     }
 </script>
 
@@ -192,8 +192,8 @@
                     title="Snapshot current working data, then reset all working files from the DB"
                     onclick="confirmNewSession()">⟳ New Session</button>
             <button class="btn btn-secondary"
-                    title="Shut down the LLC editor server (Logoff)"
-                    onclick="confirmLogoff()">⏻ Logoff</button>
+                    title="Sign out and return to login page"
+                    onclick="confirmLogout()">⏻ Logout</button>
         </div>
     </div>
 </div>
@@ -299,19 +299,19 @@
     </div>
 </div>
 
-<!-- ── Logoff confirmation modal (v0.2) ────────────────────────────── -->
-<div id="logoffBackdrop" class="modal-backdrop"
-     onclick="if(event.target===this) cancelLogoff()">
+<!-- ── Logout confirmation modal ────────────────────────────────────── -->
+<div id="logoutBackdrop" class="modal-backdrop"
+     onclick="if(event.target===this) cancelLogout()">
     <div class="modal" style="max-width:480px">
-        <h3>⏻ Logoff?</h3>
+        <h3>⏻ Logout?</h3>
         <p>You will be signed out and returned to the login page. The server keeps running.</p>
         <p class="muted" style="font-size:13px">
             Any unsaved edits in the browser (not yet saved via the Save button)
             will be lost. Already-saved data in the working / DB files is safe.
         </p>
         <div class="modal-toolbar">
-            <button class="btn btn-secondary" onclick="cancelLogoff()">Cancel</button>
-            <button id="logoffConfirmBtn" class="btn btn-danger" onclick="doLogoff()">Confirm Logoff</button>
+            <button class="btn btn-secondary" onclick="cancelLogout()">Cancel</button>
+            <button id="logoutConfirmBtn" class="btn btn-danger" onclick="doLogout()">Confirm Logout</button>
         </div>
     </div>
 </div>

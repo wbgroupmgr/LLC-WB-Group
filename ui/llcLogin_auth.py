@@ -318,8 +318,8 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
     # ── /login ────────────────────────────────────────────────────────────────
     @app.route("/login", methods=["GET", "POST"])
     def login():
-        if session.get("logged_in"):
-            return redirect(url_for("home"))
+        # No auto-redirect: always show the form so a user can log in as
+        # a different account from a second window on the same browser.
 
         if request.method == "POST":
             username = (request.form.get("username") or "").strip()
@@ -382,7 +382,8 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
     # ── /register ─────────────────────────────────────────────────────────────
     @app.route("/register", methods=["GET", "POST"])
     def register():
-        if session.get("logged_in"):
+        # Logged-in llcManager may register new users; all others are blocked.
+        if session.get("logged_in") and session.get("role") != "llcManager":
             return redirect(url_for("home"))
 
         errors: dict = {}
@@ -454,9 +455,12 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
                     )
 
                 flash(
-                    f"Account created for {form['full_name']}. Please sign in.",
+                    f"Account created for {form['full_name']}.",
                     "success",
                 )
+                # llcManager stays logged in; everyone else goes to login.
+                if session.get("logged_in"):
+                    return redirect(url_for("home"))
                 return redirect(url_for("login"))
 
         return render_template(
