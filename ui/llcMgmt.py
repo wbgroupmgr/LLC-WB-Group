@@ -50,7 +50,7 @@ from ui.llcFormK1           import llcFormK1
 from ui.llcForm8825         import llcForm8825
 from ui.llcForm4562         import llcForm4562
 from ui.llcLogin_auth       import make_auth_routes
-from ui.llcClosingAid       import bind_closing_routes
+from ui.llcPropAgent        import bind_propAgent_routes
 
 
 class llcMgmt:
@@ -1540,7 +1540,7 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
-        bind_closing_routes(app, self.objects, self._sanitize)
+        bind_propAgent_routes(app, self.objects, self._sanitize)
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:

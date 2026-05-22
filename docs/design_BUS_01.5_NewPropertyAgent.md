@@ -7,6 +7,35 @@ Related Issue: [#6 LLC Property List Mgmt](https://github.com/wbgroupmgr/llcRent
 
 ---
 
+## Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Acceptable Document Formats](#2-acceptable-document-formats)
+3. [IRS Tax Classification — Three-Bucket System](#3-irs-tax-classification--three-bucket-system)
+   - 3.1 Capitalize — Adds to Property Basis
+   - 3.2 Amortize — Loan Acquisition Costs
+   - 3.3 Expense — Immediate Deductible
+4. [Property Basis Calculation](#4-property-basis-calculation)
+   - 4.1 Gross Adjusted Cost Basis
+   - 4.2 Land / Building Split — Real Property Only
+   - 4.3 Depreciation Schedule by Asset Type
+5. [COA Account Map at Purchase — Journaling Instructions](#5-coa-account-map-at-purchase--journaling-instructions)
+   - 5.1 Real Property — ALTA/HUD-1 (House Rental)
+   - 5.2 Personal Property — Bill of Sale (RV Rental)
+   - 5.3 Resulting Balance Sheet Impact
+6. [Member Equity Flow — Funds from Outside to Asset](#6-member-equity-flow--funds-from-outside-to-asset)
+   - 6.1 Overview
+   - 6.2 Step-by-Step Fund Flow
+   - 6.3 Out-of-Pocket Escrow (Member Bypasses LLC Bank)
+   - 6.4 Bill of Sale — Simple Cash Purchase (RV)
+   - 6.5 Member Ownership Percentages per Property
+7. [One-Sided GL Posting (Accounting Principle)](#7-one-sided-gl-posting-accounting-principle)
+8. [Audit Trail & Internal Controls](#8-audit-trail--internal-controls)
+9. [Property Registry (Issue #6)](#9-property-registry-issue-6)
+10. [Compound Journal Entry — Example Output](#10-compound-journal-entry--example-output)
+
+---
+
 ## 1. Executive Summary
 
 The **NewPropertyAgent** (formerly ClosingAid) is the accounting skill embedded in the llcRentalTracker app that onboards a newly acquired rental property into the LLC's asset ledger. It supports two acquisition document types:
@@ -344,7 +373,7 @@ The `toGL()` and `toDoubleEntry()` functions in the ledger engine skip the secon
 ## 8. Audit Trail & Internal Controls
 
 - Every committed record carries `refDoc = f"{propNm}, Closing Docs, {tax_bucket}, {closingDoc}"` — embedding tax bucket and source document in the audit trail per row.
-- `refDB = 'closingAid'` and `tDB = 'llcAssets'` identify the origin of every record.
+- `refDB = 'propAgent'` and `tDB = 'llcAssets'` identify the origin of every record.
 - The system must not post directly to the general ledger; all entries write to the `llcAssets` manual journal pending CPA review.
 - The original settlement statement PDF or Bill of Sale scan must be stored in the business repo (`LLC-WBGroup/books/YYYY/`) for IRS audit purposes.
 - **Bill of Sale**: attach scan to the `closingDoc` reference field in the Preface; store under `LLC-WBGroup/Assets/{propNm}/Docs/`.

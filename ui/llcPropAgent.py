@@ -1,14 +1,14 @@
 """
-Flask route bindings for the ClosingAid service.
-Talks to /api/closing/... endpoints consumed by _closing_aid_dialog.html.
+Flask route bindings for the PropAgent service.
+Talks to /api/propAgent/... endpoints consumed by _prop_agent_dialog.html.
 """
 import math
 import traceback
 from flask import jsonify, request
 
-from ledger.closingAid import ClosingAid, ClosingBalanceError
+from ledger.propAgent import PropAgent, PropAgentBalanceError
 
-_aid = ClosingAid()
+_aid = PropAgent()
 
 
 def _safe_json(obj):
@@ -22,9 +22,9 @@ def _safe_json(obj):
     return obj
 
 
-def bind_closing_routes(app, objects, sanitize):
+def bind_propAgent_routes(app, objects, sanitize):
 
-    @app.route('/api/closing/classify', methods=['POST'])
+    @app.route('/api/propAgent/classify', methods=['POST'])
     def closing_classify():
         try:
             body          = request.get_json(force=True) or {}
@@ -34,10 +34,10 @@ def bind_closing_routes(app, objects, sanitize):
             return jsonify({'ok': True, 'classified': _safe_json(classified)})
         except Exception as err:
             tb = traceback.format_exc()
-            print(f'[ClosingAid classify ERROR]\n{tb}')   # → PA error log
+            print(f'[PropAgent classify ERROR]\n{tb}')   # → PA error log
             return jsonify({'ok': False, 'error': str(err) or repr(err), 'traceback': tb}), 500
 
-    @app.route('/api/closing/balance_sheet', methods=['POST'])
+    @app.route('/api/propAgent/balance_sheet', methods=['POST'])
     def closing_balance_sheet():
         try:
             body = request.get_json(force=True) or {}
@@ -47,7 +47,7 @@ def bind_closing_routes(app, objects, sanitize):
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500
 
-    @app.route('/api/closing/property_basis', methods=['POST'])
+    @app.route('/api/propAgent/property_basis', methods=['POST'])
     def closing_property_basis():
         try:
             body = request.get_json(force=True) or {}
@@ -66,7 +66,7 @@ def bind_closing_routes(app, objects, sanitize):
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500
 
-    @app.route('/api/closing/balance_assist', methods=['POST'])
+    @app.route('/api/propAgent/balance_assist', methods=['POST'])
     def closing_balance_assist():
         try:
             body         = request.get_json(force=True) or {}
@@ -85,10 +85,10 @@ def bind_closing_routes(app, objects, sanitize):
             return jsonify({'ok': True, **_safe_json(result)})
         except Exception as err:
             tb = traceback.format_exc()
-            print(f'[ClosingAid balance_assist ERROR]\n{tb}')
+            print(f'[PropAgent balance_assist ERROR]\n{tb}')
             return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
 
-    @app.route('/api/closing/check_existing', methods=['POST'])
+    @app.route('/api/propAgent/check_existing', methods=['POST'])
     def closing_check_existing():
         try:
             body         = request.get_json(force=True) or {}
@@ -106,10 +106,10 @@ def bind_closing_routes(app, objects, sanitize):
             return jsonify({'ok': True, 'matches': _safe_json(matches)})
         except Exception as err:
             tb = traceback.format_exc()
-            print(f'[ClosingAid check_existing ERROR]\n{tb}')
+            print(f'[PropAgent check_existing ERROR]\n{tb}')
             return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
 
-    @app.route('/api/closing/commit', methods=['POST'])
+    @app.route('/api/propAgent/commit', methods=['POST'])
     def closing_commit():
         try:
             body = request.get_json(force=True) or {}
@@ -130,7 +130,7 @@ def bind_closing_routes(app, objects, sanitize):
                 'committed':    len(records),
                 'total_records': len(existing) + len(records),
             })
-        except ClosingBalanceError as err:
+        except PropAgentBalanceError as err:
             return jsonify({'ok': False, 'error': str(err)}), 422
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500

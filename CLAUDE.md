@@ -117,6 +117,35 @@ setup_paths.BANK_STMTS_2025 / BANK_STMTS_2026
 
 ## 4. Architecture / Design
 
+### 4.0 Documentation Naming Convention
+
+Design docs in `docs/` are named to reflect the **AccountingStage** they describe:
+
+```
+design_{Namespace}_{Stage}-{Subject}.md
+
+Namespaces:
+  BUS  — Business / IRS / accounting rules (operator-facing)
+  LLC  — App architecture, data model, API (developer-facing)
+  LLL  — Feature implementation design (cross-cutting; e.g. propAgent = stage 02.5)
+  WEB  — Web server, deployment, auth
+
+Stage numbering follows the AccountingDesign hierarchy:
+  01.x  — Core accounting workflow & design
+  02.x  — App-level accounting, statements, GL views
+  02.5  — NewPropertyAgent (acquisition onboarding skill)
+  04.x  — IRS forms (1065, 8825, 4562, K-1)
+```
+
+**propAgent** (formerly ClosingAid):
+- Business/IRS spec → `docs/design_BUS_01.5_NewPropertyAgent.md`
+- Implementation design → `docs/design_LLL_02.5-NewPropertyAgent.md`
+- Core logic → `ledger/propAgent.py` (`PropAgent` class, `PropAgentBalanceError`)
+- Flask routes → `ui/llcPropAgent.py` (`bind_propAgent_routes`, `/api/propAgent/...`)
+- Dialog template → `ui/templates/_propAgent_dialog.html`
+- Tests → `tests/test_propAgent.py`
+- Button label → `🏠 PurchaseAid — propAgent` (in llcAssets Actions menu)
+
 Refer to DOCs under folder: `pages/AccountingData/Notebooks/docs`:
 
 

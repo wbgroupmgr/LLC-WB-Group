@@ -1,6 +1,6 @@
-{# _closing_aid_dialog.html — ClosingAid multi-step modal (v0.3).
+{# _propAgent_dialog.html — PropAgent multi-step modal (v0.3).
    Included from table_view.html when obj_type == 'llcAssets'.
-   Talks to /api/closing/... routes in ui/llcClosingAid.py.
+   Talks to /api/propAgent/... routes in ui/llcPropAgent.py.
 
    Steps:
      0 — Preface  : common fields for all closing entries (propNm, date, landPct, etc.)
@@ -11,115 +11,115 @@
 #}
 
 <style>
-    .ca-backdrop {
+    .pa-backdrop {
         position: fixed; inset: 0; background: rgba(17,24,39,.6);
         display: none; align-items: center; justify-content: center; z-index: 1100;
     }
-    .ca-backdrop.open { display: flex; }
-    .ca-modal {
+    .pa-backdrop.open { display: flex; }
+    .pa-modal {
         background: #fff; width: min(780px, 97vw); max-height: 94vh;
         overflow: auto; border-radius: 12px;
         box-shadow: 0 24px 60px rgba(0,0,0,.3); padding: 20px 24px;
         position: relative;
     }
-    .ca-modal h3 { margin: 0 0 4px 0; font-size: 17px; padding-right: 40px; }
-    .ca-x-close {
+    .pa-modal h3 { margin: 0 0 4px 0; font-size: 17px; padding-right: 40px; }
+    .pa-x-close {
         position: absolute; top: 12px; right: 14px;
         background: transparent; border: 0; color: #6b7280;
         font-size: 22px; line-height: 1; cursor: pointer;
         padding: 4px 8px; border-radius: 6px;
     }
-    .ca-x-close:hover { background: #f3f4f6; color: #111827; }
+    .pa-x-close:hover { background: #f3f4f6; color: #111827; }
     /* Step indicator */
-    .ca-steps {
+    .pa-steps {
         display: flex; gap: 0; margin: 10px 0 18px 0;
         border-bottom: 2px solid #e5e7eb;
     }
-    .ca-step {
+    .pa-step {
         flex: 1; text-align: center; padding: 6px 4px;
         font-size: 11px; font-weight: 600; color: #9ca3af;
         cursor: default; user-select: none;
         border-bottom: 3px solid transparent; margin-bottom: -2px;
     }
-    .ca-step.active { color: #1d4ed8; border-color: #1d4ed8; }
-    .ca-step.done   { color: #16a34a; border-color: #16a34a; }
+    .pa-step.active { color: #1d4ed8; border-color: #1d4ed8; }
+    .pa-step.done   { color: #16a34a; border-color: #16a34a; }
     /* Form grid */
-    .ca-grid {
+    .pa-grid {
         display: grid; grid-template-columns: 160px 1fr; gap: 8px 14px;
         align-items: center; font-size: 13px; margin: 6px 0 10px 0;
     }
-    .ca-grid label { font-weight: 600; color: #374151; }
-    .ca-grid input, .ca-grid select, .ca-grid textarea {
+    .pa-grid label { font-weight: 600; color: #374151; }
+    .pa-grid input, .pa-grid select, .pa-grid textarea {
         padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 6px;
         font: inherit; width: 100%;
     }
-    .ca-grid .hint { font-size: 11px; color: #6b7280; grid-column: 2; margin-top: -6px; }
+    .pa-grid .hint { font-size: 11px; color: #6b7280; grid-column: 2; margin-top: -6px; }
     /* Section header */
-    .ca-sec { font-size: 11px; font-weight: 700; text-transform: uppercase;
+    .pa-sec { font-size: 11px; font-weight: 700; text-transform: uppercase;
               letter-spacing: .05em; color: #6b7280; margin: 14px 0 6px 0; }
     /* Table */
-    .ca-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
-    .ca-table th {
+    .pa-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+    .pa-table th {
         background: #f1f5f9; text-align: left; padding: 5px 8px;
         border-bottom: 2px solid #e2e8f0; font-size: 11px; font-weight: 700;
         text-transform: uppercase; letter-spacing: .04em;
     }
-    .ca-table td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-    .ca-table tr:hover td { background: #fafafa; }
-    .ca-table tr.unmatched td { background: #fff7ed; }
-    .ca-table tr.unmatched:hover td { background: #fed7aa33; }
-    .ca-table input, .ca-table select {
+    .pa-table td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    .pa-table tr:hover td { background: #fafafa; }
+    .pa-table tr.unmatched td { background: #fff7ed; }
+    .pa-table tr.unmatched:hover td { background: #fed7aa33; }
+    .pa-table input, .pa-table select {
         padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px;
         font: inherit; width: 100%;
     }
-    .ca-table tr.unmatched input,
-    .ca-table tr.unmatched select { border-color: #f97316; }
+    .pa-table tr.unmatched input,
+    .pa-table tr.unmatched select { border-color: #f97316; }
     /* Unmatched rule-definition panel */
-    .ca-rule-panel {
+    .pa-rule-panel {
         background: #fff7ed; border: 1px solid #f97316; border-radius: 8px;
         padding: 12px 14px; margin: 8px 0 4px 0; font-size: 12px;
     }
-    .ca-rule-panel .rp-header {
+    .pa-rule-panel .rp-header {
         font-weight: 700; color: #9a3412; margin-bottom: 8px; font-size: 13px;
     }
-    .ca-rule-panel .rp-row {
+    .pa-rule-panel .rp-row {
         display: grid; grid-template-columns: 1fr 1fr 1fr auto;
         gap: 6px; align-items: center; margin: 4px 0;
     }
-    .ca-rule-panel input, .ca-rule-panel select {
+    .pa-rule-panel input, .pa-rule-panel select {
         padding: 4px 7px; border: 1px solid #f97316; border-radius: 5px;
         font: inherit; width: 100%;
     }
-    .ca-rule-panel .rp-hint {
+    .pa-rule-panel .rp-hint {
         font-size: 11px; color: #9a3412; margin-top: 6px;
     }
     /* Balance box */
-    .ca-bal-box {
+    .pa-bal-box {
         display: flex; gap: 16px; justify-content: center;
         padding: 14px; border-radius: 8px; margin: 12px 0;
         background: #f8fafc; border: 1px solid #e2e8f0;
     }
-    .ca-bal-item { text-align: center; }
-    .ca-bal-item .val { font-size: 22px; font-weight: 700; }
-    .ca-bal-item .lbl { font-size: 11px; color: #6b7280; margin-top: 2px; }
-    .ca-balanced   { color: #16a34a; }
-    .ca-unbalanced { color: #dc2626; }
+    .pa-bal-item { text-align: center; }
+    .pa-bal-item .val { font-size: 22px; font-weight: 700; }
+    .pa-bal-item .lbl { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .pa-balanced   { color: #16a34a; }
+    .pa-unbalanced { color: #dc2626; }
     /* Basis box */
-    .ca-basis-box {
+    .pa-basis-box {
         background: #f0fdf4; border: 1px solid #86efac;
         border-radius: 8px; padding: 14px; margin: 10px 0;
         font-size: 13px;
     }
-    .ca-basis-row { display: flex; justify-content: space-between; padding: 3px 0; }
-    .ca-basis-row strong { color: #166534; }
+    .pa-basis-row { display: flex; justify-content: space-between; padding: 3px 0; }
+    .pa-basis-row strong { color: #166534; }
     /* Status chips */
-    .ca-chip {
+    .pa-chip {
         display: inline-block; padding: 3px 10px; border-radius: 999px;
         font-size: 11px; font-weight: 700; margin: 2px 3px;
     }
-    .ca-chip.capitalize { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
-    .ca-chip.amortize   { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
-    .ca-chip.expense    { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+    .pa-chip.capitalize { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+    .pa-chip.amortize   { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
+    .pa-chip.expense    { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
     /* Step 4 commit table — sticky header */
     #caCommitTable thead th {
         position: sticky;
@@ -129,48 +129,48 @@
         box-shadow: 0 1px 0 #e2e8f0;
     }
     /* Action bar */
-    .ca-actions {
+    .pa-actions {
         display: flex; justify-content: flex-end; align-items: center;
         gap: 10px; margin-top: 16px; padding-top: 14px;
         border-top: 1px solid #e5e7eb;
     }
-    .ca-actions .ca-left { margin-right: auto; }
-    .btn-ca-commit {
+    .pa-actions .pa-left { margin-right: auto; }
+    .btn-pa-commit {
         background: #16a34a; color: #fff; border: none;
         padding: 8px 20px; border-radius: 7px; font-size: 13px;
         font-weight: 700; cursor: pointer;
     }
-    .btn-ca-commit:hover:not(:disabled) { background: #15803d; }
-    .btn-ca-commit:disabled { background: #86efac; cursor: not-allowed; }
+    .btn-pa-commit:hover:not(:disabled) { background: #15803d; }
+    .btn-pa-commit:disabled { background: #86efac; cursor: not-allowed; }
     /* Flash */
-    .ca-flash { margin-top: 10px; padding: 10px 12px; border-radius: 6px; font-size: 13px; }
-    .ca-flash.ok  { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-    .ca-flash.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .pa-flash { margin-top: 10px; padding: 10px 12px; border-radius: 6px; font-size: 13px; }
+    .pa-flash.ok  { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .pa-flash.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
     /* Textarea */
-    .ca-json-ta {
+    .pa-json-ta {
         width: 100%; min-height: 140px; font-family: monospace; font-size: 12px;
         padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;
     }
 </style>
 
-<div id="caBackdrop" class="ca-backdrop" onclick="if(event.target===this)caClose()">
-  <div class="ca-modal" role="dialog" aria-modal="true" aria-label="NewPropertyAgent">
-    <button type="button" class="ca-x-close" onclick="caClose()" title="Cancel">×</button>
+<div id="paBackdrop" class="pa-backdrop" onclick="if(event.target===this)paClose()">
+  <div class="pa-modal" role="dialog" aria-modal="true" aria-label="NewPropertyAgent">
+    <button type="button" class="pa-x-close" onclick="paClose()" title="Cancel">×</button>
     <h3>NewPropertyAgent — Settlement Statement → Ledger</h3>
 
     <!-- Step indicator -->
-    <div class="ca-steps">
-      <div class="ca-step" id="caStep0Ind">0 · Preface</div>
-      <div class="ca-step" id="caStep1Ind">1 · Input</div>
-      <div class="ca-step" id="caStep2Ind">2 · Review</div>
-      <div class="ca-step" id="caStep3Ind">3 · Balance</div>
-      <div class="ca-step" id="caStep4Ind">4 · Basis &amp; Commit</div>
+    <div class="pa-steps">
+      <div class="pa-step" id="caStep0Ind">0 · Preface</div>
+      <div class="pa-step" id="caStep1Ind">1 · Input</div>
+      <div class="pa-step" id="caStep2Ind">2 · Review</div>
+      <div class="pa-step" id="caStep3Ind">3 · Balance</div>
+      <div class="pa-step" id="caStep4Ind">4 · Basis &amp; Commit</div>
     </div>
 
     <!-- ── Step 0: Preface ─────────────────────────────────────────────────── -->
     <div id="caPane0">
-      <div class="ca-sec">Property &amp; Closing Info — applies to all entries</div>
-      <div class="ca-grid">
+      <div class="pa-sec">Property &amp; Closing Info — applies to all entries</div>
+      <div class="pa-grid">
         <label for="caPropNm">Property Name</label>
         <input  id="caPropNm" type="text" placeholder="e.g. Kingsway 177">
 
@@ -219,7 +219,7 @@
 
     <!-- ── Step 1: Input ──────────────────────────────────────────────────── -->
     <div id="caPane1" style="display:none">
-      <div class="ca-sec">Paste Settlement Rows (JSON)</div>
+      <div class="pa-sec">Paste Settlement Rows (JSON)</div>
       <p style="font-size:12px; color:#6b7280; margin:4px 0 8px 0;">
         Paste a JSON array with <code>Description</code> plus one of two column formats:<br>
         &nbsp;•&nbsp;<strong>ALTA title-company format:</strong> <code>Buyer</code> / <code>Seller</code>
@@ -227,7 +227,7 @@
         &nbsp;•&nbsp;<strong>Standard format:</strong> <code>Debit</code> / <code>Credit</code>.
         Extra keys are preserved as metadata. Include a <em>Cash to Close</em> or <em>New Loan Amount</em> row so the journal balances.
       </p>
-      <textarea id="caRawJSON" class="ca-json-ta"
+      <textarea id="paRawJSON" class="pa-json-ta"
         placeholder='[
   {"Description":"Sale Price of Property","Buyer":220000,"Seller":null},
   {"Description":"Deposit or Earnest Money","Buyer":null,"Seller":5000},
@@ -242,11 +242,11 @@
 
     <!-- ── Step 2: Review ─────────────────────────────────────────────────── -->
     <div id="caPane2" style="display:none">
-      <div class="ca-sec">Classified Line Items — review &amp; correct</div>
-      <div id="caReviewMsg" style="font-size:12px; color:#6b7280; margin-bottom:4px;"></div>
+      <div class="pa-sec">Classified Line Items — review &amp; correct</div>
+      <div id="paReviewMsg" style="font-size:12px; color:#6b7280; margin-bottom:4px;"></div>
 
       <!-- Unmatched-row rule-definition panel (hidden until there are unmatched rows) -->
-      <div id="caRulePanel" class="ca-rule-panel" style="display:none">
+      <div id="paRulePanel" class="pa-rule-panel" style="display:none">
         <div class="rp-header">⚠ Unmatched rows — no classification rule found</div>
         <p style="margin:0 0 8px 0; color:#92400e;">
           Rows highlighted in orange were not recognized. Select the correct GL Account
@@ -257,14 +257,14 @@
           ADD RULE — keyword match (saved to session, applies on re-classify):
         </div>
         <div class="rp-row" style="grid-template-columns:1fr 1fr 1fr auto;">
-          <input  id="caRuleKeyword"  placeholder="keyword in description (lowercase)"
+          <input  id="paRuleKeyword"  placeholder="keyword in description (lowercase)"
                   style="font-family:monospace">
-          <select id="caRuleBucket">
+          <select id="paRuleBucket">
             <option value="Capitalize">Capitalize</option>
             <option value="Amortize">Amortize</option>
             <option value="Expense">Expense</option>
           </select>
-          <select id="caRuleAcct">
+          <select id="paRuleAcct">
             <option value="Acct.Fixed.Tangible.InService">Acct.Fixed.Tangible.InService</option>
             <option value="Acct.Fixed.Land">Acct.Fixed.Land</option>
             <option value="Acct.Cash.Bank">Acct.Cash.Bank</option>
@@ -284,7 +284,7 @@
       </div>
 
       <div style="overflow-x:auto;">
-        <table class="ca-table" id="caReviewTable">
+        <table class="pa-table" id="paReviewTable">
           <thead>
             <tr>
               <th>#</th>
@@ -296,27 +296,27 @@
               <th style="font-size:10px;">Rule</th>
             </tr>
           </thead>
-          <tbody id="caReviewBody"></tbody>
+          <tbody id="paReviewBody"></tbody>
         </table>
       </div>
     </div>
 
     <!-- ── Step 3: Balance ────────────────────────────────────────────────── -->
     <div id="caPane3" style="display:none">
-      <div class="ca-sec">Control Total Reconciliation</div>
-      <div class="ca-bal-box">
-        <div class="ca-bal-item">
+      <div class="pa-sec">Control Total Reconciliation</div>
+      <div class="pa-bal-box">
+        <div class="pa-bal-item">
           <div class="val" id="caTotalDebits">—</div>
           <div class="lbl">Total Debits</div>
         </div>
-        <div class="ca-bal-item" style="font-size:32px; color:#9ca3af; align-self:center;">
+        <div class="pa-bal-item" style="font-size:32px; color:#9ca3af; align-self:center;">
           =
         </div>
-        <div class="ca-bal-item">
+        <div class="pa-bal-item">
           <div class="val" id="caTotalCredits">—</div>
           <div class="lbl">Total Credits</div>
         </div>
-        <div class="ca-bal-item" style="align-self:center;">
+        <div class="pa-bal-item" style="align-self:center;">
           <div class="val" id="caBalStatus">—</div>
           <div class="lbl">Status</div>
         </div>
@@ -328,11 +328,11 @@
     <!-- ── Step 4: Basis & Commit ─────────────────────────────────────────── -->
     <div id="caPane4" style="display:none">
       <div id="caPrefaceSummary"></div>
-      <div class="ca-sec">Property Basis &amp; Land/Building Split</div>
-      <div id="caBasisBox" class="ca-basis-box"></div>
-      <div class="ca-sec">Generated Journal Entries (preview)</div>
+      <div class="pa-sec">Property Basis &amp; Land/Building Split</div>
+      <div id="caBasisBox" class="pa-basis-box"></div>
+      <div class="pa-sec">Generated Journal Entries (preview)</div>
       <div style="overflow:auto; max-height:340px; border:1px solid #e2e8f0; border-radius:6px;">
-        <table class="ca-table" id="caCommitTable" style="margin:0;">
+        <table class="pa-table" id="caCommitTable" style="margin:0;">
           <thead>
             <tr>
               <th>tID</th>
@@ -353,17 +353,17 @@
     </div>
 
     <!-- Flash -->
-    <div id="caFlash"></div>
+    <div id="paFlash"></div>
 
     <!-- Action bar -->
-    <div class="ca-actions">
-      <span class="ca-left" id="caStepLabel" style="font-size:12px; color:#6b7280;"></span>
-      <button type="button" class="btn btn-secondary" onclick="caClose()">Cancel</button>
+    <div class="pa-actions">
+      <span class="pa-left" id="caStepLabel" style="font-size:12px; color:#6b7280;"></span>
+      <button type="button" class="btn btn-secondary" onclick="paClose()">Cancel</button>
       <button type="button" class="btn btn-secondary" id="caBtnBack"
               onclick="caBack()" style="display:none">← Back</button>
       <button type="button" class="btn btn-primary"   id="caBtnNext"
               onclick="caNext()">Next →</button>
-      <button type="button" class="btn-ca-commit"     id="caBtnCommit"
+      <button type="button" class="btn-pa-commit"     id="caBtnCommit"
               onclick="caCommit()" style="display:none" disabled>
         Commit to Ledger
       </button>
@@ -406,21 +406,21 @@
 
     // ── Open / Close ────────────────────────────────────────────────────────
 
-    window.closingAidOpen = function() {
+    window.propAgentOpen = function() {
         _step = 0;
         _classified = [];
         _balance    = {};
         _records    = [];
         _committed  = false;
-        caFlash('');
+        paFlash('');
         _renderStep(0);
-        $('caBackdrop').classList.add('open');
+        $('paBackdrop').classList.add('open');
         setTimeout(() => $('caPropNm') && $('caPropNm').focus(), 80);
     };
 
-    window.caClose = function() {
-        $('caBackdrop').classList.remove('open');
-        caFlash('');
+    window.paClose = function() {
+        $('paBackdrop').classList.remove('open');
+        paFlash('');
         if (_committed) {
             _committed = false;
             window.location.reload();   // show the new records in the asset table
@@ -428,7 +428,7 @@
     };
 
     document.addEventListener('keydown', ev => {
-        if (ev.key === 'Escape' && $('caBackdrop').classList.contains('open')) caClose();
+        if (ev.key === 'Escape' && $('paBackdrop').classList.contains('open')) paClose();
     });
 
     // ── Land pct live update ─────────────────────────────────────────────────
@@ -459,10 +459,10 @@
     window.caBack = function() { if (_step > 0) _renderStep(_step - 1); };
 
     // Navigate back to Review table (step 2) so the user can edit rows without re-pasting JSON
-    window.caGoToInput = function() { caFlash(''); _renderStep(2); };
+    window.paGoToInput = function() { paFlash(''); _renderStep(2); };
 
     window.caNext = async function() {
-        caFlash('');
+        paFlash('');
         if (_step === 0) {
             // Collect preface
             _preface = {
@@ -477,15 +477,15 @@
                 propOwners:  $('caPropOwners').value.trim(),
                 landPct:     parseFloat($('caLandPct').value) || 0,
             };
-            if (!_preface.propNm)     { caFlash('Property Name is required.', true); return; }
-            if (!_preface.closingDate){ caFlash('Closing Date is required.',   true); return; }
-            if (!_preface.tID_Prefix) { caFlash('tID Prefix is required.',     true); return; }
+            if (!_preface.propNm)     { paFlash('Property Name is required.', true); return; }
+            if (!_preface.closingDate){ paFlash('Closing Date is required.',   true); return; }
+            if (!_preface.tID_Prefix) { paFlash('tID Prefix is required.',     true); return; }
             _renderStep(1);
 
         } else if (_step === 1) {
             // Parse raw JSON and classify
-            const raw = $('caRawJSON').value.trim();
-            if (!raw) { caFlash('Paste settlement rows JSON above.', true); return; }
+            const raw = $('paRawJSON').value.trim();
+            if (!raw) { paFlash('Paste settlement rows JSON above.', true); return; }
             let rows;
             try {
                 rows = JSON.parse(raw);
@@ -496,12 +496,12 @@
                 return;
             }
             _rawRows = rows;   // save for re-classify after adding a rule
-            const r = await caPost('/api/closing/classify', { rows, session_rules: _sessionRules });
+            const r = await paPost('/api/propAgent/classify', { rows, session_rules: _sessionRules });
             if (!r.ok) {
                 const msg = (r.json && r.json.error) || `HTTP ${r.status} — no error detail`;
                 const tb  = r.json && r.json.traceback
                     ? `<pre style="font-size:10px;margin-top:6px;white-space:pre-wrap;max-height:160px;overflow:auto;">${r.json.traceback}</pre>` : '';
-                caFlash(`<strong>Classification error:</strong> ${msg}${tb}`, true);
+                paFlash(`<strong>Classification error:</strong> ${msg}${tb}`, true);
                 return;
             }
             _classified = r.json.classified || [];
@@ -512,8 +512,8 @@
             // Collect any edits from review table back into _classified
             _collectReviewEdits();
             // Run balance check
-            const r = await caPost('/api/closing/balance_sheet', { classified: _classified });
-            if (!r.ok) { caFlash(r.json.error || 'Balance check failed', true); return; }
+            const r = await paPost('/api/propAgent/balance_sheet', { classified: _classified });
+            if (!r.ok) { paFlash(r.json.error || 'Balance check failed', true); return; }
             _balance = r.json;
             _renderBalance();
             _fetchBalanceAssist();   // always — shows funding chain even when balanced
@@ -521,20 +521,20 @@
 
         } else if (_step === 3) {
             if (!_balance.balanced) {
-                caFlash('Journal is not balanced — add the missing funding row or use Balance Assist below.', true);
+                paFlash('Journal is not balanced — add the missing funding row or use Balance Assist below.', true);
                 return;
             }
             // Fetch property basis + build commit preview
-            const r = await caPost('/api/closing/property_basis', {
+            const r = await paPost('/api/propAgent/property_basis', {
                 classified: _classified,
                 landPct:    _preface.landPct,
             });
-            if (!r.ok) { caFlash(r.json.error || 'Basis calculation failed', true); return; }
+            if (!r.ok) { paFlash(r.json.error || 'Basis calculation failed', true); return; }
             _renderPrefaceSummary();
             _renderBasis(r.json);
             _buildCommitPreview();
             // Check for entries already in the GL (parallel to the render, apply when ready)
-            caPost('/api/closing/check_existing', {
+            paPost('/api/propAgent/check_existing', {
                 classified:  _classified,
                 closingDate: _preface.closingDate || '',
             }).then(chk => {
@@ -555,18 +555,18 @@
 
         // Summary line
         if (unmatched.length > 0) {
-            $('caReviewMsg').innerHTML =
+            $('paReviewMsg').innerHTML =
                 `${total} line item(s) classified — ` +
                 `<span style="color:#c2410c; font-weight:700;">` +
                 `⚠ ${unmatched.length} row(s) not recognized (highlighted in orange)</span>. ` +
                 `Correct GL Account &amp; Tax Treatment below or add a keyword rule.`;
-            $('caRulePanel').style.display = '';
+            $('paRulePanel').style.display = '';
         } else {
-            $('caReviewMsg').textContent = `${total} line item(s) classified — all rules matched.`;
-            $('caRulePanel').style.display = 'none';
+            $('paReviewMsg').textContent = `${total} line item(s) classified — all rules matched.`;
+            $('paRulePanel').style.display = 'none';
         }
 
-        const tbody = $('caReviewBody');
+        const tbody = $('paReviewBody');
         tbody.innerHTML = '';
         _classified.forEach((r, i) => {
             const tr = document.createElement('tr');
@@ -603,7 +603,7 @@
     }
 
     function _collectReviewEdits() {
-        document.querySelectorAll('#caReviewBody tr').forEach(tr => {
+        document.querySelectorAll('#paReviewBody tr').forEach(tr => {
             const i = parseInt(tr.dataset.idx);
             if (isNaN(i) || i >= _classified.length) return;
             tr.querySelectorAll('[data-field]').forEach(el => {
@@ -617,10 +617,10 @@
     // ── Add session rule + re-classify ───────────────────────────────────────
 
     window.caAddRule = async function() {
-        const kw     = ($('caRuleKeyword').value || '').trim().toLowerCase();
-        const bucket = $('caRuleBucket').value;
-        const acct   = $('caRuleAcct').value;
-        if (!kw) { caFlash('Enter a keyword before adding a rule.', true); return; }
+        const kw     = ($('paRuleKeyword').value || '').trim().toLowerCase();
+        const bucket = $('paRuleBucket').value;
+        const acct   = $('paRuleAcct').value;
+        if (!kw) { paFlash('Enter a keyword before adding a rule.', true); return; }
 
         // Append to session rules (sent to server on every classify call)
         _sessionRules = _sessionRules.filter(r => r.keyword !== kw);  // dedup
@@ -628,18 +628,18 @@
 
         // Re-collect any manual edits the user already made, then re-classify
         _collectReviewEdits();
-        const r = await caPost('/api/closing/classify', {
+        const r = await paPost('/api/propAgent/classify', {
             rows:          _rawRows,
             session_rules: _sessionRules,
         });
         if (!r.ok) {
-            caFlash(`Re-classify failed: ${(r.json && r.json.error) || 'unknown'}`, true);
+            paFlash(`Re-classify failed: ${(r.json && r.json.error) || 'unknown'}`, true);
             return;
         }
         _classified = r.json.classified || [];
-        $('caRuleKeyword').value = '';
+        $('paRuleKeyword').value = '';
         _renderReview();
-        caFlash(`Rule added: "${kw}" → ${bucket} / ${acct.split('.').pop()}`);
+        paFlash(`Rule added: "${kw}" → ${bucket} / ${acct.split('.').pop()}`);
     };
 
     // ── Step 3: Balance ──────────────────────────────────────────────────────
@@ -652,7 +652,7 @@
         $('caTotalCredits').textContent = '$' + _fmt(_balance.total_credits);
         const bal = _balance.balanced;
         $('caBalStatus').textContent    = bal ? '✓ BALANCED' : '✗ UNBALANCED';
-        $('caBalStatus').className      = 'val ' + (bal ? 'ca-balanced' : 'ca-unbalanced');
+        $('caBalStatus').className      = 'val ' + (bal ? 'pa-balanced' : 'pa-unbalanced');
         if (!bal) {
             const delta = Math.abs(_balance.delta);
             const needCredit = _balance.delta > 0;
@@ -665,7 +665,7 @@
                   <strong style="color:#713f12;">Missing $${_fmt(delta)} in ${side}.</strong><br>
                   <span style="color:#713f12;">${suggest}</span><br>
                   <span style="color:#92400e; font-size:11px;">Go back to Step 1 and add the missing row to the JSON, then re-classify.</span><br>
-                  <button type="button" class="btn btn-secondary" onclick="caGoToInput()"
+                  <button type="button" class="btn btn-secondary" onclick="paGoToInput()"
                           style="margin-top:8px; font-size:12px; padding:4px 12px;">← Back to Review (Step 3)</button>
                 </div>`;
         } else {
@@ -679,17 +679,17 @@
         const landPct = _preface.landPct || 0;
         const bldgPct = (100 - landPct).toFixed(2);
         let html = `
-          <div class="ca-basis-row">
+          <div class="pa-basis-row">
             <span>Gross Capitalized Acquisition Cost</span>
             <strong>$${_fmt(data.gross_basis)}</strong>
           </div>`;
         if (landPct > 0) {
             html += `
-          <div class="ca-basis-row">
+          <div class="pa-basis-row">
             <span>→ Land (${landPct}%) — GL: Acct.Fixed.Land</span>
             <strong>$${_fmt(data.land_amt)}</strong>
           </div>
-          <div class="ca-basis-row">
+          <div class="pa-basis-row">
             <span>→ Building (${bldgPct}%) — GL: Acct.Fixed.Tangible.InService</span>
             <strong>$${_fmt(data.bldg_amt)}</strong>
           </div>`;
@@ -698,7 +698,7 @@
             ? (data.bldg_amt / 27.5).toFixed(2) : null;
         if (annualDepr) {
             html += `
-          <div class="ca-basis-row" style="border-top:1px solid #86efac; margin-top:6px; padding-top:6px;">
+          <div class="pa-basis-row" style="border-top:1px solid #86efac; margin-top:6px; padding-top:6px;">
             <span>Estimated Annual IRS Depreciation (27.5-year Residential)</span>
             <strong>$${_fmt(parseFloat(annualDepr))} / Year</strong>
           </div>`;
@@ -732,9 +732,9 @@
               <td style="font-size:11px;color:#0369a1;">${acctSub}</td>
               <td>${r.aType||''}</td>
               <td style="text-align:right">$${_fmt(r.amt||0)}</td>
-              <td><span class="ca-chip ${bucket.toLowerCase()}">${bucket}</span></td>
+              <td><span class="pa-chip ${bucket.toLowerCase()}">${bucket}</span></td>
               <td style="font-size:10px;color:#6b7280">${refDoc}</td>
-              <td id="ca-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
+              <td id="pa-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
             `;
             tbody.appendChild(tr);
         });
@@ -769,7 +769,7 @@
     function _markExistingRows(matches) {
         let dupCount = 0;
         matches.forEach(m => {
-            const statusCell = $(`ca-status-${m._row_idx}`);
+            const statusCell = $(`pa-status-${m._row_idx}`);
             if (!statusCell) return;
             dupCount++;
             const c = (m.candidates || [])[0] || {};
@@ -783,14 +783,14 @@
             if (tr) tr.style.background = '#fff7ed';
         });
         if (dupCount > 0) {
-            caFlash(`⚠ ${dupCount} row(s) highlighted in orange may already be in the GL — hover for details. Verify before committing.`, true);
+            paFlash(`⚠ ${dupCount} row(s) highlighted in orange may already be in the GL — hover for details. Verify before committing.`, true);
         }
     }
 
     // ── Balance Assist ───────────────────────────────────────────────────────
 
     async function _fetchBalanceAssist() {
-        const r = await caPost('/api/closing/balance_assist', {
+        const r = await paPost('/api/propAgent/balance_assist', {
             classified:  _classified,
             closingDate: _preface.closingDate || '',
         });
@@ -875,13 +875,13 @@
         _classified.push({ ..._lastAssistSuggestion, _row_idx: _classified.length + 1 });
         _lastAssistSuggestion = null;
         // Re-run balance check
-        const r = await caPost('/api/closing/balance_sheet', { classified: _classified });
-        if (!r.ok) { caFlash(r.json.error || 'Balance check failed', true); return; }
+        const r = await paPost('/api/propAgent/balance_sheet', { classified: _classified });
+        if (!r.ok) { paFlash(r.json.error || 'Balance check failed', true); return; }
         _balance = r.json;
         _renderBalance();
         if (!_balance.balanced) _fetchBalanceAssist();
         _renderReview();   // keep review table in sync
-        caFlash(
+        paFlash(
             _balance.balanced
                 ? '✅ Entry added — journal is balanced.'
                 : '⚠ Entry added — journal still unbalanced, check amounts.',
@@ -895,25 +895,25 @@
         const btn = $('caBtnCommit');
         btn.disabled = true;
         btn.textContent = 'Committing…';
-        caFlash('');
+        paFlash('');
         try {
-            const r = await caPost('/api/closing/commit', {
+            const r = await paPost('/api/propAgent/commit', {
                 classified: _classified,
                 preface:    _preface,
             });
             if (!r.ok) {
-                caFlash((r.json && r.json.error) || 'Commit failed', true);
+                paFlash((r.json && r.json.error) || 'Commit failed', true);
                 return;
             }
-            caFlash(`✅ Committed ${r.json.committed} entries to the ledger. Click Done to close.`);
+            paFlash(`✅ Committed ${r.json.committed} entries to the ledger. Click Done to close.`);
             _committed = true;
             btn.textContent = '✓ Done';
             btn.disabled = false;
-            btn.onclick = () => caClose();   // repurpose commit button as close
+            btn.onclick = () => paClose();   // repurpose commit button as close
             $('caBtnNext').style.display = 'none';
             $('caBtnBack').style.display = 'none';
         } catch(e) {
-            caFlash('Unexpected error: ' + e.message, true);
+            paFlash('Unexpected error: ' + e.message, true);
         } finally {
             if (btn.textContent === 'Committing…') {
                 btn.disabled = false;
@@ -924,7 +924,7 @@
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    async function caPost(url, body) {
+    async function paPost(url, body) {
         try {
             const r = await fetch(_scriptRoot + url, {
                 method: 'POST',
@@ -938,14 +938,14 @@
         }
     }
 
-    function caFlash(msg, isErr) {
-        const el = $('caFlash');
+    function paFlash(msg, isErr) {
+        const el = $('paFlash');
         if (!msg) { el.innerHTML = ''; return; }
-        el.innerHTML = `<div class="ca-flash ${isErr?'err':'ok'}">${msg}</div>`;
+        el.innerHTML = `<div class="pa-flash ${isErr?'err':'ok'}">${msg}</div>`;
         if (isErr) el.scrollIntoView({behavior:'smooth', block:'nearest'});
     }
 
     // Expose for toolbar button
-    window.closingAidOpen = window.closingAidOpen;
+    window.propAgentOpen = window.propAgentOpen;
 })();
 </script>

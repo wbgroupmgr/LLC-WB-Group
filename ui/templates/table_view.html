@@ -660,9 +660,9 @@
                         {% endif %}
                         <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
                         {% if obj_type == 'llcAssets' %}
-                        <button class="act-success" onclick="closingAidOpen(); document.getElementById('actionsMenu').removeAttribute('open')"
-                                title="Import settlement statement as ledger entries">
-                            🏠 NewPropertyAgent
+                        <button class="act-success" onclick="propAgentOpen(); document.getElementById('actionsMenu').removeAttribute('open')"
+                                title="Import settlement statement or bill of sale as ledger entries">
+                            🏠 PurchaseAid — propAgent
                         </button>
                         {% endif %}
                     </div>
@@ -782,7 +782,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
 </script>
 
 {% if obj_type == 'llcAssets' %}
-{% include '_closing_aid_dialog.html' %}
+{% include '_propAgent_dialog.html' %}
 {% endif %}
 
 {% endblock %}

@@ -6,7 +6,7 @@ AMORTIZE   = 'Amortize'
 EXPENSE    = 'Expense'
 
 
-class ClosingBalanceError(ValueError):
+class PropAgentBalanceError(ValueError):
     pass
 
 
@@ -67,6 +67,17 @@ _RULES: List[tuple] = [
     ('survey',                    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
     ('notary',                    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
 
+    # ── Bill of Sale — Personal Property (RV, vehicle, equipment) ─────────────
+    # Sales tax and registration fees are part of cost basis (IRS Pub 551)
+    ('vehicle purchase price',    CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('purchase price',            CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('sales tax',                 CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('registration fee',          CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('title fee',                 CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('delivery fee',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('transport fee',             CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    ('bill of sale',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+
     # ── HOA & Immediate Expenses ───────────────────────────────────────────────
     # 'hoa' catches "HOA Transfer Fees"; 'homeowners association' catches spelled-out dues
     ('hoa',                       EXPENSE,    'Acct.Exp.Operating'),
@@ -74,6 +85,7 @@ _RULES: List[tuple] = [
     ('home warranty',             EXPENSE,    'Acct.Exp.Operating'),
     ('inspection',                EXPENSE,    'Acct.Exp.Operating'),
     ('wire fee',                  EXPENSE,    'Acct.Exp.Operating'),
+    ('insurance',                 EXPENSE,    'Acct.Exp.Operating'),  # first-year premium
 ]
 
 
@@ -140,7 +152,7 @@ def _classify_one(row: Dict, extra_rules: Optional[List[tuple]] = None) -> Optio
     return r
 
 
-class ClosingAid:
+class PropAgent:
 
     def classify(self, rows: List[Dict],
                  session_rules: Optional[List[Dict]] = None) -> List[Dict]:
@@ -256,7 +268,7 @@ class ClosingAid:
         """
         bs = self.toBalanceSheet(classified)
         if not bs['balanced']:
-            raise ClosingBalanceError(
+            raise PropAgentBalanceError(
                 f"Closing journal is not balanced — debits={bs['total_debits']}, "
                 f"credits={bs['total_credits']}, delta={bs['delta']}"
             )
@@ -291,7 +303,7 @@ class ClosingAid:
                 'amt':        row.get('amt', 0.0),
                 'desc':       f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',
                 'refDoc':     ref_doc,
-                'refDB':      'closingAid',
+                'refDB':      'propAgent',
                 'tDB':        'llcAssets',
                 'propNm':     prop_nm,
                 'propAddr':   prop_addr,

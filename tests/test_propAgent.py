@@ -1,8 +1,8 @@
 """
-tests/test_closingAid.py — unit tests for ClosingAid + nan-Ledger GL fixes.
+tests/test_propAgent.py — unit tests for PropAgent + nan-Ledger GL fixes.
 
 Run from the Notebooks directory:
-    python -m tests.test_closingAid
+    python -m tests.test_propAgent
 """
 import math
 import sys
@@ -15,8 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pandas as pd
 import numpy as np
 
-from ledger.closingAid import (
-    ClosingAid, ClosingBalanceError,
+from ledger.propAgent import (
+    PropAgent, PropAgentBalanceError,
     CAPITALIZE, AMORTIZE, EXPENSE,
     _classify_one, _is_null_amt, _norm_dt,
 )
@@ -78,12 +78,12 @@ class TestToDoubleEntryNanLedger(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. ClosingAid.classify — COA account assignment
+# 3. PropAgent.classify — COA account assignment
 # ---------------------------------------------------------------------------
 class TestClassify(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
 
     def test_classify_assigns_coa(self):
         rows = [{'Description': 'Contract Sales Price', 'Debit': 300000, 'Credit': None}]
@@ -147,12 +147,12 @@ class TestClassify(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 4. ClosingAid.toBalanceSheet
+# 4. PropAgent.toBalanceSheet
 # ---------------------------------------------------------------------------
 class TestBalanceSheet(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
 
     def _make_rows(self):
         return [
@@ -175,12 +175,12 @@ class TestBalanceSheet(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 5. ClosingAid.propertyBasis
+# 5. PropAgent.propertyBasis
 # ---------------------------------------------------------------------------
 class TestPropertyBasis(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
 
     def test_property_basis_components(self):
         classified = [
@@ -196,12 +196,12 @@ class TestPropertyBasis(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 6. ClosingAid.toAssetRecords — schema & naming
+# 6. PropAgent.toAssetRecords — schema & naming
 # ---------------------------------------------------------------------------
 class TestToAssetRecords(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
         self._classified = [
             {'Description': 'Contract Sales Price', 'aType': 'Debit',  'amt': 250000.0,
              'acct': 'Acct.Fixed.Tangible.InService', 'Ledger': None, 'tax_bucket': CAPITALIZE},
@@ -248,7 +248,7 @@ class TestToAssetRecords(unittest.TestCase):
         records = self.aid.toAssetRecords(self._classified, self._preface)
         for rec in records:
             self.assertEqual(rec['tDB'],  'llcAssets')
-            self.assertEqual(rec['refDB'], 'closingAid')
+            self.assertEqual(rec['refDB'], 'propAgent')
 
     def test_to_asset_records_desc_prefix(self):
         records = self.aid.toAssetRecords(self._classified, self._preface)
@@ -277,17 +277,17 @@ class TestToAssetRecords(unittest.TestCase):
 
     def test_to_asset_records_raises_on_imbalance(self):
         bad = [self._classified[0]]   # debit only, no credit
-        with self.assertRaises(ClosingBalanceError):
+        with self.assertRaises(PropAgentBalanceError):
             self.aid.toAssetRecords(bad, self._preface)
 
 
 # ---------------------------------------------------------------------------
-# 7. ClosingAid._apply_land_split
+# 7. PropAgent._apply_land_split
 # ---------------------------------------------------------------------------
 class TestLandSplit(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
         self._rows = [
             {'aType': 'Debit',  'amt': 200000.0, 'acct': 'Acct.Fixed.Tangible.InService',
              'tax_bucket': CAPITALIZE, 'Description': 'Purchase Price'},
@@ -317,12 +317,12 @@ class TestLandSplit(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 8. ClosingAid.balance_assist
+# 8. PropAgent.balance_assist
 # ---------------------------------------------------------------------------
 class TestBalanceAssist(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
         # Unbalanced closing: 300k debit, only 80k credit
         self._classified = [
             {'aType': 'Debit',  'amt': 300000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
@@ -400,12 +400,12 @@ class TestBalanceAssist(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 9. ClosingAid.check_existing
+# 9. PropAgent.check_existing
 # ---------------------------------------------------------------------------
 class TestCheckExisting(unittest.TestCase):
 
     def setUp(self):
-        self.aid = ClosingAid()
+        self.aid = PropAgent()
         self._closing_date = '2025-08-26'
         self._classified = [
             {'_row_idx': 1, 'aType': 'Debit',  'amt': 220000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
