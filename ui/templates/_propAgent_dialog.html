@@ -397,6 +397,7 @@
     let _rawRows      = [];   // saved for re-classify after adding a rule
     let _lastAssistSuggestion = null;
     let _committed = false;         // set true after a successful commit → triggers page reload on close
+    let _dupDecisions = {};         // { row_idx: {mode:'override'|'dup', existing_tID} }
 
     const ACCT_OPTIONS = [
         'Acct.Fixed.Tangible.InService',
@@ -419,10 +420,11 @@
 
     window.propAgentOpen = function() {
         _step = 0;
-        _classified = [];
-        _balance    = {};
-        _records    = [];
-        _committed  = false;
+        _classified   = [];
+        _balance      = {};
+        _records      = [];
+        _committed    = false;
+        _dupDecisions = {};
         paFlash('');
         _renderStep(0);
         $('paBackdrop').classList.add('open');
@@ -788,23 +790,55 @@
     function _markExistingRows(matches) {
         let dupCount = 0;
         matches.forEach(m => {
-            const statusCell = $(`pa-status-${m._row_idx}`);
+            const rowIdx     = m._row_idx;
+            const statusCell = $(`pa-status-${rowIdx}`);
             if (!statusCell) return;
             dupCount++;
-            const c = (m.candidates || [])[0] || {};
-            const tip = c.tID
-                ? `Possible duplicate: ${c.tID} — ${c.desc} (${c.dt})`
+            const c           = (m.candidates || [])[0] || {};
+            const existingTID = c.tID || '';
+            const tip         = existingTID
+                ? `Existing GL record: ${existingTID} — ${c.desc} (${c.dt})`
                 : 'Possible duplicate in GL';
-            statusCell.innerHTML =
-                `<span title="${tip}" style="color:#c2410c;cursor:help;">⚠ In GL?</span>`;
-            // Highlight row
+
+            // Default: override (green) — will replace the existing record on commit
+            _dupDecisions[rowIdx] = { mode: 'override', existing_tID: existingTID };
+            statusCell.innerHTML = _dupBtnHTML(rowIdx, 'override', tip);
+
             const tr = statusCell.closest('tr');
-            if (tr) tr.style.background = '#fff7ed';
+            if (tr) tr.dataset.dupRowIdx = rowIdx;
         });
         if (dupCount > 0) {
-            paFlash(`⚠ ${dupCount} row(s) highlighted in orange may already be in the GL — hover for details. Verify before committing.`, true);
+            paFlash(`⚠ ${dupCount} row(s) found in GL — defaulting to <strong>Override</strong> (replace existing). Click button to toggle.`, true);
         }
     }
+
+    function _dupBtnHTML(rowIdx, mode, tip) {
+        const isOverride = mode === 'override';
+        const bg   = isOverride ? '#16a34a' : '#ca8a04';
+        const lbl  = isOverride ? 'Override?' : 'Dup?';
+        const help = isOverride
+            ? `${tip}\n\nOverride: commit will REPLACE the existing GL record.`
+            : `${tip}\n\nDup: commit will INSERT a new record alongside the existing one.`;
+        return `<button type="button"
+            onclick="caDupToggle(${rowIdx})"
+            title="${help.replace(/"/g,'&quot;')}"
+            style="font-size:11px;font-weight:700;padding:2px 8px;border:none;border-radius:4px;
+                   cursor:pointer;color:#fff;background:${bg};">${lbl}</button>`;
+    }
+
+    window.caDupToggle = function(rowIdx) {
+        const d = _dupDecisions[rowIdx];
+        if (!d) return;
+        d.mode = d.mode === 'override' ? 'dup' : 'override';
+        const statusCell = $(`pa-status-${rowIdx}`);
+        if (statusCell) {
+            const tip = d.existing_tID ? `Existing GL record: ${d.existing_tID}` : 'Possible duplicate in GL';
+            statusCell.innerHTML = _dupBtnHTML(rowIdx, d.mode, tip);
+        }
+        // Tint the row to match decision
+        const tr = document.querySelector(`[data-dup-row-idx="${rowIdx}"]`);
+        if (tr) tr.style.background = d.mode === 'override' ? '#f0fdf4' : '#fefce8';
+    };
 
     // ── Balance Assist ───────────────────────────────────────────────────────
 
@@ -916,15 +950,22 @@
         btn.textContent = 'Committing…';
         paFlash('');
         try {
+            // Collect tIDs of existing records to replace (override decisions)
+            const override_tids = Object.values(_dupDecisions)
+                .filter(d => d.mode === 'override' && d.existing_tID)
+                .map(d => d.existing_tID);
             const r = await paPost('/api/propAgent/commit', {
-                classified: _classified,
-                preface:    _preface,
+                classified:    _classified,
+                preface:       _preface,
+                override_tids: override_tids,
             });
             if (!r.ok) {
                 paFlash((r.json && r.json.error) || 'Commit failed', true);
                 return;
             }
-            paFlash(`✅ Committed ${r.json.committed} entries to the ledger. Click Done to close.`);
+            const replaced = r.json.replaced || 0;
+            const replTxt  = replaced > 0 ? `, replaced ${replaced} existing record(s)` : '';
+            paFlash(`✅ Committed ${r.json.committed} entries to the ledger${replTxt}. Click Done to close.`);
             _committed = true;
             btn.textContent = '✓ Done';
             btn.disabled = false;

@@ -112,9 +112,10 @@ def bind_propAgent_routes(app, objects, sanitize):
     @app.route('/api/propAgent/commit', methods=['POST'])
     def closing_commit():
         try:
-            body = request.get_json(force=True) or {}
-            classified = body.get('classified', [])
-            preface    = body.get('preface', {})
+            body          = request.get_json(force=True) or {}
+            classified    = body.get('classified', [])
+            preface       = body.get('preface', {})
+            override_tids = set(body.get('override_tids', []))  # existing tIDs to replace
 
             records = _aid.toAssetRecords(classified, preface)
 
@@ -123,12 +124,15 @@ def bind_propAgent_routes(app, objects, sanitize):
                 return jsonify({'ok': False, 'error': 'llcAssets object not available'}), 500
 
             existing = mgr.load() or []
-            mgr.save(existing + records)
+            # Remove overridden records; dup-mode records stay alongside new ones
+            filtered = [r for r in existing if r.get('tID') not in override_tids]
+            mgr.save(filtered + records)
 
             return jsonify({
-                'ok':           True,
-                'committed':    len(records),
-                'total_records': len(existing) + len(records),
+                'ok':            True,
+                'committed':     len(records),
+                'replaced':      len(existing) - len(filtered),
+                'total_records': len(filtered) + len(records),
             })
         except PropAgentBalanceError as err:
             return jsonify({'ok': False, 'error': str(err)}), 422
