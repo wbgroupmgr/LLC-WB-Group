@@ -347,7 +347,8 @@
               <th>tID</th>
               <th>Date</th>
               <th>Description</th>
-              <th>Account</th>
+              <th>Account (acct)</th>
+              <th>Ledger</th>
               <th>acctSub</th>
               <th>Dr/Cr</th>
               <th style="text-align:right">Amount</th>
@@ -746,6 +747,7 @@
               <td>${dt}</td>
               <td style="font-size:11px;max-width:160px;word-break:break-word">${desc}</td>
               <td style="font-size:11px">${r.acct||''}</td>
+              <td style="font-size:11px;color:#0284c7;">${r.Ledger||'—'}</td>
               <td style="font-size:11px;color:#0369a1;">${acctSub}</td>
               <td>${r.aType||''}</td>
               <td style="text-align:right">$${_fmt(r.amt||0)}</td>
