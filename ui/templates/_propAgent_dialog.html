@@ -337,6 +337,7 @@
       </div>
       <div id="caDeltaRow" style="text-align:center; font-size:12px; color:#6b7280;"></div>
       <div id="caAssistPanel" style="display:none; margin-top:14px;"></div>
+      <div id="caDeprEstimate" style="display:none; margin-top:14px;"></div>
     </div>
 
     <!-- ── Step 4: Basis & Commit ─────────────────────────────────────────── -->
@@ -449,6 +450,8 @@
     let _lastAssistSuggestion = null;
     let _committed = false;         // set true after a successful commit → triggers page reload on close
     let _dupDecisions = {};         // { row_idx: {mode:'override'|'dup', existing_tID} }
+    let _basisData    = {};         // depreciation + basis from server/client-side calc
+    let _deprRecord   = null;       // scheduled YE depreciation record (set by caYEPost)
 
     const ACCT_OPTIONS = [
         'Acct.Fixed.Tangible.InService',
@@ -476,6 +479,8 @@
         _records      = [];
         _committed    = false;
         _dupDecisions = {};
+        _basisData    = {};
+        _deprRecord   = null;
         paFlash('');
         _renderStep(0);
         $('paBackdrop').classList.add('open');
@@ -577,6 +582,8 @@
                 return;
             }
             _classified = r.json.classified || [];
+            _basisData  = {};    // stale — recomputed at step 2→3
+            _deprRecord = null;
             _renderReview();
             _renderStep(2);
 
@@ -587,7 +594,10 @@
             const r = await paPost('/api/propAgent/balance_sheet', { classified: _classified });
             if (!r.ok) { paFlash(r.json.error || 'Balance check failed', true); return; }
             _balance = r.json;
+            // Compute basis + depreciation estimate client-side (no extra server call needed)
+            _basisData = _computeBasisAndDepr();
             _renderBalance();
+            _renderDeprEstimate();
             _fetchBalanceAssist();   // always — shows funding chain even when balanced
             _renderStep(3);
 
@@ -598,15 +608,18 @@
             }
             // Fetch property basis + actual post-split records for preview
             const r = await paPost('/api/propAgent/property_basis', {
-                classified: _classified,
-                landPct:    _preface.landPct,
-                preface:    _preface,
+                classified:  _classified,
+                landPct:     _preface.landPct,
+                preface:     _preface,
+                closingDate: _preface.closingDate,
             });
             if (!r.ok) { paFlash(r.json.error || 'Basis calculation failed', true); return; }
             _records = r.json.records || [];
+            // Merge server depreciation data into _basisData (server is authoritative for step 4)
+            if (r.json.depr_full_year) Object.assign(_basisData, r.json);
             _renderPrefaceSummary();
             _renderBasis(r.json);
-            _buildCommitPreview();
+            _buildCommitPreview();   // includes _deprRecord row if YE Post was selected
             // Check for entries already in the GL using the actual post-split records
             paPost('/api/propAgent/check_existing', {
                 classified:  _records.length ? _records : _classified,
@@ -754,6 +767,114 @@
         }
     }
 
+    // ── Depreciation estimate (step 3) ──────────────────────────────────────
+
+    function _r2(n) { return Math.round(n * 100) / 100; }
+
+    function _computeBasisAndDepr() {
+        const landPct  = _preface.landPct || 0;
+        const capDr    = _classified.filter(r => r.tax_bucket === 'Capitalize' && r.aType === 'Debit');
+        const gross    = capDr.reduce((s, r) => s + (r.amt || 0), 0);
+        if (!gross) return {};
+        const bldgAmt  = landPct > 0 ? _r2(gross * (100 - landPct) / 100) : gross;
+        const landAmt  = landPct > 0 ? _r2(gross * landPct / 100) : 0;
+        const base     = { gross_basis: _r2(gross), bldg_amt: bldgAmt, land_amt: landAmt };
+
+        const cd = (_preface.closingDate || '').replace(/[./]/g, '-');
+        const parts = cd.split('-');
+        const month = parseInt(parts[1], 10);
+        if (!month || month < 1 || month > 12 || !bldgAmt) return base;
+
+        const fullYear = _r2(bldgAmt / 27.5);
+        const moInSvc  = 12 - month + 0.5;   // MACRS mid-month
+        return {
+            ...base,
+            depr_full_year:    fullYear,
+            depr_ytd:          _r2(fullYear * moInSvc / 12),
+            months_in_service: moInSvc,
+            closing_month:     month,
+            useful_life:       27.5,
+            depr_method:       'MACRS SL Mid-Month (27.5yr Residential)',
+        };
+    }
+
+    function _renderDeprEstimate() {
+        const el = $('caDeprEstimate');
+        const d = _basisData;
+        if (!d.depr_full_year) { el.style.display = 'none'; return; }
+        const alreadyPosted = !!_deprRecord;
+        el.innerHTML = `
+          <div style="padding:10px 14px; background:#f0f9ff; border:1px solid #7dd3fc;
+               border-radius:7px; font-size:12px;">
+            <strong style="color:#0369a1;">📅 Depreciation Estimate — ${d.depr_method||'MACRS'}</strong>
+            <div style="display:flex; gap:24px; align-items:center; margin:8px 0;">
+              <div style="text-align:center;">
+                <div style="font-size:20px; font-weight:700; color:#0c4a6e;">$${_fmt(d.depr_full_year)}</div>
+                <div style="font-size:11px; color:#6b7280;">Full Year (FY)</div>
+              </div>
+              <div style="font-size:18px; color:#9ca3af;">·</div>
+              <div style="text-align:center;">
+                <div style="font-size:20px; font-weight:700; color:#0369a1;">$${_fmt(d.depr_ytd)}</div>
+                <div style="font-size:11px; color:#6b7280;">YTD (${d.months_in_service} months)</div>
+              </div>
+              <div style="margin-left:auto;">
+                ${alreadyPosted
+                  ? `<button type="button" onclick="caYEPostRemove()"
+                         style="font-size:12px;padding:4px 12px;border:1px solid #f97316;
+                                border-radius:6px;background:#fff7ed;color:#c2410c;
+                                cursor:pointer;font-weight:700;">✕ Remove YE Post</button>`
+                  : `<button type="button" onclick="caYEPost()"
+                         style="font-size:12px;padding:4px 12px;border:1px solid #0284c7;
+                                border-radius:6px;background:#e0f2fe;color:#0369a1;
+                                cursor:pointer;font-weight:700;">📋 YE Post?</button>`
+                }
+              </div>
+            </div>
+            <div style="font-size:11px; color:#6b7280;">
+              Building basis $${_fmt(d.bldg_amt||d.gross_basis)} ÷ ${d.useful_life||27.5} yrs.
+              YTD = ${d.months_in_service} months (mid-month convention).
+              ${alreadyPosted ? '<span style="color:#16a34a;font-weight:600;">✅ Scheduled entry queued for journal.</span>' : ''}
+            </div>
+          </div>`;
+        el.style.display = '';
+    }
+
+    window.caYEPost = function() {
+        if (!_basisData.depr_ytd) return;
+        const dt  = (_preface.closingDate || '').replace(/-/g, '.');
+        const pfx = _preface.tID_Prefix || 'closing';
+        _deprRecord = {
+            tID:        `${pfx}_depr_ytd`,
+            propID:     `${pfx}_depr_ytd`,
+            _row_idx:   1000,
+            _is_depr:   true,
+            dt,
+            acct:       'Acct.Recurring.Exp',
+            Ledger:     'Acct.Recurring.Exp',
+            aType:      'Debit',
+            amt:        _basisData.depr_ytd,
+            desc:       'Schedule YE posting of Depreciation',
+            refDoc:     `${_preface.propNm||''}, Closing Docs, Expense, ${_preface.closingDoc||''}`,
+            refDB:      _preface.refDB || 'propAgent',
+            tDB:        'llcAssets',
+            propNm:     _preface.propNm     || '',
+            propAddr:   _preface.propAddr   || '',
+            acctSub:    'YE:Acct.Exp.Depreciation-Acct.Fixed.Depreciation.Accum',
+            assetState: _preface.assetState || 'InService',
+            assetType:  _preface.assetType  || '',
+            propOwners: _preface.propOwners || '',
+            tax_bucket: 'Expense',
+        };
+        _renderDeprEstimate();
+        paFlash('📋 YE depreciation entry queued — will appear in Step 4 journal.');
+    };
+
+    window.caYEPostRemove = function() {
+        _deprRecord = null;
+        _renderDeprEstimate();
+        paFlash('YE depreciation entry removed.');
+    };
+
     // ── Step 4: Basis & Commit ───────────────────────────────────────────────
 
     function _renderBasis(data) {
@@ -775,14 +896,23 @@
             <strong>$${_fmt(data.bldg_amt)}</strong>
           </div>`;
         }
-        const annualDepr = landPct > 0 && data.bldg_amt
-            ? (data.bldg_amt / 27.5).toFixed(2) : null;
-        if (annualDepr) {
+        // Depreciation from server response or cached _basisData
+        const deprFY  = data.depr_full_year  || _basisData.depr_full_year  || null;
+        const deprYTD = data.depr_ytd        || _basisData.depr_ytd        || null;
+        const deprMo  = data.months_in_service || _basisData.months_in_service || '?';
+        if (deprFY) {
             html += `
           <div class="pa-basis-row" style="border-top:1px solid #86efac; margin-top:6px; padding-top:6px;">
-            <span>Estimated Annual IRS Depreciation (27.5-year Residential)</span>
-            <strong>$${_fmt(parseFloat(annualDepr))} / Year</strong>
+            <span>Annual Depreciation Estimate (MACRS SL 27.5yr Mid-Month)</span>
+            <strong>$${_fmt(deprFY)} / yr</strong>
           </div>`;
+            if (deprYTD) {
+                html += `
+          <div class="pa-basis-row">
+            <span style="padding-left:12px;">→ YTD from closing (${deprMo} months)</span>
+            <strong style="color:#0369a1;">$${_fmt(deprYTD)}</strong>
+          </div>`;
+            }
         }
         $('caBasisBox').innerHTML = html;
     }
@@ -822,6 +952,26 @@
             `;
             tbody.appendChild(tr);
         });
+
+        // Append scheduled YE depreciation row if selected in step 3
+        if (_deprRecord) {
+            const d  = _deprRecord;
+            const tr = document.createElement('tr');
+            tr.style.background = '#fef3c7';   // amber — scheduled/recurring entry
+            tr.innerHTML = `
+              <td style="font-size:11px;font-weight:700;color:#b45309;">📅 Sched</td>
+              <td>${d.dt||''}</td>
+              <td>${d.aType||''}</td>
+              <td style="text-align:right">$${_fmt(d.amt||0)}</td>
+              <td style="font-size:11px;font-weight:700;color:#92400e;">${d.acct||''}</td>
+              <td style="font-size:11px;color:#b45309;">${d.Ledger||''}</td>
+              <td style="font-size:11px;color:#78350f;font-size:10px;max-width:160px;word-break:break-word">${d.acctSub||''}</td>
+              <td style="font-size:11px;max-width:200px;word-break:break-word">${d.desc||''}</td>
+              <td><span class="pa-chip expense">Expense</span></td>
+              <td style="font-family:monospace;font-size:11px;color:#9ca3af;">${d.tID||''}</td>
+            `;
+            tbody.appendChild(tr);
+        }
     }
 
     function _renderPrefaceSummary() {
@@ -1022,6 +1172,7 @@
                 classified:    _classified,
                 preface:       _preface,
                 override_tids: override_tids,
+                depr_record:   _deprRecord || null,
             });
             if (!r.ok) {
                 paFlash((r.json && r.json.error) || 'Commit failed', true);

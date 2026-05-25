@@ -91,6 +91,27 @@ _RULES: List[tuple] = [
 ]
 
 
+def _compute_depreciation(bldg_amt: float, closing_date_str: str,
+                          useful_life: float = 27.5) -> Dict:
+    """MACRS straight-line, mid-month convention for residential real property."""
+    try:
+        s = str(closing_date_str or '').strip().replace('.', '-').replace('/', '-')
+        month = int(s.split('-')[1])
+        assert 1 <= month <= 12
+    except Exception:
+        return {}
+    full_year         = round(bldg_amt / useful_life, 2)
+    months_in_service = round(12.0 - month + 0.5, 1)   # mid-month: placed in service mid-M
+    return {
+        'depr_full_year':    full_year,
+        'depr_ytd':          round(full_year * months_in_service / 12.0, 2),
+        'months_in_service': months_in_service,
+        'closing_month':     month,
+        'useful_life':       useful_life,
+        'depr_method':       f'MACRS SL Mid-Month ({useful_life}yr Residential)',
+    }
+
+
 def _parse_amt(v) -> Optional[float]:
     """Parse an amount value that may be a currency-formatted string like '$300,000'."""
     if v is None:
@@ -205,6 +226,13 @@ class PropAgent:
             'gross_basis':  round(gross, 2),
             'basis_rows':   basis_rows,
         }
+
+    def depreciationEstimate(self, bldg_amt: float, closing_date: str,
+                             useful_life: float = 27.5) -> Dict:
+        """MACRS mid-month depreciation estimate for the building portion."""
+        if not bldg_amt or bldg_amt <= 0:
+            return {}
+        return _compute_depreciation(bldg_amt, closing_date, useful_life)
 
     def _apply_land_split(self, classified: List[Dict], land_pct: float) -> List[Dict]:
         """
