@@ -297,7 +297,8 @@ class PropAgent:
             desc_raw = str(row.get('Description', row.get('desc', '')))
             record = {
                 'tID':        tID,
-                'propID':     tID,           # propID == tID; no phantom Ledger side
+                'propID':     tID,
+                '_row_idx':   seq + 1,       # 1-based index used by preview + dup detection
                 'dt':         dt,
                 'acct':       row.get('acct', ''),
                 'Ledger':     'Acct.Cash.Escrow',  # clears through escrow holding; net must be zero before commit

@@ -50,11 +50,11 @@ def bind_propAgent_routes(app, objects, sanitize):
     @app.route('/api/propAgent/property_basis', methods=['POST'])
     def closing_property_basis():
         try:
-            body = request.get_json(force=True) or {}
+            body       = request.get_json(force=True) or {}
             classified = body.get('classified', [])
             land_pct   = float(body.get('landPct') or 0)
+            preface    = body.get('preface', {})
             basis      = _aid.propertyBasis(classified)
-            # Also compute the split preview if landPct given
             if land_pct > 0:
                 land_amt = round(basis['gross_basis'] * land_pct / 100.0, 2)
                 bldg_amt = round(basis['gross_basis'] - land_amt, 2)
@@ -62,6 +62,9 @@ def bind_propAgent_routes(app, objects, sanitize):
                 basis['bldg_amt']  = bldg_amt
                 basis['land_pct']  = land_pct
                 basis['bldg_pct']  = round(100.0 - land_pct, 2)
+            # Return actual committed records (post land-split) so preview matches reality
+            if preface:
+                basis['records'] = _aid.toAssetRecords(classified, preface)
             return jsonify({'ok': True, **_safe_json(basis)})
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500
