@@ -396,18 +396,17 @@
         <table class="pa-table" id="caCommitTable" style="margin:0;">
           <thead>
             <tr>
+              <th>Status</th>
               <th>tID</th>
               <th>Date</th>
               <th>Description</th>
               <th>Account (acct)</th>
               <th>Ledger</th>
-              <th>refDB</th>
               <th>acctSub</th>
               <th>Dr/Cr</th>
               <th style="text-align:right">Amount</th>
               <th>Tax Bucket</th>
               <th>Ref Doc</th>
-              <th>Status</th>
             </tr>
           </thead>
           <tbody id="caCommitBody"></tbody>
@@ -811,18 +810,17 @@
             tr.dataset.dupRowIdx = rowIdx;
             if (isFixedAsset) tr.style.background = '#f0fdf4';
             tr.innerHTML = `
+              <td id="pa-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
               <td style="font-family:monospace;font-size:11px">${tID}</td>
               <td>${dt}</td>
               <td style="font-size:11px;max-width:160px;word-break:break-word">${desc}</td>
               <td style="${acctStyle}">${r.acct||''}</td>
               <td style="font-size:11px;color:#0284c7;">Acct.Cash.Escrow</td>
-              <td style="font-size:11px;color:#6b7280;font-family:monospace">${r.refDB||_preface.refDB||'propAgent'}</td>
               <td style="font-size:11px;color:#0369a1;">${acctSub}</td>
               <td>${r.aType||''}</td>
               <td style="text-align:right">$${_fmt(r.amt||0)}</td>
               <td><span class="pa-chip ${bucket.toLowerCase()}">${bucket}</span></td>
               <td style="font-size:10px;color:#6b7280;max-width:140px;word-break:break-word">${refDoc}</td>
-              <td id="pa-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
             `;
             tbody.appendChild(tr);
         });
@@ -840,6 +838,7 @@
             ['acctSub',     p.acctSub    || 'Closing'],
             ['Owners',      p.propOwners || '—'],
             ['Doc',         p.closingDoc || '—'],
+            ['refDB',       p.refDB      || 'propAgent'],
         ];
         const cells = fields.map(([lbl,val]) =>
             `<div style="min-width:140px;margin:4px 12px 4px 0;">
