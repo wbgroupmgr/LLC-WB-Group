@@ -214,16 +214,6 @@
 
         <label>Building %</label>
         <span   id="caBldgPctDisplay" style="font-size:13px; color:#374151; padding: 6px 0;">80%</span>
-
-        <label for="caEscrowPath">Earnest Money Path</label>
-        <select id="caEscrowPath" onchange="caEscrowPathChanged()">
-          <option value="bank">LLC bank wire → title co (already in llcExpRev)</option>
-          <option value="member">Member out-of-pocket (not in llcExpRev)</option>
-          <option value="none">No earnest money paid before closing</option>
-        </select>
-        <span id="caEscrowHint" class="hint" style="color:#b45309;">
-          ✅ Confirm llcExpRev has: DR Acct.Cash.Escrow / CR Acct.Cash.Bank before closing date.
-        </span>
       </div>
     </div>
 
@@ -281,7 +271,6 @@
             <option value="Acct.Cash.Escrow">Acct.Cash.Escrow</option>
             <option value="Acct.Equity.Owner.Capital.Funds">Acct.Equity.Owner.Capital.Funds</option>
             <option value="Acct.Liab.Morgage">Acct.Liab.Morgage</option>
-            <option value="Acct.Liab.AccruedTax">Acct.Liab.AccruedTax</option>
             <option value="Acct.Exp.Operating">Acct.Exp.Operating</option>
           </select>
           <button type="button" class="btn btn-primary" onclick="caAddRule()"
@@ -332,6 +321,14 @@
           <div class="val" id="caBalStatus">—</div>
           <div class="lbl">Status</div>
         </div>
+      </div>
+      <!-- Escrow holding balance — mirrors the debit/credit delta; must be $0 to commit -->
+      <div id="caEscrowBalRow" style="margin:10px 0; padding:10px 14px; border-radius:7px;
+                                       background:#f8fafc; border:1px solid #e2e8f0;
+                                       display:flex; align-items:center; gap:14px; font-size:13px;">
+        <span style="font-weight:600; color:#374151;">🏦 Escrow Holding Balance (Acct.Cash.Escrow):</span>
+        <span id="caEscrowBal" style="font-size:18px; font-weight:700;">—</span>
+        <span id="caEscrowReq" style="font-size:12px; color:#6b7280;">(must be $0.00 to commit)</span>
       </div>
       <div id="caDeltaRow" style="text-align:center; font-size:12px; color:#6b7280;"></div>
       <div id="caAssistPanel" style="display:none; margin-top:14px;"></div>
@@ -407,7 +404,6 @@
         'Acct.Cash.Escrow',
         'Acct.Equity.Owner.Capital.Funds',
         'Acct.Liab.Morgage',
-        'Acct.Liab.AccruedTax',
         'Acct.Exp.Operating',
         'Acct.Exp.Depreciation',
     ];
@@ -452,18 +448,6 @@
         $('caBldgPctDisplay').textContent = (100 - pct).toFixed(2) + '%';
     };
 
-    window.caEscrowPathChanged = function() {
-        const path  = $('caEscrowPath').value;
-        const hint  = $('caEscrowHint');
-        const msgs  = {
-            bank:   '✅ Confirm llcExpRev has: DR Acct.Cash.Escrow / CR Acct.Cash.Bank before closing date.',
-            member: '⚠️ Add pre-closing manual entry in llcAssets: DR Acct.Cash.Escrow / CR Acct.Equity.Owner.Capital.Funds with the earnest payment date.',
-            none:   'ℹ️ No pre-closing escrow entry needed — closing entry will credit Acct.Cash.Bank directly.',
-        };
-        hint.textContent = msgs[path] || '';
-        hint.style.color = path === 'member' ? '#b45309' : path === 'none' ? '#6b7280' : '#166534';
-    };
-
     // ── Step navigation ──────────────────────────────────────────────────────
 
     function _renderStep(s) {
@@ -502,7 +486,6 @@
                 acctSub:     $('caAcctSub').value.trim() || 'Closing',
                 propOwners:  $('caPropOwners').value.trim(),
                 landPct:     parseFloat($('caLandPct').value) || 0,
-                escrowPath:  $('caEscrowPath').value,
             };
             if (!_preface.propNm)     { paFlash('Property Name is required.', true); return; }
             if (!_preface.closingDate){ paFlash('Closing Date is required.',   true); return; }
@@ -680,6 +663,13 @@
         const bal = _balance.balanced;
         $('caBalStatus').textContent    = bal ? '✓ BALANCED' : '✗ UNBALANCED';
         $('caBalStatus').className      = 'val ' + (bal ? 'pa-balanced' : 'pa-unbalanced');
+        // Escrow balance = delta (DR - CR); zero when balanced
+        const escrowBal  = _balance.delta || 0;
+        const escrowEl   = $('caEscrowBal');
+        escrowEl.textContent = '$' + _fmt(Math.abs(escrowBal));
+        escrowEl.style.color = bal ? '#16a34a' : '#dc2626';
+        $('caEscrowBalRow').style.borderColor = bal ? '#86efac' : '#fca5a5';
+        $('caEscrowBalRow').style.background  = bal ? '#f0fdf4' : '#fef2f2';
         if (!bal) {
             const delta = Math.abs(_balance.delta);
             const needCredit = _balance.delta > 0;
