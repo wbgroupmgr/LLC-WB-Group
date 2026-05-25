@@ -397,16 +397,15 @@
           <thead>
             <tr>
               <th>Status</th>
-              <th>tID</th>
               <th>Date</th>
-              <th>Description</th>
+              <th>Dr/Cr</th>
+              <th style="text-align:right">Amount</th>
               <th>Account (acct)</th>
               <th>Ledger</th>
               <th>acctSub</th>
-              <th>Dr/Cr</th>
-              <th style="text-align:right">Amount</th>
+              <th>Description</th>
               <th>Tax Bucket</th>
-              <th>Ref Doc</th>
+              <th>tID</th>
             </tr>
           </thead>
           <tbody id="caCommitBody"></tbody>
@@ -811,16 +810,15 @@
             if (isFixedAsset) tr.style.background = '#f0fdf4';
             tr.innerHTML = `
               <td id="pa-status-${rowIdx}" style="font-size:11px;color:#16a34a;">✓ New</td>
-              <td style="font-family:monospace;font-size:11px">${tID}</td>
               <td>${dt}</td>
-              <td style="font-size:11px;max-width:160px;word-break:break-word">${desc}</td>
+              <td>${r.aType||''}</td>
+              <td style="text-align:right">$${_fmt(r.amt||0)}</td>
               <td style="${acctStyle}">${r.acct||''}</td>
               <td style="font-size:11px;color:#0284c7;">Acct.Cash.Escrow</td>
               <td style="font-size:11px;color:#0369a1;">${acctSub}</td>
-              <td>${r.aType||''}</td>
-              <td style="text-align:right">$${_fmt(r.amt||0)}</td>
+              <td style="font-size:11px;max-width:200px;word-break:break-word">${desc}</td>
               <td><span class="pa-chip ${bucket.toLowerCase()}">${bucket}</span></td>
-              <td style="font-size:10px;color:#6b7280;max-width:140px;word-break:break-word">${refDoc}</td>
+              <td style="font-family:monospace;font-size:11px;color:#9ca3af;">${tID}</td>
             `;
             tbody.appendChild(tr);
         });
