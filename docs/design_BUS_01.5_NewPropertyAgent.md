@@ -3,7 +3,8 @@
 Module Owner: Business Accountant  
 Status: Production (v0.3)  
 System: llcRentalTracker / W&B Group, LLC  
-Related Issue: [#6 LLC Property List Mgmt](https://github.com/wbgroupmgr/llcRentalTracker/issues/6)
+Related Issue: [#6 LLC Property List Mgmt](https://github.com/wbgroupmgr/llcRentalTracker/issues/6)  
+Last Updated: 2026-05-25
 
 ---
 
@@ -19,20 +20,25 @@ Related Issue: [#6 LLC Property List Mgmt](https://github.com/wbgroupmgr/llcRent
    - 4.1 Gross Adjusted Cost Basis
    - 4.2 Land / Building Split — Real Property Only
    - 4.3 Depreciation Schedule by Asset Type
+   - 4.4 MACRS Mid-Month First-Year Estimate
+   - 4.5 Year-End Depreciation Staging Entry
 5. [COA Account Map at Purchase — Journaling Instructions](#5-coa-account-map-at-purchase--journaling-instructions)
    - 5.1 Real Property — ALTA/HUD-1 (House Rental)
    - 5.2 Personal Property — Bill of Sale (RV Rental)
    - 5.3 Resulting Balance Sheet Impact
-6. [Member Equity Flow — Funds from Outside to Asset](#6-member-equity-flow--funds-from-outside-to-asset)
-   - 6.1 Overview
-   - 6.2 Step-by-Step Fund Flow
-   - 6.3 Out-of-Pocket Escrow (Member Bypasses LLC Bank)
-   - 6.4 Bill of Sale — Simple Cash Purchase (RV)
-   - 6.5 Member Ownership Percentages per Property
-7. [One-Sided GL Posting (Accounting Principle)](#7-one-sided-gl-posting-accounting-principle)
-8. [Audit Trail & Internal Controls](#8-audit-trail--internal-controls)
-9. [Property Registry (Issue #6)](#9-property-registry-issue-6)
-10. [Compound Journal Entry — Example Output](#10-compound-journal-entry--example-output)
+6. [Escrow Clearing Account — Design Principle](#6-escrow-clearing-account--design-principle)
+   - 6.1 Why Every Row Posts Through Acct.Cash.Escrow
+   - 6.2 Escrow Balance as Balance Indicator
+7. [Member Equity Flow — Funds from Outside to Asset](#7-member-equity-flow--funds-from-outside-to-asset)
+   - 7.1 Overview
+   - 7.2 Step-by-Step Fund Flow
+   - 7.3 Out-of-Pocket Escrow (Member Bypasses LLC Bank)
+   - 7.4 Bill of Sale — Simple Cash Purchase (RV)
+   - 7.5 Member Ownership Percentages per Property
+8. [Compound Journal Entry — Accounting Principle](#8-compound-journal-entry--accounting-principle)
+9. [Audit Trail & Internal Controls](#9-audit-trail--internal-controls)
+10. [Property Registry (Issue #6)](#10-property-registry-issue-6)
+11. [Compound Journal Entry — Example Output](#11-compound-journal-entry--example-output)
 
 ---
 
@@ -51,10 +57,16 @@ The agent replaces manual data entry with a structured, IRS-compliant workflow t
 - Constructs a balanced compound journal entry for the `llcAssets` ledger
 - Computes the property's adjusted cost basis per IRS Pub 551
 - Applies land/building split for real property; skips it for personal property
+- Estimates first-year MACRS depreciation (FY + YTD) at purchase time
+- Optionally queues a Year-End scheduled depreciation staging entry
+- Generates a PDF closing report filed alongside the source documents
 - Attributes member capital contributions to individual equity sub-accounts
-- Writes `manualJournal` entries to `llcAssets_WBGroupLLC.json` and (Phase 1, Issue #6) registers the property in `assetList`
+- Writes entries to `llcAssets_WBGroupLLC.json`
 
-**Fundamental accounting principle**: Each line item is posted as a one-sided GL entry (`Ledger = 'nan'`). The collection of all rows forms a balanced compound journal entry (ΣDebits = ΣCredits). No individual row carries a dual account.
+**Fundamental accounting principle**: All closing entries clear through `Acct.Cash.Escrow`
+(the Ledger counter-account on every row). This single clearing account nets to **$0** when the
+journal is balanced — confirming no residual liability has been recorded. No individual row
+carries a dual contra account from the classification rules.
 
 ---
 
@@ -70,9 +82,9 @@ The agent replaces manual data entry with a structured, IRS-compliant workflow t
 `Seller` = credits to buyer → Credit in LLC books.  
 `Amount` on a Bill of Sale is always a Debit (cost to LLC) unless it is a trade-in credit.
 
-Input is pasted as CSV or tab-delimited text into the Step 1 dialog. Null/zero rows and "Totals" summary rows are automatically dropped.
+Input is pasted as a JSON array into the Step 1 dialog. Null/zero rows and "Totals" summary rows are automatically dropped.
 
-**Control total (ALTA/HUD-1)**: The final cash reconciliation line (e.g. "Cash From Buyer" or "Balance Due") anchors the balance check.  
+**Control total (ALTA/HUD-1)**: The final cash reconciliation line (e.g. "Cash From Buyer") anchors the balance check.  
 **Control total (Bill of Sale)**: Total Amount = purchase price + fees. A single Credit row for the payment from `Acct.Cash.Bank` balances the entry.
 
 ---
@@ -97,12 +109,19 @@ These costs are added to the property's adjusted cost basis and recovered throug
 | Government recording / transfer charges | `Government Recording and Transfer Charges` | `Acct.Fixed.Tangible.InService` |
 | Transfer tax | `Transfer Tax` | `Acct.Fixed.Tangible.InService` |
 | Survey / notary | `Survey`, `Notary` | `Acct.Fixed.Tangible.InService` |
-| Seller-paid tax proration credit | `County taxes 1/1 to 8/25` (Credit) | `Acct.Fixed.Tangible.InService` |
-| Earnest / deposit (LLC bank-funded) | `Deposit or Earnest Money from W&B Group` | `Acct.Cash.Bank` |
+| Seller-paid tax proration credit | `County taxes 1/1 to 8/25` *(Credit)* | `Acct.Fixed.Tangible.InService` |
+| Earnest / deposit (direct member funds) | `Deposit or Earnest Money from Buyer` | `Acct.Equity.Owner.Capital.Funds` |
 | Option money (member personal funds) | `Option Money from W&B Group` | `Acct.Equity.Owner.Capital.Funds` |
-| Cash to close / balance due | `Balance Due from Buyer` | `Acct.Cash.Bank` |
+| Cash to close / balance due | `Balance Due from Buyer`, `Cash to Close` | `Acct.Cash.Bank` |
 
-> Property tax prorations credited by the seller reduce the buyer's net cost and are included in basis per IRS Pub 551.
+> **Property tax proration note**: Seller tax credits (e.g. "County taxes 1/1 to 8/25") reduce the buyer's
+> net cash outlay but are included in property basis per IRS Pub 551 — classified as Capitalize /
+> `Acct.Fixed.Tangible.InService`. They are **not** posted to a liability account.
+
+> **Earnest / Deposit note**: Personal member funds paid directly at closing (not through the LLC bank)
+> are recorded as equity contributions (`Acct.Equity.Owner.Capital.Funds`), not as a clearing
+> through `Acct.Cash.Escrow`. The escrow account was only relevant if the LLC bank pre-funded the
+> deposit separately.
 
 **Personal property — Bill of Sale (RV, vehicle, equipment):**
 
@@ -150,7 +169,8 @@ Gross Basis = sum of all **Capitalize + Debit** rows after classification.
 Gross Basis = Sale Price + Capitalized Fees + Sales Tax + ...
 ```
 
-Credits within the Capitalize bucket (seller tax proration, earnest money applied) are NOT subtracted from basis — they represent separate funding flows (equity contributions, bank draws), not basis reductions.
+Credits within the Capitalize bucket (seller tax proration, earnest money applied) represent
+funding flows (equity contributions, bank draws) — they do not reduce the gross basis.
 
 ### 4.2 Land / Building Split — Real Property Only
 
@@ -161,7 +181,7 @@ Land Basis     = Gross Basis × (Assessor Land Value / Total Assessed Value)
 Building Basis = Gross Basis × (Assessor Improvement Value / Total Assessed Value)
 ```
 
-The assessor ratio (`landPct`) is entered in Step 0. When `landPct > 0`, the agent consolidates all Capitalize-Debit-InService rows into two asset records:
+The assessor ratio (`landPct`) is entered in Step 0. When `landPct > 0`, the agent consolidates all Capitalize-Debit-InService rows into **two** asset records:
 
 - `Acct.Fixed.Land` — non-depreciable; no depreciation deduction ever
 - `Acct.Fixed.Tangible.InService` — depreciable building basis
@@ -169,9 +189,9 @@ The assessor ratio (`landPct`) is entered in Step 0. When `landPct > 0`, the age
 **Bill of Sale purchases set `landPct = 0`** — personal property (RV, vehicle) has no land component; no split is applied; the full basis stays in `Acct.Fixed.Tangible.InService`.
 
 **Example (805 High Mesa, Wimberley TX — residential rental):**
-- Gross Basis: $303,700
-- Assessor Land %: 20% → Land Basis: $60,740
-- Assessor Improvement %: 80% → Building Basis: $242,960
+- Gross Basis: $220,825
+- Assessor Land %: 20% → Land Basis: $44,165
+- Assessor Improvement %: 80% → Building Basis: $176,660
 
 ### 4.3 Depreciation Schedule by Asset Type
 
@@ -185,41 +205,66 @@ The assessor ratio (`landPct`) is entered in Step 0. When `landPct > 0`, the age
 
 **Section 179 / Bonus Depreciation**: Personal property (RV, vehicle) may qualify for full immediate expensing in the year placed in service. This is a tax-time election — the NewPropertyAgent always records at full capitalized cost; the depreciation election is made on Form 4562.
 
-**Residential rental depreciation example (805 High Mesa):**
+### 4.4 MACRS Mid-Month First-Year Estimate
+
+For residential real property, the system computes an estimated first-year depreciation at purchase time using the **MACRS mid-month convention** (IRS Rev. Proc. 87-57, Table A-6):
+
 ```
-Annual Depreciation = $242,960 / 27.5 = $8,835 / year
+Full-Year Depreciation  = Building Basis / 27.5
+Months in Service (YTD) = 12 − closing_month + 0.5   (mid-month: placed in service mid-month)
+YTD Depreciation        = Full-Year × (Months in Service / 12)
 ```
 
-**RV rental depreciation example (Airstream):**
+**Example** — closing month August (month 8):
 ```
-Annual Depreciation (MACRS Yr 1, half-year) = Cost Basis × 20.00%
-Annual Depreciation (MACRS Yr 2) = Cost Basis × 32.00%
+Months in service = 12 − 8 + 0.5 = 4.5 months
+Full-Year  = $176,660 / 27.5 = $6,423.64
+YTD        = $6,423.64 × (4.5 / 12) = $2,408.87
 ```
 
-Both feed Form 4562 and flow to Schedule E of Form 1065.
+This estimate is **informational only** at purchase time — the authoritative depreciation deduction is computed on Form 4562 at year-end. The Step 3 dialog displays both amounts and optionally queues a YE staging entry (see §4.5).
+
+### 4.5 Year-End Depreciation Staging Entry (`Acct.Recurring.Exp`)
+
+If the user clicks **"YE Post?"** in Step 3, a scheduled staging entry is appended to the commit:
+
+| Field | Value |
+|---|---|
+| `acct` | `Acct.Recurring.Exp` |
+| `Ledger` | `Acct.Recurring.Exp` (self-clearing staging account) |
+| `aType` | `Debit` |
+| `amt` | YTD depreciation estimate |
+| `acctSub` | `YE:Acct.Exp.Depreciation-Acct.Fixed.Depreciation.Accum` |
+| `tID` | `{tID_Prefix}_depr_ytd` |
+
+`Acct.Recurring.Exp` (9010) is a **staging / pass-through account** — it does not appear on the final Balance Sheet. The `acctSub` field encodes the actual year-end posting targets:
+- **Debit**: `Acct.Exp.Depreciation` (P&L expense — flows to Schedule E)
+- **Credit**: `Acct.Fixed.Depreciation.Accum` (contra-asset — reduces book value of building)
+
+The YE processor reads all `Acct.Recurring.Exp` staging records and posts them to their target accounts at fiscal year-end.
+
+> **Why stage instead of direct post?** The YTD amount at purchase is an estimate. The CPA may adjust the
+> final depreciation figure on Form 4562. Staging allows the estimate to be recorded now without
+> locking in the final tax entry — the YE processor can override the amount before final posting.
 
 ---
 
 ## 5. COA Account Map at Purchase — Journaling Instructions
 
-The following tables define exactly which COA accounts the NewPropertyAgent posts to when a purchase is committed. Every entry is **one-sided** (`Ledger = 'nan'`); the collection of rows forms the complete compound journal entry.
+Every committed entry uses `Ledger = 'Acct.Cash.Escrow'` as the counter-account (see §6). The collection of all rows forms a balanced compound journal entry (ΣDebits = ΣCredits).
 
 ### 5.1 Real Property — ALTA/HUD-1 (House Rental)
 
 | Side | COA Account | Description | Condition |
 |---|---|---|---|
 | **DR** | `Acct.Fixed.Land` | Non-depreciable land component | `landPct > 0` |
-| **DR** | `Acct.Fixed.Tangible.InService` | Depreciable building basis | Always |
+| **DR** | `Acct.Fixed.Tangible.InService` | Depreciable building basis | Always (consolidated after land split) |
 | **DR** | `Acct.Exp.Operating` | HOA, warranty, inspection, wire fee | If present |
 | **CR** | `Acct.Cash.Bank` | LLC bank funds used at closing | Cash-to-close rows |
-| **CR** | `Acct.Cash.Escrow` | Clears earnest money holding account | If earnest money was pre-paid |
-| **CR** | `Acct.Liab.AccruedTax` | Seller property tax proration (GAAP accrued liability) | If seller tax credit present |
+| **CR** | `Acct.Equity.Owner.Capital.Funds` | Member personal funds (earnest, option, deposit) | If member-funded |
 | **CR** | `Acct.Liab.Morgage` | New loan principal from lender | If financed |
 
-> **Two-phase escrow flow**: `Acct.Cash.Escrow` is a balance sheet holding account set up BEFORE closing.
-> Phase A (pre-closing): `DR Acct.Cash.Escrow / CR Acct.Cash.Bank` (LLC bank-funded)
-> OR `DR Acct.Cash.Escrow / CR Acct.Equity.Owner.Capital.Funds` (member out-of-pocket).
-> Phase B (this closing entry): `CR Acct.Cash.Escrow` clears the holding account.
+*All rows carry `Ledger = 'Acct.Cash.Escrow'`* — the escrow clears to $0 when ΣDebits = ΣCredits.
 
 **Compound balance invariant**: ΣDebits = ΣCredits ± $0.01 before Commit is allowed.
 
@@ -230,8 +275,6 @@ The following tables define exactly which COA accounts the NewPropertyAgent post
 | **DR** | `Acct.Fixed.Tangible.InService` | Full purchase price + sales tax + title fees | Always |
 | **DR** | `Acct.Exp.Operating` | Insurance premium, inspection fee | If present |
 | **CR** | `Acct.Cash.Bank` | LLC bank funds used for purchase | Always |
-
-> For a simple cash purchase from a Bill of Sale, the entry is a two-row compound entry: one DR for the asset cost, one CR for the bank payment. No mortgage, no equity contributions unless a member funded the purchase directly without going through the LLC bank first (see Section 6.3).
 
 ### 5.3 Resulting Balance Sheet Impact
 
@@ -245,14 +288,45 @@ After commit, the LLC balance sheet reflects:
 | `Acct.Equity.Owner.Capital.Funds` | Increases | Member equity recorded |
 | `Acct.Liab.Morgage` | Increases | Liability for loan principal |
 | `Acct.Exp.Operating` | Increases | P&L expense in period |
+| `Acct.Cash.Escrow` | **$0 net** | Clears to zero — confirms balanced journal |
 
 ---
 
-## 6. Member Equity Flow — Funds from Outside to Asset
+## 6. Escrow Clearing Account — Design Principle
 
-This section traces the complete path of member funds from a personal bank account into the LLC books and finally into the purchased asset.
+### 6.1 Why Every Row Posts Through Acct.Cash.Escrow
 
-### 6.1 Overview
+`Acct.Cash.Escrow` (1025) is the **Ledger counter-account** on every row produced by `toAssetRecords()`.
+
+**Purpose**: Property purchases flow through an escrow/title company before closing. The escrow account models this real-world holding:
+- Earnest money, option fees, and lender proceeds all enter escrow before the deal closes
+- At closing, the escrow disburses funds to the seller, pays fees, and remits net proceeds
+
+In the GL, posting every closing entry as `Ledger = 'Acct.Cash.Escrow'` means:
+- Each Debit row increases the escrow balance (money leaving escrow for an asset or expense)
+- Each Credit row decreases the escrow balance (funding entering escrow)
+- When the journal is balanced, the escrow net = $0 — all funds in equal all funds out
+
+This avoids the previous design of `Ledger = 'nan'` (single-sided entry) while keeping the compound journal semantics intact. The escrow account is a transient clearing account — it should net to $0 at all times after a completed purchase.
+
+### 6.2 Escrow Balance as Balance Indicator
+
+The Step 3 Balance panel shows **"🏦 Escrow Holding Balance"**:
+
+```
+Escrow Balance = ΣDebits − ΣCredits
+```
+
+- **$0.00 (green)** → Journal balanced; commit is allowed
+- **Non-zero (red)** → Journal unbalanced; delta displayed; Balance Assist suggests a correcting entry
+
+This is identical to a traditional debit/credit balance check but surfaced through the clearing account lens — making it intuitive for property purchase workflows.
+
+---
+
+## 7. Member Equity Flow — Funds from Outside to Asset
+
+### 7.1 Overview
 
 ```
 Member Personal Bank
@@ -264,10 +338,10 @@ LLC Bank Account (Acct.Cash.Bank)
         │  CR Acct.Equity.Owner.Capital.Funds.{oID}
         │
         ▼
-NewPropertyAgent — Purchase Commit
-        │ recorded in llcAssets
-        │  DR Acct.Fixed.Tangible.InService (and/or Land, Expense)
-        │  CR Acct.Cash.Bank
+NewPropertyAgent — Purchase Commit (llcAssets)
+        │  DR Acct.Fixed.Tangible.InService    Ledger=Acct.Cash.Escrow
+        │  DR Acct.Fixed.Land                  Ledger=Acct.Cash.Escrow
+        │  CR Acct.Cash.Bank                   Ledger=Acct.Cash.Escrow
         │
         ▼
 Net Compound Journal (across both books):
@@ -276,13 +350,11 @@ Net Compound Journal (across both books):
    → Member equity becomes a fixed asset
 ```
 
-`Acct.Cash.Bank` is the **pass-through account** that links the two books. It increments in `llcExpRev` (Step 1) and decrements in `llcAssets` (Step 2). In the merged GL, the cash entries net to zero if all transferred funds were used for the purchase.
+`Acct.Cash.Bank` is the **pass-through account** linking the two books. It increments in `llcExpRev` and decrements in `llcAssets`. In the merged GL, the cash entries net to zero if all transferred funds were used for the purchase.
 
-### 6.2 Step-by-Step Fund Flow
+### 7.2 Step-by-Step Fund Flow
 
 **Step 1 — Member transfers funds to LLC bank** (recorded in `llcExpRev`)
-
-Each member wire or transfer into the LLC bank account is entered as a dual-entry transaction in `llcExpRev`:
 
 ```
 Date:  2025-08-15
@@ -290,58 +362,49 @@ DR  Acct.Cash.Bank                              $50,000   [LLC bank balance incr
   CR  Acct.Equity.Owner.Capital.Funds.o_Frank   $50,000   [Frank's equity increases]
 ```
 
-This is a standard dual-entry record — `Ledger` field is set to the counter account, not `'nan'`.
-
-**Step 2 — NPAgent commits purchase to llcAssets** (one-sided entries via NewPropertyAgent)
-
-At the moment of property purchase, the NPAgent creates one-sided entries.
-Earnest money credits clear `Acct.Cash.Escrow` (set up in Phase A).
-Seller tax proration credits go to `Acct.Liab.AccruedTax` (GAAP accrued liability).
+**Step 2 — NPAgent commits purchase to llcAssets** (all rows `Ledger=Acct.Cash.Escrow`)
 
 ```
-Date:  2025-08-26  (closing / bill of sale date)
+Date:  2025-08-20  (closing date)
 
-DR  Acct.Fixed.Tangible.InService   $242,960   [building basis]      Ledger='nan'
-DR  Acct.Fixed.Land                  $60,740   [land component]      Ledger='nan'
-DR  Acct.Exp.Operating                  $135   [HOA fee]             Ledger='nan'
-  CR  Acct.Cash.Bank                $296,874   [LLC bank pays]       Ledger='nan'
-  CR  Acct.Cash.Escrow                $5,300   [clears earnest holding acct] Ledger='nan'
-  CR  Acct.Liab.AccruedTax            $1,661   [seller tax proration]  Ledger='nan'
-  CR  Acct.Liab.Morgage             ...        [loan proceeds]       Ledger='nan'
+DR  Acct.Fixed.Tangible.InService   $141,223   [building 80%]    Ledger=Acct.Cash.Escrow
+DR  Acct.Fixed.Land                  $79,438   [land 20%]        Ledger=Acct.Cash.Escrow
+DR  Acct.Exp.Operating                  $135   [HOA fee]         Ledger=Acct.Cash.Escrow
+  CR  Acct.Cash.Bank                $213,837   [LLC bank pays]   Ledger=Acct.Cash.Escrow
+  CR  Acct.Equity.Owner.Capital.Funds $5,000   [earnest deposit] Ledger=Acct.Cash.Escrow
+  CR  Acct.Liab.Morgage             ...        [loan proceeds]   Ledger=Acct.Cash.Escrow
+
+Escrow Net = $0  ✓
 ```
 
 **Step 3 — GL merges both books**
 
-The merged General Ledger (`llcExpRev + llcAssets + llcPayables + llcReceivables`) shows:
-
 | Account | llcExpRev | llcAssets | Net |
 |---|---|---|---|
-| `Acct.Cash.Bank` | +$50,000 DR | -$296,874 CR | Net negative (cash deployed) |
-| `Acct.Equity.Owner.Capital.Funds` | +$50,000 CR | +$5,300 CR | Total equity contributed |
-| `Acct.Fixed.Tangible.InService` | — | +$242,960 DR | Asset on books |
-| `Acct.Fixed.Land` | — | +$60,740 DR | Land on books |
+| `Acct.Cash.Bank` | +$50,000 DR | −$213,837 CR | Net negative (cash deployed) |
+| `Acct.Equity.Owner.Capital.Funds` | +$50,000 CR | +$5,000 CR | Total equity contributed |
+| `Acct.Fixed.Tangible.InService` | — | +$141,223 DR | Asset on books |
+| `Acct.Fixed.Land` | — | +$79,438 DR | Land on books |
 
-### 6.3 Out-of-Pocket Escrow (Member Bypasses LLC Bank)
+### 7.3 Out-of-Pocket Escrow (Member Bypasses LLC Bank)
 
 When a member pays earnest money or option fees **before** the LLC bank received funds:
 
 - The closing statement shows the payment as a Credit (applied against purchase price)
 - In the LLC books, this is a **direct equity contribution** from that specific member
-- No `llcExpRev` entry exists for it — it never passed through the LLC bank
-- The NPAgent captures it as a Credit row → `Acct.Equity.Owner.Capital.Funds`
-- The Balance Assist feature (Step 3 of dialog) searches the GL for prior `Acct.Equity.Owner.Capital.Funds` credits to surface the full funding chain
+- No `llcExpRev` entry exists — it never passed through the LLC bank
+- The NPAgent captures it as: Credit row → `Acct.Equity.Owner.Capital.Funds`
+- The Balance Assist feature (Step 3) searches the GL for prior `Acct.Equity.Owner.Capital.Funds` credits to surface the full funding chain
 
-### 6.4 Bill of Sale — Simple Cash Purchase (RV)
+### 7.4 Bill of Sale — Simple Cash Purchase (RV)
 
-For a straight-line Bill of Sale purchase funded entirely from the LLC bank:
-
-**Step 1** — Member had previously transferred funds to LLC bank (recorded in `llcExpRev`):
+**Step 1** — Member had previously transferred funds to LLC bank (in `llcExpRev`):
 ```
 DR  Acct.Cash.Bank                             $XX,XXX
   CR  Acct.Equity.Owner.Capital.Funds.{oID}   $XX,XXX
 ```
 
-**Step 2** — NPAgent commits purchase (2 rows in llcAssets):
+**Step 2** — NPAgent commits purchase (2 rows in llcAssets, `Ledger=Acct.Cash.Escrow`):
 ```
 DR  Acct.Fixed.Tangible.InService              $XX,XXX   [full purchase price + taxes + fees]
   CR  Acct.Cash.Bank                           $XX,XXX   [LLC bank pays seller]
@@ -349,9 +412,9 @@ DR  Acct.Fixed.Tangible.InService              $XX,XXX   [full purchase price + 
 
 **Net**: Member equity → fixed asset. Cash nets to zero.
 
-### 6.5 Member Ownership Percentages per Property
+### 7.5 Member Ownership Percentages per Property
 
-Each property in `assetList` (Issue #6) carries a `propOwners` dict mapping member oIDs to ownership percentages:
+Each property carries a `propOwners` dict mapping member oIDs to ownership percentages:
 
 ```json
 "propOwners": { "o_Frank": 60, "o_Will": 40 }
@@ -366,30 +429,33 @@ Until Issue #6 Phase 1 is implemented, `propOwners` is entered as a free-text st
 
 ---
 
-## 7. One-Sided GL Posting (Accounting Principle)
+## 8. Compound Journal Entry — Accounting Principle
 
-Purchase entries are posted with `Ledger = 'nan'` — a deliberate single-sided compound entry. The rationale:
+Purchase entries are posted with `Ledger = 'Acct.Cash.Escrow'` — every row uses the escrow clearing account as its counter-entry. The rationale:
 
 - The full purchase document (ALTA or Bill of Sale) **as a whole** is the compound journal entry. ΣDebits = ΣCredits across all rows.
-- Each individual row does NOT have a single meaningful counter account — the "other side" is distributed across equity, liability, expense, and cash accounts within the same batch.
-- Posting one-sided prevents phantom duplicate GL entries while preserving the full audit trail.
+- The escrow account models the real-world title escrow through which all closing funds flow.
+- When ΣDebits = ΣCredits, the escrow nets to **$0** — confirming no residual holding liability.
 - This is materially equivalent to a compound journal entry in traditional double-entry bookkeeping.
 
-The `toGL()` and `toDoubleEntry()` functions in the ledger engine skip the second side when `Ledger == 'nan'`, preserving correct GL totals.
+The `toGL()` and `toDoubleEntry()` functions in the ledger engine handle `Ledger = 'Acct.Cash.Escrow'` by generating a paired GL row for each closing entry. The escrow rows net to zero in the merged GL.
+
+**Historical note**: Prior to v0.3, propAgent used `Ledger = 'nan'` (single-sided entries). The design was changed to `Acct.Cash.Escrow` to make the clearing account explicit and auditable.
 
 ---
 
-## 8. Audit Trail & Internal Controls
+## 9. Audit Trail & Internal Controls
 
 - Every committed record carries `refDoc = f"{propNm}, Closing Docs, {tax_bucket}, {closingDoc}"` — embedding tax bucket and source document in the audit trail per row.
-- `refDB = 'propAgent'` and `tDB = 'llcAssets'` identify the origin of every record.
+- `refDB` (user-entered, Step 0) identifies the source DB or document folder reference; stored on every record.
+- `tDB = 'llcAssets'` identifies the target ledger of every record.
 - The system must not post directly to the general ledger; all entries write to the `llcAssets` manual journal pending CPA review.
-- The original settlement statement PDF or Bill of Sale scan must be stored in the business repo (`LLC-WBGroup/books/YYYY/`) for IRS audit purposes.
-- **Bill of Sale**: attach scan to the `closingDoc` reference field in the Preface; store under `LLC-WBGroup/Assets/{propNm}/Docs/`.
+- The original settlement statement PDF or Bill of Sale scan must be stored in the business repo under `LLC-WBGroup/Assets/{propNm}/Docs/` for IRS audit purposes.
+- **PDF Report**: On every commit, the agent auto-generates a PDF report (`{date}_PurchaseNewProp_{propNm}.pdf`) filed in the same folder as `refDoc`. The report contains: closing info, original settlement lines, property basis, depreciation estimate, committed journal, and accounting guide.
 
 ---
 
-## 9. Property Registry (Issue #6)
+## 10. Property Registry (Issue #6)
 
 The NewPropertyAgent is the **primary entry point for registering a new property** in the `assetList` registry (Phase 1 of [Issue #6](https://github.com/wbgroupmgr/llcRentalTracker/issues/6)). On commit, `toAssetRecords()` will additionally call `save_asset_list()` to write:
 
@@ -400,30 +466,13 @@ The NewPropertyAgent is the **primary entry point for registering a new property
   "propAddr":    "805 High Mesa Dr, Wimberley TX",
   "assetType":   "Residential",
   "assetState":  "InService",
-  "closingDate": "2025.08.26",
-  "tID_Prefix":  "p20250826-Mesa",
-  "closingDoc":  "ALTA_2025.pdf",
+  "closingDate": "2025.08.20",
+  "tID_Prefix":  "r20250825_220000",
+  "closingDoc":  "Final Closing Package (Buyer or Borrower)_2.pdf",
   "landPct":     20.0,  "bldgPct": 80.0,
-  "grossBasis":  303700.0,
-  "landBasis":   60740.0,  "bldgBasis": 242960.0,
+  "grossBasis":  220825.0,
+  "landBasis":   44165.0,  "bldgBasis": 176660.0,
   "propOwners":  { "o_Frank": 50, "o_Will": 50 }
-}
-```
-
-**Personal property example (RV):**
-```json
-{
-  "propNm":      "RV_Airstream",
-  "propAddr":    "Mobile — TX",
-  "assetType":   "RV",
-  "assetState":  "InService",
-  "closingDate": "2025.06.01",
-  "tID_Prefix":  "rv20250601-Airstream",
-  "closingDoc":  "BillOfSale_Airstream.pdf",
-  "landPct":     0.0,  "bldgPct": 0.0,
-  "grossBasis":  45000.0,
-  "landBasis":   0.0,  "bldgBasis": 45000.0,
-  "propOwners":  { "o_Frank": 60, "o_Will": 40 }
 }
 ```
 
@@ -431,21 +480,35 @@ Until Issue #6 is implemented, `propOwners` is stored as a string and the `asset
 
 ---
 
-## 10. Compound Journal Entry — Example Output
+## 11. Compound Journal Entry — Example Output
 
-### 10.1 Real Property — 805 High Mesa (Wimberley TX, 2025-08-26)
+### 11.1 Real Property — 805 High Mesa (Wimberley TX, 2025-08-20)
+
+All rows: `Ledger = Acct.Cash.Escrow`
 
 | GL Account | Debit | Credit | Tax Bucket | Notes |
 |---|---|---|---|---|
-| `Acct.Fixed.Land` | $60,740 | | Capitalize | 20% land split |
-| `Acct.Fixed.Tangible.InService` | $242,960 | | Capitalize | 80% building split |
-| `Acct.Exp.Operating` | $135 | | Expense | HOA dues + transfer fee |
-| `Acct.Cash.Escrow` | | $5,300 | Capitalize | Clears earnest holding acct (Phase A pre-funded) |
-| `Acct.Liab.AccruedTax` | | $1,661 | Capitalize | Seller county tax proration (GAAP liability) |
-| `Acct.Cash.Bank` | | $296,874 | Capitalize | Cash to close from LLC bank |
-| **TOTALS** | **$303,835** | **$303,835** | | Balanced ✓ |
+| `Acct.Fixed.Land` | $44,165 | | Capitalize | 20% land split |
+| `Acct.Fixed.Tangible.InService` | $176,660 | | Capitalize | 80% building split |
+| `Acct.Exp.Operating` | $35 | | Expense | HOA dues |
+| `Acct.Exp.Operating` | $100 | | Expense | HOA transfer fee |
+| `Acct.Equity.Owner.Capital.Funds` | | $5,000 | Capitalize | Earnest deposit (member funds) |
+| `Acct.Equity.Owner.Capital.Funds` | | $300 | Capitalize | Option money (member funds) |
+| `Acct.Fixed.Tangible.InService` | | $1,661 | Capitalize | County tax proration (seller credit, reduces basis) |
+| `Acct.Cash.Bank` | | $213,999 | Capitalize | Cash to close from LLC bank |
+| **TOTALS** | **$220,960** | **$220,960** | | Balanced ✓ — Escrow = $0 |
 
-### 10.2 Personal Property — RV Airstream (Bill of Sale, 2025-06-01)
+*YE Depreciation Staging (if "YE Post?" selected in Step 3):*
+
+| GL Account | Dr/Cr | Amount | acctSub |
+|---|---|---|---|
+| `Acct.Recurring.Exp` | Debit | $2,409 (YTD est.) | `YE:Acct.Exp.Depreciation-Acct.Fixed.Depreciation.Accum` |
+
+*MACRS mid-month: closing Aug (month 8) → 4.5 months in service → $176,660/27.5 × 4.5/12 = $2,409*
+
+### 11.2 Personal Property — RV Airstream (Bill of Sale, 2025-06-01)
+
+All rows: `Ledger = Acct.Cash.Escrow`
 
 | GL Account | Debit | Credit | Tax Bucket | Notes |
 |---|---|---|---|---|
@@ -454,6 +517,6 @@ Until Issue #6 is implemented, `propOwners` is stored as a string and the `asset
 | `Acct.Fixed.Tangible.InService` | $300 | | Capitalize | Title + registration fees |
 | `Acct.Exp.Operating` | $800 | | Expense | First-year insurance premium |
 | `Acct.Cash.Bank` | | $45,800 | Capitalize | LLC bank pays seller |
-| **TOTALS** | **$45,800** | **$45,800** | | Balanced ✓ |
+| **TOTALS** | **$45,800** | **$45,800** | | Balanced ✓ — Escrow = $0 |
 
-> Depreciation for the RV: Year 1 MACRS = $45,000 × 20% = $9,000 (insurance $800 already expensed; not included in depreciable basis). Recorded on Form 4562.
+> Depreciation for the RV: Year 1 MACRS = $45,000 × 20% = $9,000 (insurance $800 already expensed). Recorded on Form 4562.
