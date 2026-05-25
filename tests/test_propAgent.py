@@ -135,13 +135,13 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(by_desc['Sale Price of Property']['aType'], 'Debit')
         self.assertAlmostEqual(by_desc['Sale Price of Property']['amt'], 220000.0)
         self.assertEqual(by_desc['Sale Price of Property']['acct'], 'Acct.Fixed.Tangible.InService')
-        # Seller column → Credit; deposit flows through escrow → Owner Capital (not bank)
+        # Seller column → Credit; deposit clears Acct.Cash.Escrow holding account
         self.assertEqual(by_desc['Deposit or Earnest Money']['aType'], 'Credit')
         self.assertAlmostEqual(by_desc['Deposit or Earnest Money']['amt'], 5000.0)
-        self.assertEqual(by_desc['Deposit or Earnest Money']['acct'], 'Acct.Equity.Owner.Capital.Funds')
-        # Tax proration (Seller → Credit, Capitalize to basis)
+        self.assertEqual(by_desc['Deposit or Earnest Money']['acct'], 'Acct.Cash.Escrow')
+        # Tax proration (Seller → Credit, GAAP: accrued liability for taxes owed rest of year)
         self.assertEqual(by_desc['County taxes proration']['aType'], 'Credit')
-        self.assertEqual(by_desc['County taxes proration']['acct'], 'Acct.Fixed.Tangible.InService')
+        self.assertEqual(by_desc['County taxes proration']['acct'], 'Acct.Liab.AccruedTax')
         # HOA fees (Buyer → Debit, Expense bucket)
         self.assertEqual(by_desc['HOA Transfer Fees']['tax_bucket'], EXPENSE)
 
@@ -388,6 +388,18 @@ class TestBalanceAssist(unittest.TestCase):
         self.assertEqual(s['aType'], 'Debit')
         self.assertAlmostEqual(s['amt'], 220000.0)
 
+    def test_balance_assist_includes_escrow_debit_in_context(self):
+        # DR Acct.Cash.Escrow before closing = escrow paid to title co; must appear in gl_context
+        gl_with_escrow = [
+            {'dt': '2025.08.01', 'desc': 'Earnest wired to title co',
+             'acct': 'Acct.Cash.Escrow', 'Ledger': 'Acct.Cash.Bank',
+             'aType': 'Debit', 'amt': 5300.0},
+        ]
+        result = self.aid.balance_assist(self._classified, self._closing_date, gl_with_escrow)
+        accts = [r['acct'] for r in result['gl_context']]
+        self.assertIn('Acct.Cash.Escrow', accts)
+        self.assertAlmostEqual(result['total_funded'], 5300.0)
+
     def test_no_suggestion_when_within_tolerance(self):
         # delta=0.01 is within the $0.02 tolerance → treated as balanced → no suggestion key
         nearly = [
@@ -409,7 +421,7 @@ class TestCheckExisting(unittest.TestCase):
         self._closing_date = '2025-08-26'
         self._classified = [
             {'_row_idx': 1, 'aType': 'Debit',  'amt': 220000.0, 'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
-            {'_row_idx': 2, 'aType': 'Credit', 'amt': 5000.0,   'acct': 'Acct.Equity.Owner.Capital.Funds', 'tax_bucket': CAPITALIZE},
+            {'_row_idx': 2, 'aType': 'Credit', 'amt': 5000.0,   'acct': 'Acct.Cash.Escrow',              'tax_bucket': CAPITALIZE},
             {'_row_idx': 3, 'aType': 'Credit', 'amt': 625.0,    'acct': 'Acct.Fixed.Tangible.InService', 'tax_bucket': CAPITALIZE},
         ]
         self._gl_rows = [
@@ -432,7 +444,7 @@ class TestCheckExisting(unittest.TestCase):
 
     def test_no_false_positive_on_different_atype(self):
         matches = self.aid.check_existing(self._classified, self._closing_date, self._gl_rows)
-        # Row 2 ($5000 Credit) has no GL match → not flagged
+        # Row 2 ($5000 Credit to Acct.Cash.Escrow) has no GL match → not flagged
         row_indices = [m['_row_idx'] for m in matches]
         self.assertNotIn(2, row_indices)
 

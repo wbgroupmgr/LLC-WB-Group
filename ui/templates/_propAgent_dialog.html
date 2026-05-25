@@ -214,6 +214,16 @@
 
         <label>Building %</label>
         <span   id="caBldgPctDisplay" style="font-size:13px; color:#374151; padding: 6px 0;">80%</span>
+
+        <label for="caEscrowPath">Earnest Money Path</label>
+        <select id="caEscrowPath" onchange="caEscrowPathChanged()">
+          <option value="bank">LLC bank wire → title co (already in llcExpRev)</option>
+          <option value="member">Member out-of-pocket (not in llcExpRev)</option>
+          <option value="none">No earnest money paid before closing</option>
+        </select>
+        <span id="caEscrowHint" class="hint" style="color:#b45309;">
+          ✅ Confirm llcExpRev has: DR Acct.Cash.Escrow / CR Acct.Cash.Bank before closing date.
+        </span>
       </div>
     </div>
 
@@ -438,6 +448,18 @@
         $('caBldgPctDisplay').textContent = (100 - pct).toFixed(2) + '%';
     };
 
+    window.caEscrowPathChanged = function() {
+        const path  = $('caEscrowPath').value;
+        const hint  = $('caEscrowHint');
+        const msgs  = {
+            bank:   '✅ Confirm llcExpRev has: DR Acct.Cash.Escrow / CR Acct.Cash.Bank before closing date.',
+            member: '⚠️ Add pre-closing manual entry in llcAssets: DR Acct.Cash.Escrow / CR Acct.Equity.Owner.Capital.Funds with the earnest payment date.',
+            none:   'ℹ️ No pre-closing escrow entry needed — closing entry will credit Acct.Cash.Bank directly.',
+        };
+        hint.textContent = msgs[path] || '';
+        hint.style.color = path === 'member' ? '#b45309' : path === 'none' ? '#6b7280' : '#166534';
+    };
+
     // ── Step navigation ──────────────────────────────────────────────────────
 
     function _renderStep(s) {
@@ -476,6 +498,7 @@
                 acctSub:     $('caAcctSub').value.trim() || 'Closing',
                 propOwners:  $('caPropOwners').value.trim(),
                 landPct:     parseFloat($('caLandPct').value) || 0,
+                escrowPath:  $('caEscrowPath').value,
             };
             if (!_preface.propNm)     { paFlash('Property Name is required.', true); return; }
             if (!_preface.closingDate){ paFlash('Closing Date is required.',   true); return; }

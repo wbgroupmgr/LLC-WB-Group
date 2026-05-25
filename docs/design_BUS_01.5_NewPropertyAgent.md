@@ -212,8 +212,14 @@ The following tables define exactly which COA accounts the NewPropertyAgent post
 | **DR** | `Acct.Fixed.Tangible.InService` | Depreciable building basis | Always |
 | **DR** | `Acct.Exp.Operating` | HOA, warranty, inspection, wire fee | If present |
 | **CR** | `Acct.Cash.Bank` | LLC bank funds used at closing | Cash-to-close rows |
-| **CR** | `Acct.Equity.Owner.Capital.Funds` | Member escrow paid out-of-pocket | If member paid personally |
+| **CR** | `Acct.Cash.Escrow` | Clears earnest money holding account | If earnest money was pre-paid |
+| **CR** | `Acct.Liab.AccruedTax` | Seller property tax proration (GAAP accrued liability) | If seller tax credit present |
 | **CR** | `Acct.Liab.Morgage` | New loan principal from lender | If financed |
+
+> **Two-phase escrow flow**: `Acct.Cash.Escrow` is a balance sheet holding account set up BEFORE closing.
+> Phase A (pre-closing): `DR Acct.Cash.Escrow / CR Acct.Cash.Bank` (LLC bank-funded)
+> OR `DR Acct.Cash.Escrow / CR Acct.Equity.Owner.Capital.Funds` (member out-of-pocket).
+> Phase B (this closing entry): `CR Acct.Cash.Escrow` clears the holding account.
 
 **Compound balance invariant**: ΣDebits = ΣCredits ± $0.01 before Commit is allowed.
 
@@ -288,7 +294,9 @@ This is a standard dual-entry record — `Ledger` field is set to the counter ac
 
 **Step 2 — NPAgent commits purchase to llcAssets** (one-sided entries via NewPropertyAgent)
 
-At the moment of property purchase, the NPAgent creates one-sided entries:
+At the moment of property purchase, the NPAgent creates one-sided entries.
+Earnest money credits clear `Acct.Cash.Escrow` (set up in Phase A).
+Seller tax proration credits go to `Acct.Liab.AccruedTax` (GAAP accrued liability).
 
 ```
 Date:  2025-08-26  (closing / bill of sale date)
@@ -297,7 +305,8 @@ DR  Acct.Fixed.Tangible.InService   $242,960   [building basis]      Ledger='nan
 DR  Acct.Fixed.Land                  $60,740   [land component]      Ledger='nan'
 DR  Acct.Exp.Operating                  $135   [HOA fee]             Ledger='nan'
   CR  Acct.Cash.Bank                $296,874   [LLC bank pays]       Ledger='nan'
-  CR  Acct.Equity.Owner.Capital.Funds  $5,300  [Frank's personal escrow] Ledger='nan'
+  CR  Acct.Cash.Escrow                $5,300   [clears earnest holding acct] Ledger='nan'
+  CR  Acct.Liab.AccruedTax            $1,661   [seller tax proration]  Ledger='nan'
   CR  Acct.Liab.Morgage             ...        [loan proceeds]       Ledger='nan'
 ```
 
@@ -431,8 +440,8 @@ Until Issue #6 is implemented, `propOwners` is stored as a string and the `asset
 | `Acct.Fixed.Land` | $60,740 | | Capitalize | 20% land split |
 | `Acct.Fixed.Tangible.InService` | $242,960 | | Capitalize | 80% building split |
 | `Acct.Exp.Operating` | $135 | | Expense | HOA dues + transfer fee |
-| `Acct.Equity.Owner.Capital.Funds` | | $5,300 | Capitalize | Frank's escrow (out-of-pocket) |
-| `Acct.Cash.Bank` | | $1,661 | Capitalize | Seller county tax proration credit |
+| `Acct.Cash.Escrow` | | $5,300 | Capitalize | Clears earnest holding acct (Phase A pre-funded) |
+| `Acct.Liab.AccruedTax` | | $1,661 | Capitalize | Seller county tax proration (GAAP liability) |
 | `Acct.Cash.Bank` | | $296,874 | Capitalize | Cash to close from LLC bank |
 | **TOTALS** | **$303,835** | **$303,835** | | Balanced ✓ |
 

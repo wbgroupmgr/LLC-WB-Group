@@ -15,6 +15,7 @@ _UNIQUE_CLOSING_ACCTS = frozenset({
     'Acct.Fixed.Tangible.InService',
     'Acct.Fixed.Land',
     'Acct.Liab.Morgage',
+    'Acct.Cash.Escrow',   # earnest/deposit holding — should appear once per closing
 })
 
 
@@ -41,16 +42,24 @@ _RULES: List[tuple] = [
     ('recording charges',         CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
     ('government recording',      CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
 
-    # ── Taxes & Prorations (IRS Pub 551 — included in basis) ───────────────────
-    ('county tax',                CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
-    ('property tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    # ── Taxes & Prorations ─────────────────────────────────────────────────────
+    # Transfer tax: buyer's cost → capitalise into basis (IRS Pub 551)
     ('transfer tax',              CAPITALIZE, 'Acct.Fixed.Tangible.InService'),
+    # County/property tax proration: seller credits buyer for taxes owed rest of year.
+    # GAAP: credit to accrued tax liability (buyer will pay at year-end).
+    # Tax basis adjustment is made at Form 4562 time — books follow GAAP here.
+    ('county tax',                CAPITALIZE, 'Acct.Liab.AccruedTax'),
+    ('property tax',              CAPITALIZE, 'Acct.Liab.AccruedTax'),
 
     # ── Deposits & Cash Funding ────────────────────────────────────────────────
-    # Earnest/deposit/option flow through escrow — not LLC bank stmt → Owner Capital
-    ('deposit or earnest',        CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
-    ('earnest money',             CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
-    ('option money',              CAPITALIZE, 'Acct.Equity.Owner.Capital.Funds'),
+    # Earnest/deposit/option appear on closing stmt as Credits (applied against purchase).
+    # They clear the Acct.Cash.Escrow holding account set up before closing:
+    #   Phase A (pre-closing): DR Acct.Cash.Escrow / CR Acct.Cash.Bank (if LLC bank-funded)
+    #                       OR DR Acct.Cash.Escrow / CR Acct.Equity.Owner.Capital.Funds (out-of-pocket)
+    #   Phase B (this entry): CR Acct.Cash.Escrow  ← clears the holding account
+    ('deposit or earnest',        CAPITALIZE, 'Acct.Cash.Escrow'),
+    ('earnest money',             CAPITALIZE, 'Acct.Cash.Escrow'),
+    ('option money',              CAPITALIZE, 'Acct.Cash.Escrow'),
     ('cash to close',             CAPITALIZE, 'Acct.Cash.Bank'),
     ('balance due',               CAPITALIZE, 'Acct.Cash.Bank'),
 
@@ -341,9 +350,12 @@ class PropAgent:
             if not amt or amt <= 0:
                 continue
             desc = str(row.get('desc', '') or '')
-            # Direct: acct=*Capital* CR  |  Dual: Ledger=*Capital* DR
-            if ('Capital' in acct and atype == 'Credit') or \
-               ('Capital' in ledger and atype == 'Debit'):
+            # Capital contribution: acct=*Capital* CR  |  Dual: Ledger=*Capital* DR
+            is_capital = (('Capital' in acct and atype == 'Credit') or
+                          ('Capital' in ledger and atype == 'Debit'))
+            # Escrow funding: DR Acct.Cash.Escrow (money moved from bank/member to title co)
+            is_escrow  = (acct == 'Acct.Cash.Escrow' and atype == 'Debit')
+            if is_capital or is_escrow:
                 context.append({
                     'dt':    str(row.get('dt', '')),
                     'desc':  desc[:60],
