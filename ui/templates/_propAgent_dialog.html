@@ -1276,9 +1276,10 @@
         btn.textContent = 'Generating…';
         try {
             const r = await paPost('/api/propAgent/pdf_report', {
-                records:     _records.length ? _records : _classified,
-                preface:     _preface,
-                basis_data:  _basisData,
+                records:    _records.length ? _records : _classified,
+                classified: _classified,
+                preface:    _preface,
+                basis_data: _basisData,
                 depr_record: _deprRecord || null,
                 output_dir:  dir,
             });

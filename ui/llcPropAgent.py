@@ -146,7 +146,7 @@ def bind_propAgent_routes(app, objects, sanitize):
             pdf_path  = None
             pdf_error = None
             try:
-                basis_data  = body.get('basis_data', {})
+                basis_data   = body.get('basis_data', {})
                 post_records = [r for r in records if not r.get('_is_depr')]
                 out_dir = resolve_output_dir(preface)
                 if out_dir:
@@ -154,6 +154,7 @@ def bind_propAgent_routes(app, objects, sanitize):
                         post_records, preface, basis_data,
                         depr_record if depr_record else None,
                         out_dir,
+                        classified=classified,
                     )
             except Exception as pdf_err:
                 pdf_error = str(pdf_err)
@@ -187,7 +188,11 @@ def bind_propAgent_routes(app, objects, sanitize):
             if not output_dir:
                 return jsonify({'ok': False, 'error': 'Cannot determine output folder — enter an absolute path'}), 400
 
-            pdf_path = generate_purchase_report(records, preface, basis_data, depr_record, output_dir)
+            classified  = body.get('classified', [])
+            pdf_path = generate_purchase_report(
+                records, preface, basis_data, depr_record, output_dir,
+                classified=classified,
+            )
             return jsonify({'ok': True, 'pdf_path': pdf_path})
         except Exception as err:
             tb = traceback.format_exc()
