@@ -260,10 +260,10 @@ def _basis_table(basis_data: dict, preface: dict):
 
 
 def _journal_table(records: list, depr_record: dict | None):
-    # Landscape gives ~9.9 in usable; distribute across 10 columns
-    col_w   = [0.55, 0.65, 0.42, 0.75, 1.55, 1.45, 1.35, 1.75, 0.75, 0.87]  # sum = 10.09
-    headers = ['Status', 'Date', 'Dr/Cr', 'Amount', 'Account', 'Ledger',
-               'acctSub', 'Description', 'Tax Bucket', 'tID']
+    # 8 columns (Tax Bucket + tID dropped); landscape gives ~9.9" usable
+    # Status  Date   Dr/Cr  Amount  Account  Ledger   acctSub  Description
+    col_w   = [0.52,  0.65,  0.42,   0.80,   1.85,    1.60,    1.40,    2.66]
+    headers = ['Status', 'Date', 'Dr/Cr', 'Amount', 'Account', 'Ledger', 'acctSub', 'Description']
     rows       = [headers]
     row_styles = []
 
@@ -276,18 +276,16 @@ def _journal_table(records: list, depr_record: dict | None):
             _safe(r.get('acct') or ''),
             _safe(r.get('Ledger') or 'Acct.Cash.Escrow'),
             _safe(r.get('acctSub') or ''),
-            _safe(r.get('desc') or r.get('Description') or '', 70),
-            r.get('tax_bucket') or '',
-            _safe(r.get('tID') or ''),
+            _safe(r.get('desc') or r.get('Description') or '', 90),
         ]
 
     for r in records:
-        rows.append(_row(r, '✓ New'))
+        rows.append(_row(r, 'New'))
         if str(r.get('acct', '')).startswith('Acct.Fixed'):
             row_styles.append((_GREEN_FILL, len(rows) - 1))
 
     if depr_record:
-        rows.append(_row(depr_record, '📅 Sched'))
+        rows.append(_row(depr_record, 'YE Sched'))
         row_styles.append((_AMBER_FILL, len(rows) - 1))
 
     style = _base_style()
