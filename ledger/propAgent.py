@@ -287,6 +287,7 @@ class PropAgent:
         asset_state = preface.get('assetState', 'InService') # operational lifecycle
         asset_type  = preface.get('assetType', '')
         prop_owners = preface.get('propOwners', '')
+        ref_db      = preface.get('refDB', 'propAgent')
 
         records = []
         for seq, row in enumerate(rows):
@@ -306,7 +307,7 @@ class PropAgent:
                 'amt':        row.get('amt', 0.0),
                 'desc':       f"Purchase Property: {desc_raw}" if desc_raw else 'Purchase Property',
                 'refDoc':     ref_doc,
-                'refDB':      'propAgent',
+                'refDB':      ref_db,
                 'tDB':        'llcAssets',
                 'propNm':     prop_nm,
                 'propAddr':   prop_addr,
