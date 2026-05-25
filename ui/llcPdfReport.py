@@ -74,6 +74,45 @@ def _output_path(preface: dict, output_dir: str) -> str:
     return os.path.join(output_dir, filename)
 
 
+def resolve_output_dir(preface: dict, top_dir: str | None = None) -> str | None:
+    """
+    Derive the output directory from preface.refDoc (preferred) or preface.refDB.
+
+    refDoc format: '<label>, <category>, <type>, <relative/path/to/file.pdf>'
+    The last comma-separated segment is treated as a path relative to top_dir.
+    Returns an absolute directory string, or None if no usable path found.
+    """
+    if top_dir is None:
+        try:
+            from ledger import setup_paths
+            top_dir = str(setup_paths.TOP) if setup_paths.TOP else None
+        except Exception:
+            pass
+
+    ref_doc = (preface.get('closingDoc') or preface.get('refDoc') or '').strip()
+    # refDoc: 'H_805HighMesa, Closing Docs, Capitalize, Assets/805HighMesa/Docs/file.pdf'
+    if ref_doc and ',' in ref_doc:
+        path_part = ref_doc.split(',')[-1].strip()
+        if path_part and ('/' in path_part or '\\' in path_part):
+            # It's a relative path — directory portion only
+            rel_dir = os.path.dirname(path_part)
+            if top_dir and rel_dir:
+                candidate = os.path.join(top_dir, rel_dir)
+                return candidate
+            if os.path.isabs(path_part):
+                return os.path.dirname(path_part)
+
+    # Fallback: refDB if it looks like a path
+    ref_db = (preface.get('refDB') or '').strip()
+    if ref_db and ('/' in ref_db or '\\' in ref_db):
+        if os.path.isabs(ref_db):
+            return os.path.dirname(ref_db) if '.' in os.path.basename(ref_db) else ref_db
+        if top_dir:
+            return os.path.join(top_dir, os.path.dirname(ref_db) if '.' in os.path.basename(ref_db) else ref_db)
+
+    return None
+
+
 def _section_title(text):
     return [
         Paragraph(text, _H2),

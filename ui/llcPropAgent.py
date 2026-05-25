@@ -8,7 +8,7 @@ import traceback
 from flask import jsonify, request
 
 from ledger.propAgent import PropAgent, PropAgentBalanceError
-from ui.llcPdfReport import generate_purchase_report
+from ui.llcPdfReport import generate_purchase_report, resolve_output_dir
 
 _aid = PropAgent()
 
@@ -142,11 +142,29 @@ def bind_propAgent_routes(app, objects, sanitize):
             filtered = [r for r in existing if r.get('tID') not in override_tids]
             mgr.save(filtered + records)
 
+            # Auto-generate PDF report alongside the closing documents
+            pdf_path  = None
+            pdf_error = None
+            try:
+                basis_data  = body.get('basis_data', {})
+                post_records = [r for r in records if not r.get('_is_depr')]
+                out_dir = resolve_output_dir(preface)
+                if out_dir:
+                    pdf_path = generate_purchase_report(
+                        post_records, preface, basis_data,
+                        depr_record if depr_record else None,
+                        out_dir,
+                    )
+            except Exception as pdf_err:
+                pdf_error = str(pdf_err)
+
             return jsonify({
                 'ok':            True,
                 'committed':     len(records),
                 'replaced':      len(existing) - len(filtered),
                 'total_records': len(filtered) + len(records),
+                'pdf_path':      pdf_path,
+                'pdf_error':     pdf_error,
             })
         except PropAgentBalanceError as err:
             return jsonify({'ok': False, 'error': str(err)}), 422
@@ -157,16 +175,17 @@ def bind_propAgent_routes(app, objects, sanitize):
     def closing_pdf_report():
         try:
             body        = request.get_json(force=True) or {}
-            records     = body.get('records', [])       # post-split records (_records)
+            records     = body.get('records', [])
             preface     = body.get('preface', {})
             basis_data  = body.get('basis_data', {})
             depr_record = body.get('depr_record') or None
-            output_dir  = body.get('output_dir', '').strip()
+            output_dir  = (body.get('output_dir') or '').strip()
 
+            # Fall back to auto-resolved dir if caller didn't supply one
             if not output_dir:
-                return jsonify({'ok': False, 'error': 'output_dir is required'}), 400
-            if not os.path.isabs(output_dir):
-                return jsonify({'ok': False, 'error': 'output_dir must be an absolute path'}), 400
+                output_dir = resolve_output_dir(preface) or ''
+            if not output_dir:
+                return jsonify({'ok': False, 'error': 'Cannot determine output folder — enter an absolute path'}), 400
 
             pdf_path = generate_purchase_report(records, preface, basis_data, depr_record, output_dir)
             return jsonify({'ok': True, 'pdf_path': pdf_path})
