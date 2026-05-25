@@ -412,6 +412,31 @@
           <tbody id="caCommitBody"></tbody>
         </table>
       </div>
+
+      <!-- PDF Report — shown after successful commit -->
+      <div id="caPdfSection" style="display:none; margin-top:14px; padding:12px 14px;
+           background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px;">
+        <div style="font-size:13px; font-weight:700; color:#0369a1; margin-bottom:8px;">
+          📄 Save Purchase Report PDF
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:12px; color:#374151; white-space:nowrap;">Output folder:</label>
+          <input id="caPdfDir" type="text" placeholder="/absolute/path/to/folder"
+                 style="flex:1; min-width:260px; font-size:12px; padding:5px 8px;
+                        border:1px solid #93c5fd; border-radius:5px; font-family:monospace;" />
+          <button id="caBtnSavePdf" type="button" onclick="caSavePdf()"
+                  style="font-size:12px; font-weight:600; padding:5px 14px;
+                         background:#0369a1; color:#fff; border:none;
+                         border-radius:5px; cursor:pointer; white-space:nowrap;">
+            Save PDF
+          </button>
+        </div>
+        <div id="caPdfResult" style="margin-top:6px; font-size:12px;"></div>
+        <div style="font-size:10px; color:#6b7280; margin-top:4px;">
+          Filename: <code>&lt;YYYY.MM.DD&gt;_PurchaseNewProp_&lt;propNm&gt;.pdf</code>
+          &nbsp;·&nbsp; Folder defaults to the directory portion of <em>refDB</em> if set.
+        </div>
+      </div>
     </div>
 
     <!-- Flash -->
@@ -1180,19 +1205,79 @@
             }
             const replaced = r.json.replaced || 0;
             const replTxt  = replaced > 0 ? `, replaced ${replaced} existing record(s)` : '';
-            paFlash(`✅ Committed ${r.json.committed} entries to the ledger${replTxt}. Click Done to close.`);
+            paFlash(`✅ Committed ${r.json.committed} entries to the ledger${replTxt}. Save PDF below or click Done.`);
             _committed = true;
             btn.textContent = '✓ Done';
             btn.disabled = false;
             btn.onclick = () => paClose();   // repurpose commit button as close
             $('caBtnNext').style.display = 'none';
             $('caBtnBack').style.display = 'none';
+            _showPdfSection();
         } catch(e) {
             paFlash('Unexpected error: ' + e.message, true);
         } finally {
             if (btn.textContent === 'Committing…') {
                 btn.disabled = false;
                 btn.textContent = 'Commit to Ledger';
+            }
+        }
+    };
+
+    // ── PDF Report ───────────────────────────────────────────────────────────
+
+    function _defaultOutputDir() {
+        // If refDB looks like a path (contains / or \), use its directory part.
+        const refDB = (_preface.refDB || '').trim();
+        if (refDB.includes('/') || refDB.includes('\\')) {
+            const sep   = refDB.includes('/') ? '/' : '\\';
+            const parts = refDB.split(sep);
+            parts.pop();  // remove filename/last segment
+            return parts.join(sep) || refDB;
+        }
+        // Otherwise leave blank — user must type a path
+        return '';
+    }
+
+    function _showPdfSection() {
+        const el = $('caPdfSection');
+        if (!el) return;
+        const defaultDir = _defaultOutputDir();
+        $('caPdfDir').value = defaultDir;
+        el.style.display = '';
+    }
+
+    window.caSavePdf = async function() {
+        const dir = ($('caPdfDir').value || '').trim();
+        if (!dir) {
+            paFlash('⚠ Enter an output folder path before saving.', true);
+            return;
+        }
+        const btn = $('caBtnSavePdf');
+        btn.disabled = true;
+        btn.textContent = 'Generating…';
+        try {
+            const r = await paPost('/api/propAgent/pdf_report', {
+                records:     _records.length ? _records : _classified,
+                preface:     _preface,
+                basis_data:  _basisData,
+                depr_record: _deprRecord || null,
+                output_dir:  dir,
+            });
+            if (!r.ok) {
+                paFlash((r.json && r.json.error) || 'PDF generation failed', true);
+                return;
+            }
+            const path = r.json.pdf_path || '';
+            $('caPdfResult').innerHTML =
+                `<span style="color:#166534;">✅ PDF saved:</span>
+                 <code style="font-size:11px;margin-left:6px;color:#0369a1;">${path}</code>`;
+            btn.textContent = '✓ Saved';
+        } catch(e) {
+            paFlash('Unexpected error: ' + e.message, true);
+        } finally {
+            if (btn.textContent === 'Generating…') {
+                btn.disabled = false;
+                btn.textContent = 'Save PDF';
             }
         }
     };

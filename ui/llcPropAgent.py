@@ -3,10 +3,12 @@ Flask route bindings for the PropAgent service.
 Talks to /api/propAgent/... endpoints consumed by _prop_agent_dialog.html.
 """
 import math
+import os
 import traceback
 from flask import jsonify, request
 
 from ledger.propAgent import PropAgent, PropAgentBalanceError
+from ui.llcPdfReport import generate_purchase_report
 
 _aid = PropAgent()
 
@@ -150,3 +152,25 @@ def bind_propAgent_routes(app, objects, sanitize):
             return jsonify({'ok': False, 'error': str(err)}), 422
         except Exception as err:
             return jsonify({'ok': False, 'error': str(err)}), 500
+
+    @app.route('/api/propAgent/pdf_report', methods=['POST'])
+    def closing_pdf_report():
+        try:
+            body        = request.get_json(force=True) or {}
+            records     = body.get('records', [])       # post-split records (_records)
+            preface     = body.get('preface', {})
+            basis_data  = body.get('basis_data', {})
+            depr_record = body.get('depr_record') or None
+            output_dir  = body.get('output_dir', '').strip()
+
+            if not output_dir:
+                return jsonify({'ok': False, 'error': 'output_dir is required'}), 400
+            if not os.path.isabs(output_dir):
+                return jsonify({'ok': False, 'error': 'output_dir must be an absolute path'}), 400
+
+            pdf_path = generate_purchase_report(records, preface, basis_data, depr_record, output_dir)
+            return jsonify({'ok': True, 'pdf_path': pdf_path})
+        except Exception as err:
+            tb = traceback.format_exc()
+            print(f'[PropAgent pdf_report ERROR]\n{tb}')
+            return jsonify({'ok': False, 'error': str(err) or repr(err)}), 500
