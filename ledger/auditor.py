@@ -320,10 +320,7 @@ class GLAuditor:
     def _check_escrow_balance(self) -> List[Dict[str, Any]]:
         '''
         Acct.Cash.Escrow is a clearing account — it MUST net to $0 after
-        every complete property-purchase journal entry.  A non-zero balance
-        indicates an incomplete double-entry: one or more source rows were
-        posted without Ledger='Acct.Cash.Escrow', so toDoubleEntry() never
-        generated the counter-entry.
+        every complete property-purchase journal entry.
         '''
         ESCROW_ACCT = 'Acct.Cash.Escrow'
         escrow_rows = [r for r in self._rows if r.get('acct') == ESCROW_ACCT]
@@ -341,44 +338,72 @@ class GLAuditor:
         if abs(balance) < 0.01:
             return []
 
+        # Sort largest-to-smallest by abs(amt) so the biggest contributors appear first.
+        sorted_rows = sorted(escrow_rows, key=lambda r: abs(float(r.get('amt') or 0)), reverse=True)
         affected = [
-            {'dt': r.get('dt'), 'aType': r.get('aType'),
-             'amt': r.get('amt'), 'desc': (r.get('desc') or '')[:60],
-             'refDB': r.get('refDB'), 'tID': r.get('tID')}
-            for r in escrow_rows
+            {
+                'tID':   r.get('tID', ''),
+                'refDB': r.get('refDB', ''),
+                'aType': r.get('aType', ''),
+                'amt':   r.get('amt', 0),
+                'dt':    r.get('dt', ''),
+                'desc':  (r.get('desc') or '')[:80],
+            }
+            for r in sorted_rows
         ]
+
+        # Identify the imbalance direction and its accounting meaning.
+        if balance < 0:  # Credit > Debit
+            imbalance_explain = (
+                f"Credits ({c:.2f}) exceed Debits ({d:.2f}) by {abs(balance):.2f}.\n"
+                "This means cash OUTFLOWS from escrow (disbursements to sellers, "
+                "closing costs, etc.) were posted but the matching cash INFLOW "
+                "(funding of the escrow account) was never recorded.\n"
+                "MISSING ENTRY: a Debit to Acct.Cash.Escrow offset by a Credit to\n"
+                "  - Acct.Cash.Bank (LLC wire / bank transfer to escrow), OR\n"
+                "  - Acct.Equity.Owner.Capital.Funds (owner contribution), OR\n"
+                "  - Acct.Liab.Mortgage (loan proceeds deposited into escrow)."
+            )
+        else:  # Debit > Credit
+            imbalance_explain = (
+                f"Debits ({d:.2f}) exceed Credits ({c:.2f}) by {abs(balance):.2f}.\n"
+                "Cash was recorded as FLOWING INTO escrow but the disbursements "
+                "out of it are under-posted.\n"
+                "MISSING ENTRY: a Credit to Acct.Cash.Escrow for the unmatched "
+                "purchase line items (asset, closing costs, etc.)."
+            )
+
+        # Explain where the GL picks up escrow rows.
+        source_explain = (
+            "WHERE THESE ROWS COME FROM:\n"
+            "The GL contains an Acct.Cash.Escrow row for every source record where:\n"
+            "  (a) acct = 'Acct.Cash.Escrow'  (direct posting), OR\n"
+            "  (b) Ledger = 'Acct.Cash.Escrow' (toDoubleEntry() generates the\n"
+            "      counter-entry automatically — the original record uses a\n"
+            "      different account as its primary acct).\n"
+            "Check the tID/refDB in the affected list to trace which source DB\n"
+            "record generated each row."
+        )
 
         description = (
             f"Acct.Cash.Escrow has a non-zero balance of {balance:+.2f} "
             f"(Debit={d:.2f}, Credit={c:.2f}).\n\n"
-            "ACCOUNTING RULE:\n"
-            "Acct.Cash.Escrow (acctID 1025) is a cash clearing account used "
-            "exclusively during real-estate closings. Every llcAssets purchase "
-            "row sets Ledger='Acct.Cash.Escrow' so that toDoubleEntry() emits "
-            "both sides: the asset/expense Debit and the matching Escrow Credit. "
-            "When all closing rows are recorded, the Escrow Debits (e.g. Earnest "
-            "Money paid out earlier) equal the Escrow Credits (purchase price "
-            "inflows) and the balance returns to $0.\n\n"
-            "ROOT CAUSE — likely one or more of:\n"
-            "  1. Pre-PropAgent records: source rows saved with Ledger=NaN/blank. "
-            "     toDoubleEntry() skips the counter-entry for blank Ledger fields, "
-            "     so the Escrow side was never posted.\n"
-            "  2. Partial closing: only some rows in the closing journal have "
-            "     Ledger='Acct.Cash.Escrow'; the remainder left a residual.\n"
-            "  3. Re-entered closing without removing the original: one side was "
-            "     posted twice, doubling a Debit or Credit.\n\n"
+            + imbalance_explain + "\n\n"
+            + source_explain + "\n\n"
             "HOW TO FIX:\n"
-            "  a. Open PropAgent → re-commit the property closing. This regenerates "
-            "     all journal entries with Ledger='Acct.Cash.Escrow'.\n"
-            "  b. Or locate the unmatched rows in llcAssets (refDB=llcAssets) and "
-            "     set their Ledger field to 'Acct.Cash.Escrow', then reload the GL.\n"
-            "  c. After the fix, re-run Audit — ESCROW_IMBALANCE should disappear "
-            "     and Acct.Cash.Escrow should show $0.00 in the Trial Balance."
+            "  1. Check each row in the affected list (tID + refDB) to find\n"
+            "     which source records are responsible.\n"
+            "  2. If the closing journal was entered without Ledger='Acct.Cash.Escrow',\n"
+            "     open PropAgent → re-commit the property closing.  PropAgent\n"
+            "     sets Ledger='Acct.Cash.Escrow' on every disbursement row and\n"
+            "     posts the offsetting cash-in entry automatically.\n"
+            "  3. After fixing, reload the GL and re-run Audit — this issue\n"
+            "     should disappear and Acct.Cash.Escrow should show $0.00."
         )
 
         return [{
             'code':     'ESCROW_IMBALANCE',
-            'severity': 'warning',
+            'severity': 'error',
             'title':    f'Escrow Clearing Account Non-Zero (balance={balance:+.2f})',
             'description': description,
             'affected': affected,
@@ -386,9 +411,9 @@ class GLAuditor:
                 'type':       'manual',
                 'auto_apply': False,
                 'description': (
-                    "Re-commit the property purchase via PropAgent to regenerate "
-                    "all journal entries with Ledger='Acct.Cash.Escrow', ensuring "
-                    "the clearing account nets to $0.00."
+                    "Re-commit the property purchase via PropAgent, which regenerates "
+                    "all journal entries with Ledger='Acct.Cash.Escrow' and posts "
+                    "the offsetting cash-in entry so the clearing account nets to $0."
                 ),
                 'entries': [],
             },

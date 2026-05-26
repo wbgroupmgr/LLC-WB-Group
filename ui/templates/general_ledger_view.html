@@ -68,6 +68,20 @@
 
     let _auditReport = null;  // last fetch result
 
+    // Auto-run a silent audit on page load to colour the banner correctly,
+    // without opening the full audit panel.
+    window.addEventListener('DOMContentLoaded', function () {
+        fetch(_scriptRoot + '/api/audit/gl')
+            .then(r => r.json())
+            .then(data => {
+                _auditReport = data;
+                if (data.ok && data.summary) {
+                    _updateBalBanner(data.summary);
+                }
+            })
+            .catch(() => {}); // silent — don't disrupt page load
+    });
+
     function runAudit() {
         const d = document.getElementById('actionsMenu'); if(d) d.removeAttribute('open');
         const panel = document.getElementById('auditPanel');
@@ -114,10 +128,10 @@
         let issuesHtml = issues.map((iss, idx) => {
             const c = iss.correction || {};
             const canApply = c.auto_apply && (c.entries || []).length > 0;
-            const affectedHtml = (iss.affected || []).slice(0, 5).map(a => {
+            const affectedHtml = (iss.affected || []).map(a => {
                 const parts = Object.entries(a).map(([k,v]) => `<span class="aud-kv"><b>${k}</b>: ${v}</span>`).join(' ');
                 return `<div class="aud-affected-row">${parts}</div>`;
-            }).join('') + ((iss.affected||[]).length > 5 ? `<div class="aud-affected-row muted">… and ${iss.affected.length-5} more</div>` : '');
+            }).join('');
 
             return `
             <div class="aud-issue" id="aud-issue-${idx}">
