@@ -707,7 +707,7 @@
                     <th class="num" style="width:110px">Balance</th>
                     <th>desc</th>
                     <th style="width:90px">refDB</th>
-                    <th style="width:130px">tID</th>
+                    <th style="width:160px" title="tID = computed GL row key; srcTID = original source record key (shared by both sides of a dual entry)">tID · srcTID</th>
                 </tr>
             </thead>
             <tbody>
@@ -745,7 +745,12 @@
                         </td>
                         <td>{{ row.get("desc", "") }}</td>
                         <td style="font-size:12px">{{ row.get("refDB", "") }}</td>
-                        <td style="font-size:11px; font-family:monospace; color:#6b7280">{{ row.get("srcTID", "") }}</td>
+                        <td style="font-size:11px; font-family:monospace;">
+                            <span style="color:#374151">{{ row.get("tID", "") }}</span>
+                            {% if row.get("srcTID") and row.get("srcTID") != row.get("tID") %}
+                            <br><span style="color:#9ca3af; font-size:10px">src: {{ row.get("srcTID") }}</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
                 {% if not frames.tx.rows %}
