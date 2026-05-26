@@ -72,16 +72,21 @@ class ChartOfAccounts(ledgerDB):
     def _Type(self, acct):
         '''
         Map acct form ('Acct.x.y.c') -> Accountint type
+        acctID prefix: 1=Asset 2=Liability 3=Equity 4=Income 5=Expense
+                       6=Appreciation 8=Other 9=Staging
+        Staging (9xxx) accounts clear to $0 and are excluded from BS/IS.
         '''
-        aType = ['na', 'Asset', 'Liability', 'Equity', 'Income', 'Expense', 'Appreciation']
-
+        _TYPE_MAP = {
+            '1': 'Asset', '2': 'Liability', '3': 'Equity',
+            '4': 'Income', '5': 'Expense',  '6': 'Appreciation',
+            '8': 'Other',  '9': 'Staging',
+        }
         aDict = self.get(acct)
-        if aDict is None : 
+        if aDict is None:
             return f"Bad_{acct}"
-        try: 
+        try:
             aID = self._ID(acct)
-            i = int(aID[0])
-            return aType[i]
+            return _TYPE_MAP.get(str(aID)[0], f"Bad_{acct}")
         except:
             return f"Bad_{acct}"
 
