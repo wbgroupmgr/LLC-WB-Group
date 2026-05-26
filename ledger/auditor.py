@@ -48,6 +48,7 @@ class GLAuditor:
         issues += self._check_zero_amounts()
         issues += self._check_unclassified()
         issues += self._check_single_side()
+        issues += self._check_escrow_balance()
 
         errors   = sum(1 for i in issues if i['severity'] == 'error')
         warnings = sum(1 for i in issues if i['severity'] == 'warning')
@@ -311,6 +312,83 @@ class GLAuditor:
                     "For each single-sided account verify whether a counterpart "
                     "entry exists under a different account. If not, add the "
                     "missing dual-entry record to the appropriate source DB."
+                ),
+                'entries': [],
+            },
+        }]
+
+    def _check_escrow_balance(self) -> List[Dict[str, Any]]:
+        '''
+        Acct.Cash.Escrow is a clearing account — it MUST net to $0 after
+        every complete property-purchase journal entry.  A non-zero balance
+        indicates an incomplete double-entry: one or more source rows were
+        posted without Ledger='Acct.Cash.Escrow', so toDoubleEntry() never
+        generated the counter-entry.
+        '''
+        ESCROW_ACCT = 'Acct.Cash.Escrow'
+        escrow_rows = [r for r in self._rows if r.get('acct') == ESCROW_ACCT]
+        if not escrow_rows:
+            return []
+
+        d = c = 0.0
+        for r in escrow_rows:
+            amt = float(r.get('amt') or 0)
+            if str(r.get('aType', '')).lower() in ('debit', 'dr', 'd'):
+                d += amt
+            else:
+                c += amt
+        balance = round(d - c, 2)
+        if abs(balance) < 0.01:
+            return []
+
+        affected = [
+            {'dt': r.get('dt'), 'aType': r.get('aType'),
+             'amt': r.get('amt'), 'desc': (r.get('desc') or '')[:60],
+             'refDB': r.get('refDB'), 'tID': r.get('tID')}
+            for r in escrow_rows
+        ]
+
+        description = (
+            f"Acct.Cash.Escrow has a non-zero balance of {balance:+.2f} "
+            f"(Debit={d:.2f}, Credit={c:.2f}).\n\n"
+            "ACCOUNTING RULE:\n"
+            "Acct.Cash.Escrow (acctID 1025) is a cash clearing account used "
+            "exclusively during real-estate closings. Every llcAssets purchase "
+            "row sets Ledger='Acct.Cash.Escrow' so that toDoubleEntry() emits "
+            "both sides: the asset/expense Debit and the matching Escrow Credit. "
+            "When all closing rows are recorded, the Escrow Debits (e.g. Earnest "
+            "Money paid out earlier) equal the Escrow Credits (purchase price "
+            "inflows) and the balance returns to $0.\n\n"
+            "ROOT CAUSE — likely one or more of:\n"
+            "  1. Pre-PropAgent records: source rows saved with Ledger=NaN/blank. "
+            "     toDoubleEntry() skips the counter-entry for blank Ledger fields, "
+            "     so the Escrow side was never posted.\n"
+            "  2. Partial closing: only some rows in the closing journal have "
+            "     Ledger='Acct.Cash.Escrow'; the remainder left a residual.\n"
+            "  3. Re-entered closing without removing the original: one side was "
+            "     posted twice, doubling a Debit or Credit.\n\n"
+            "HOW TO FIX:\n"
+            "  a. Open PropAgent → re-commit the property closing. This regenerates "
+            "     all journal entries with Ledger='Acct.Cash.Escrow'.\n"
+            "  b. Or locate the unmatched rows in llcAssets (refDB=llcAssets) and "
+            "     set their Ledger field to 'Acct.Cash.Escrow', then reload the GL.\n"
+            "  c. After the fix, re-run Audit — ESCROW_IMBALANCE should disappear "
+            "     and Acct.Cash.Escrow should show $0.00 in the Trial Balance."
+        )
+
+        return [{
+            'code':     'ESCROW_IMBALANCE',
+            'severity': 'warning',
+            'title':    f'Escrow Clearing Account Non-Zero (balance={balance:+.2f})',
+            'description': description,
+            'affected': affected,
+            'correction': {
+                'type':       'manual',
+                'auto_apply': False,
+                'description': (
+                    "Re-commit the property purchase via PropAgent to regenerate "
+                    "all journal entries with Ledger='Acct.Cash.Escrow', ensuring "
+                    "the clearing account nets to $0.00."
                 ),
                 'entries': [],
             },

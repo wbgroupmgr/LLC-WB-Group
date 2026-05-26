@@ -149,6 +149,37 @@
             </div>`;
 
         panel.innerHTML = summaryHtml + issuesHtml + actionsHtml;
+        _updateBalBanner(s);
+    }
+
+    function _updateBalBanner(s) {
+        // Fix #1: if audit finds issues on an otherwise-balanced GL,
+        // flip the green banner to yellow so the user sees audit status
+        // without having to scroll down to the audit panel.
+        const banner = document.getElementById('balBanner');
+        if (!banner) return;
+        if (s.clean) {
+            // Audit clean — restore green if we previously set it yellow.
+            if (banner.classList.contains('bal-audit-warn')) {
+                banner.className = 'bal-ok';
+                banner.innerHTML = '✅ Trial Balance in equilibrium — Audit: no issues found.';
+            }
+            return;
+        }
+        // Issues found — if banner is currently green, upgrade to yellow.
+        if (banner.classList.contains('bal-ok') || banner.classList.contains('bal-audit-warn')) {
+            const errPart  = s.errors   > 0 ? `${s.errors} error${s.errors!==1?'s':''}` : '';
+            const warnPart = s.warnings > 0 ? `${s.warnings} warning${s.warnings!==1?'s':''}` : '';
+            const parts    = [errPart, warnPart].filter(Boolean).join(', ');
+            banner.className = 'bal-audit-warn';
+            banner.innerHTML = (
+                '⚠️ Trial Balance in equilibrium but audit found ' + parts +
+                ' — <a href="#auditPanel" style="color:#78350f;font-weight:700;">' +
+                'see Audit results ↓</a>'
+            );
+        }
+        // If banner is already red (bal-warning), leave it — imbalance is a
+        // more severe signal and already prompts the user to run Audit.
     }
 
     function applyAuditFixes() {
@@ -357,6 +388,15 @@
         color: #14532d; border-radius: 8px;
         padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
     }
+    /* Yellow banner: equilibrium OK but audit found warnings */
+    .bal-audit-warn {
+        background: #fffbeb; border: 1px solid #fbbf24;
+        color: #78350f; border-radius: 8px;
+        padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+    }
+    /* Highlight escrow row in Trial Balance when balance != 0 */
+    .escrow-warn td { background: #fffbeb !important; color: #78350f !important; }
+    .escrow-warn td.num { color: #b45309 !important; font-weight: 700; }
 
     /* JSON pane */
     .json-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
@@ -502,13 +542,13 @@
 
 {# ── Imbalance banner (from Trial Balance) ── #}
 {% if frames.tb.is_balanced %}
-<div class="bal-ok">
+<div id="balBanner" class="bal-ok">
     ✅ Trial Balance in equilibrium —
     Σ Debit ({{ "%.2f"|format(frames.tb.totals.Debit) }})
     = Σ Credit ({{ "%.2f"|format(frames.tb.totals.Credit) }}).
 </div>
 {% else %}
-<div class="bal-warning">
+<div id="balBanner" class="bal-warning">
     ⚠️ Trial Balance out of equilibrium —
     Σ Debit {{ "%.2f"|format(frames.tb.totals.Debit) }}
     vs Σ Credit {{ "%.2f"|format(frames.tb.totals.Credit) }}
@@ -591,8 +631,10 @@
                     {% set ns.sec_credit  = ns.sec_credit  + credit %}
                     {% set ns.sec_balance = ns.sec_balance + bal %}
 
-                    <tr>
-                        <td></td>
+                    {# Highlight escrow clearing account when balance != $0 #}
+                    {% set _is_escrow_warn = (acct_disp ~ ('.' if acct_minor else '') ~ acct_minor == 'Acct.Cash.Escrow') and bal != 0 %}
+                    <tr{% if _is_escrow_warn %} class="escrow-warn" title="⚠ Acct.Cash.Escrow should net to $0 after a complete closing entry. Run Audit for root-cause analysis."{% endif %}>
+                        <td>{% if _is_escrow_warn %}⚠{% endif %}</td>
                         <td class="acct-name">{{ acct_disp }}</td>
                         <td class="acct-name" style="font-size:12px; color:#6b7280">{{ acct_minor }}</td>
                         {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
