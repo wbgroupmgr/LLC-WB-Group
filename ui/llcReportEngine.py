@@ -55,7 +55,12 @@ class llcReportEngine:
         wk = self.eSession.oDict.get(name)
         if wk is None:
             return []
-        data = wk.o.load()
+        # Prefer the working (temp) file — same source the editor views read,
+        # so GL stays in sync after PropAgent commits or in-session edits.
+        # Falls back to the committed real file only if the temp file is absent.
+        data = wk.load()
+        if not data:
+            data = wk.o.load()
         return data if isinstance(data, list) else []
 
     def getGLList(self, resolve_dups: bool = True, force: bool = False) -> List[Dict[str, Any]]:
