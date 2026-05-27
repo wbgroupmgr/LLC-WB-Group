@@ -188,7 +188,7 @@
             banner.className = 'bal-audit-warn';
             banner.innerHTML = (
                 '⚠️ Trial Balance in equilibrium but audit found ' + parts +
-                ' — <a href="#auditPanel" style="color:#78350f;font-weight:700;">' +
+                ' — <a href="#" onclick="runAudit(); return false;" style="color:#78350f;font-weight:700;">' +
                 'see Audit results ↓</a>'
             );
         }
