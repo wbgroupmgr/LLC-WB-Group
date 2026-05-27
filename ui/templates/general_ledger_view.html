@@ -142,7 +142,7 @@
                 </div>
                 <div class="aud-issue-desc">${iss.description.replace(/\n/g, '<br>')}</div>
                 ${iss.affected && iss.affected.length ? `
-                <details class="aud-affected">
+                <details class="aud-affected" open>
                     <summary>Affected records (${iss.affected.length})</summary>
                     ${affectedHtml}
                 </details>` : ''}
