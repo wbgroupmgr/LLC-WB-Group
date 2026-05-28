@@ -341,10 +341,17 @@ class GLAuditor:
             c_desc = (closest.get('desc') or '')[:60]
             o_desc = (orph.get('desc') or '')[:60]
 
-            # Check if the delta matches any existing escrow entry (e.g. a fee already posted)
+            # Check if the delta matches another ORPHAN escrow entry on the same side.
+            # Do NOT match paired entries — those are already correctly booked and
+            # are not a cause of the discrepancy (e.g. an HOA Credit paired with
+            # Acct.Exp.Operating is complete double-entry; matching its amount is
+            # a coincidence, not an explanation).
+            orphan_set = set(id(r) for r in orphans)
             delta_match = next(
                 (r for r in escrow_rows
-                 if abs(_amt(r) - abs(delta)) < 0.01 and r is not orph and r is not closest),
+                 if abs(_amt(r) - abs(delta)) < 0.01
+                 and r is not orph and r is not closest
+                 and id(r) in orphan_set),   # only orphans count as suspects
                 None
             )
             delta_match_note = ''
@@ -352,11 +359,11 @@ class GLAuditor:
                 dm_desc = (delta_match.get('desc') or '')[:60]
                 dm_side = 'Credit' if not _is_debit(delta_match) else 'Debit'
                 delta_match_note = (
-                    f"\n    ⚡ Delta ${abs(delta):.2f} matches an existing escrow entry:\n"
+                    f"\n    ⚡ Delta ${abs(delta):.2f} matches another orphan escrow entry:\n"
                     f"       {dm_side} ${_amt(delta_match):.2f} — \"{dm_desc}\" "
                     f"(tID: {delta_match.get('tID','')})\n"
-                    f"    This suggests the bank wire INCLUDES this line item, "
-                    f"which is also posted separately in the closing records."
+                    f"    Both orphan entries together may represent the same cash event "
+                    f"recorded twice from different sources."
                 )
 
             # Build correcting journal suggestion
