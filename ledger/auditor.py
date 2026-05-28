@@ -6,7 +6,7 @@ Forensic principles applied (see docs/design_LLC_02-GL-Audit-Forensics.md):
   2. Minimal Explanation — for balance diffs, only show rows that explain the exact amount
   3. Counter-Entry Verification — SINGLE_SIDE only flags entries with no double-entry partner
   4. Extended Equation   — A = L + E + (Inc − Exp) for open (pre-close) periods
-  5. Orphan Detection    — srcTID == tID signals a direct-posted entry (no toDoubleEntry pair)
+  5. Unbalanced Detection — srcTID == tID signals a direct-posted entry with no double-entry counterpart
   6. Consistent Details  — all affected rows carry the same standard fields
 
 Checks (errors listed before warnings):
@@ -186,7 +186,7 @@ class GLAuditor:
         Extended accounting equation for open periods (pre year-end close):
             Assets = Liabilities + Equity + (Income − Expenses)
         This always holds when the TB is balanced. If it fails, there are
-        mis-classified accounts or truly orphaned entries (not just open Net Income).
+        mis-classified accounts or unbalanced entries (not just open Net Income).
         Net Income is shown as informational even when the equation holds.
         '''
         by_type: Dict[str, Dict[str, float]] = defaultdict(lambda: {'D': 0.0, 'C': 0.0})
@@ -278,14 +278,7 @@ class GLAuditor:
     def _check_escrow_balance(self) -> List[Dict[str, Any]]:
         '''
         Acct.Cash.Escrow is a clearing account — must net to $0.
-
-        Forensic approach (highest-probability-first):
-          1. Assume all existing closing-statement (PropAgent) and bank records are correct.
-          2. Identify orphan entries (srcTID == tID) — direct-posted with no double-entry pair.
-          3. For each large orphan, look for a PropAgent entry of the same side and close amount;
-             compute the delta between them to surface a reconciliation discrepancy.
-          4. If a delta matches an existing escrow entry, call it out explicitly.
-          5. Rank probable causes and suggest the most likely correcting journal entry.
+        Identifies unbalanced transactions and provides actionable fix steps.
         '''
         ESCROW = 'Acct.Cash.Escrow'
         escrow_rows = [r for r in self._rows if r.get('acct') == ESCROW
@@ -303,142 +296,106 @@ class GLAuditor:
         if abs(balance) < 0.01:
             return []
 
-        # Classify rows
-        orphans = [r for r in escrow_rows
-                   if not r.get('srcTID') or r.get('srcTID') == r.get('tID')]
-        paired  = [r for r in escrow_rows if r not in orphans]
+        # Unbalanced = no double-entry counterpart (srcTID absent or equals tID)
+        unbalanced = [r for r in escrow_rows
+                      if not r.get('srcTID') or r.get('srcTID') == r.get('tID')]
+        paired     = [r for r in escrow_rows if r not in unbalanced]
 
-        # Find minimal suspect set
-        suspects = _subset_summing_to(orphans, balance, signed=True)
+        # Find minimal set that explains the balance
+        suspects = _subset_summing_to(unbalanced, balance, signed=True)
         if suspects is None:
             suspects = _subset_summing_to(escrow_rows, balance, signed=True)
         if suspects is None:
-            suspects = orphans if orphans else escrow_rows
+            suspects = unbalanced if unbalanced else escrow_rows
 
         affected = sorted([_fmt(r) for r in suspects],
                           key=lambda x: abs(float(x.get('amt') or 0)), reverse=True)
 
-        # ── Forensic reconciliation analysis ─────────────────────────────
-        # For each orphan, find the closest-amount PropAgent entry on the same side
-        # and compute the delta.  This surfaces bank-vs-closing discrepancies.
+        # ── Bank vs Closing reconciliation ───────────────────────────────
         recon_notes = []
-        for orph in sorted(orphans, key=lambda r: _amt(r), reverse=True):
-            if _amt(orph) < 0.01:
+        orphan_set  = set(id(r) for r in unbalanced)
+        for ub in sorted(unbalanced, key=lambda r: _amt(r), reverse=True):
+            if _amt(ub) < 0.01:
                 continue
-            o_amt  = _amt(orph)
-            o_side = _is_debit(orph)
-            o_tdb  = _tdb(orph) or orph.get('tID', '')
-            # Find closest paired entry on same side
-            same_side = [r for r in paired if _is_debit(r) == o_side]
+            ub_amt  = _amt(ub)
+            ub_tdb  = _tdb(ub) or ub.get('tID', '')
+            ub_desc = (ub.get('desc') or '')[:60]
+
+            same_side = [r for r in paired if _is_debit(r) == _is_debit(ub)]
             if not same_side:
                 continue
-            closest = min(same_side, key=lambda r: abs(_amt(r) - o_amt))
-            delta = round(o_amt - _amt(closest), 2)
+            closest   = min(same_side, key=lambda r: abs(_amt(r) - ub_amt))
+            cl_amt    = _amt(closest)
+            cl_desc   = (closest.get('desc') or '')[:60]
+            delta     = round(ub_amt - cl_amt, 2)
             if abs(delta) < 0.01:
-                continue  # exact match — not a discrepancy
+                continue
 
-            pct = abs(delta) / o_amt * 100
-            c_desc = (closest.get('desc') or '')[:60]
-            o_desc = (orph.get('desc') or '')[:60]
+            # Correcting journal entry
+            if delta > 0:
+                fix_dr, fix_cr = 'Acct.Equity.Owner.Capital.Funds', 'Acct.Cash.Escrow'
+            else:
+                fix_dr, fix_cr = 'Acct.Cash.Escrow', 'Acct.Cash.Bank'
 
-            # Check if the delta matches another ORPHAN escrow entry on the same side.
-            # Do NOT match paired entries — those are already correctly booked and
-            # are not a cause of the discrepancy (e.g. an HOA Credit paired with
-            # Acct.Exp.Operating is complete double-entry; matching its amount is
-            # a coincidence, not an explanation).
-            orphan_set = set(id(r) for r in orphans)
-            delta_match = next(
+            # Check for another unbalanced entry matching the delta (same-side only)
+            dup_note = ''
+            dup_match = next(
                 (r for r in escrow_rows
                  if abs(_amt(r) - abs(delta)) < 0.01
-                 and r is not orph and r is not closest
-                 and id(r) in orphan_set),   # only orphans count as suspects
+                 and r is not ub and r is not closest
+                 and id(r) in orphan_set),
                 None
             )
-            delta_match_note = ''
-            if delta_match:
-                dm_desc = (delta_match.get('desc') or '')[:60]
-                dm_side = 'Credit' if not _is_debit(delta_match) else 'Debit'
-                delta_match_note = (
-                    f"\n    ⚡ Delta ${abs(delta):.2f} matches another orphan escrow entry:\n"
-                    f"       {dm_side} ${_amt(delta_match):.2f} — \"{dm_desc}\" "
-                    f"(tID: {delta_match.get('tID','')})\n"
-                    f"    Both orphan entries together may represent the same cash event "
-                    f"recorded twice from different sources."
-                )
-
-            # Build correcting journal suggestion
-            if delta > 0:
-                # Orphan is LARGER — closing records under-funded escrow by delta
-                fix_cr = 'Acct.Cash.Escrow'
-                fix_dr = 'Acct.Equity.Owner.Capital.Funds'
-                fix_desc = (
-                    f"Post reconciling entry to llcAssets:\n"
-                    f"    DEBIT  {fix_dr}  ${abs(delta):.2f}\n"
-                    f"    CREDIT {fix_cr}  ${abs(delta):.2f}\n"
-                    f"  This records the ${abs(delta):.2f} difference between the bank wire "
-                    f"and closing statement as an owner equity adjustment."
-                )
-            else:
-                # Orphan is SMALLER — closing records over-funded escrow by abs(delta)
-                fix_dr = 'Acct.Cash.Escrow'
-                fix_cr = 'Acct.Cash.Bank'
-                fix_desc = (
-                    f"Post reconciling entry to llcAssets:\n"
-                    f"    DEBIT  {fix_dr}  ${abs(delta):.2f}\n"
-                    f"    CREDIT {fix_cr}  ${abs(delta):.2f}\n"
-                    f"  This records a ${abs(delta):.2f} refund from escrow back to the bank."
+            if dup_match:
+                dup_note = (
+                    f"\n  Note: another unbalanced entry of ${_amt(dup_match):.2f} "
+                    f"(tID: {dup_match.get('tID','')}) also equals this difference — "
+                    f"may be the same transaction recorded twice."
                 )
 
             recon_notes.append(
-                f"\n── Bank vs Closing Reconciliation ──\n"
-                f"  Bank entry  ({o_tdb}):  ${o_amt:>12.2f}  \"{o_desc}\"\n"
-                f"  Closing entry:           ${_amt(closest):>12.2f}  \"{c_desc}\"\n"
-                f"  Discrepancy:             ${delta:>+12.2f}  ({pct:.2f}%)"
-                + delta_match_note
-                + f"\n\n  HIGHEST-PROBABILITY CAUSE:\n"
-                  f"  Assuming both the bank record and closing records are correct,\n"
-                  f"  the ${abs(delta):.2f} difference is an unreconciled amount between them.\n"
-                  f"  Recommended fix:\n    {fix_desc}"
-                + f"\n\n  OTHER POSSIBLE CAUSES (lower probability):\n"
-                  f"  a) The bank entry duplicates the closing entry (same cash event, "
-                  f"two sources). Fix: remove the bank entry ({orph.get('tID','')}).\n"
-                  f"  b) A closing-statement line item is missing from PropAgent records. "
-                  f"Fix: add the missing line and re-commit via PropAgent."
+                f"\nBank vs Closing:\n"
+                f"  Bank ({ub_tdb}):  ${ub_amt:.2f}  \"{ub_desc}\"  (tID: {ub.get('tID','')})\n"
+                f"  Closing:         ${cl_amt:.2f}  \"{cl_desc}\"\n"
+                f"  Difference:      ${abs(delta):.2f}\n"
+                + dup_note +
+                f"\nTo fix:\n"
+                f"  Option A — Post a correcting entry to llcAssets:\n"
+                f"    DEBIT  {fix_dr}  ${abs(delta):.2f}\n"
+                f"    CREDIT {fix_cr}  ${abs(delta):.2f}\n"
+                f"  Option B — If the bank entry is a duplicate of the closing entry,\n"
+                f"    remove tID {ub.get('tID','')} from {ub_tdb}.\n"
+                f"  Option C — If a closing line item is missing,\n"
+                f"    add the missing entry via PropAgent and re-commit."
             )
 
-        # Base description
-        side_note = (
-            f"Debits ({d:.2f}) exceed Credits ({c:.2f}) by {balance:.2f}."
-            if balance > 0 else
-            f"Credits ({c:.2f}) exceed Debits ({d:.2f}) by {abs(balance):.2f}."
+        # ── Build description ─────────────────────────────────────────────
+        ub_tids = '  '.join(r.get('tID', '') for r in unbalanced[:5])
+        ub_line = (
+            f"\nUnbalanced transaction(s) ({len(unbalanced)}): {ub_tids}"
+            if unbalanced else ''
         )
-        orphan_summary = ''
-        if orphans:
-            orphan_tids = '  '.join(r.get('tID', '') for r in orphans[:5])
-            orphan_summary = (
-                f"\n\nORPHAN ENTRIES ({len(orphans)}) — direct-posted, no double-entry pair:\n"
-                f"  {orphan_tids}"
-            )
 
         description = (
-            f"Acct.Cash.Escrow balance = {balance:+.2f}  (Debit={d:.2f}, Credit={c:.2f}).\n"
-            + side_note
-            + orphan_summary
+            f"Acct.Cash.Escrow balance = {balance:+.2f}  "
+            f"(Debit={d:.2f}, Credit={c:.2f})."
+            + ub_line
             + ''.join(recon_notes)
         )
-        if not recon_notes:
+        if not recon_notes and unbalanced:
             description += (
-                "\n\nNo close-amount PropAgent match found for the orphan entry. "
-                "Verify the orphan tID in the source DB and confirm it was not "
-                "entered manually in place of a PropAgent commit."
+                "\n\nNo matching closing entry found for the unbalanced transaction. "
+                "Verify the tID in the source DB and confirm it was not posted manually "
+                "in place of a PropAgent commit."
             )
 
         corr_desc = (
-            "Post the recommended reconciling journal entry to llcAssets (see description). "
+            "Choose Option A, B, or C in the description above. "
             "Re-run Audit after saving to confirm Acct.Cash.Escrow nets to $0."
         ) if recon_notes else (
-            "Verify each orphan entry (tID listed above). If it duplicates a PropAgent "
-            "record, remove it. If it is the only record, re-commit via PropAgent."
+            "Verify each unbalanced transaction (tID listed above). "
+            "If it duplicates a PropAgent record, remove it. "
+            "If it is the only record, re-commit via PropAgent."
         )
 
         return [{
@@ -577,7 +534,7 @@ class GLAuditor:
         tid    = r.get('tID', '')
 
         # Strategy 1: srcTID cross-acct match
-        if src and src != tid:  # non-orphan: srcTID was set by toDoubleEntry
+        if src and src != tid:  # balanced: srcTID was set by toDoubleEntry
             for other in self._src_idx.get(src, []):
                 if other.get('acct') != acct:
                     return True, 'srcTID-pair'
@@ -625,7 +582,7 @@ class GLAuditor:
                     continue  # counter confirmed — not truly single-sided
                 row_dict = _fmt(r)
                 row_dict['side']   = side
-                row_dict['reason'] = 'orphan: srcTID=tID' if (
+                row_dict['reason'] = 'unbalanced: no double-entry counterpart' if (
                     not r.get('srcTID') or r.get('srcTID') == r.get('tID')
                 ) else 'no-counter-found'
                 affected.append(row_dict)
@@ -647,7 +604,7 @@ class GLAuditor:
                 "  Counter detection uses (1) srcTID cross-account match, then\n"
                 "  (2) tID sign-flip (Credit tIDs are date_-amt.xx; Debit are date_+amt.xx).\n"
                 "  Entries passing either test are excluded from this list.\n\n"
-                "ROOT CAUSE: rows with reason='orphan: srcTID=tID' were direct-posted\n"
+                "ROOT CAUSE: rows with reason='unbalanced: no double-entry counterpart' were direct-posted\n"
                 "  (not via toDoubleEntry). Check if Ledger=nan in the source record —\n"
                 "  that prevents automatic counter-entry generation."
             ),
