@@ -6,11 +6,13 @@ flags issues, then proposes corrective actions for the operator to approve.
 
 Checks:
   TB_IMBALANCE   — Σ Debit ≠ Σ Credit in the Trial Balance
+  ACCT_EQUATION  — Assets ≠ Liabilities + Equity (accounting equation)
   DUP_TXN        — rows flagged ⚠ Dup (same tID across multiple source DBs)
   ZERO_AMT       — non-COA rows with amt = 0 (template/null entries)
   UNCLASSIFIED   — acctType empty or not in the 5 standard types
   BAD_ACCT_TYPE  — acctType present but not in {Asset,Liability,Equity,Income,Expense}
   SINGLE_SIDE    — an account has entries on only one side (Debit-only or Credit-only)
+  ESCROW_IMBALANCE — Acct.Cash.Escrow clearing account does not net to $0
 '''
 
 from __future__ import annotations
@@ -21,13 +23,15 @@ from typing import Any, Dict, List
 
 _KNOWN_TYPES = {'Asset', 'Liability', 'Equity', 'Income', 'Expense'}
 
-# Map refDB string → fully-qualified class path for load()/save()
+# Map tDB string → fully-qualified class path for load()/save()
 _REFDB_CLASS: Dict[str, str] = {
     'llcExpRev':      'ledger.llcExpRev.llcExpRev',
     'llcAssets':      'ledger.llcAssets.llcAssets',
     'llcPayables':    'ledger.llcPayables.llcPayables',
     'llcReceivables': 'ledger.llcReceivables.llcReceivables',
 }
+
+_SEV_ORDER = {'error': 0, 'warning': 1}
 
 
 class GLAuditor:
@@ -36,19 +40,24 @@ class GLAuditor:
     def __init__(self, llc, gl_records: List[Dict[str, Any]]):
         self.llc   = llc
         # Exclude COA seed rows from all checks
-        self._rows = [r for r in (gl_records or []) if r.get('refDB') != 'COA']
+        self._rows = [r for r in (gl_records or []) if r.get('tDB') != 'COA'
+                      and r.get('refDB') != 'COA']
 
     # ── Public API ───────────────────────────────────────────────────────
 
     def audit(self) -> Dict[str, Any]:
-        '''Run all checks and return a structured audit report.'''
+        '''Run all checks and return a structured audit report. Errors listed before warnings.'''
         issues: List[Dict[str, Any]] = []
         issues += self._check_tb_balance()
+        issues += self._check_accounting_equation()
         issues += self._check_duplicates()
         issues += self._check_zero_amounts()
         issues += self._check_unclassified()
         issues += self._check_single_side()
         issues += self._check_escrow_balance()
+
+        # Errors first, then warnings, preserving insertion order within each group
+        issues.sort(key=lambda i: _SEV_ORDER.get(i.get('severity', 'warning'), 99))
 
         errors   = sum(1 for i in issues if i['severity'] == 'error')
         warnings = sum(1 for i in issues if i['severity'] == 'warning')
@@ -65,7 +74,7 @@ class GLAuditor:
     def apply_corrections(self, corrections: List[Dict[str, Any]]) -> Dict[str, Any]:
         '''
         Apply auto-applicable corrections approved by the operator.
-        Each item: {'code': str, 'entries': [{tID, refDB, acct, ...}]}
+        Each item: {'code': str, 'entries': [{tID, tDB, acct, ...}]}
         Supported auto-apply codes: DUP_TXN, ZERO_AMT.
         '''
         applied: List[str] = []
@@ -90,7 +99,6 @@ class GLAuditor:
         if abs(diff) < 0.01:
             return []
 
-        # Per-acctType breakdown to pinpoint which group is imbalanced
         by_type: Dict[str, Dict[str, float]] = defaultdict(lambda: {'D': 0.0, 'C': 0.0})
         for r in self._rows:
             at  = r.get('acctType', '—') or '—'
@@ -130,6 +138,59 @@ class GLAuditor:
             },
         }]
 
+    def _check_accounting_equation(self) -> List[Dict[str, Any]]:
+        '''Assets = Liabilities + Equity (the fundamental accounting equation).'''
+        by_type: Dict[str, Dict[str, float]] = defaultdict(lambda: {'D': 0.0, 'C': 0.0})
+        for r in self._rows:
+            at  = r.get('acctType', '') or ''
+            amt = float(r.get('amt') or 0)
+            if str(r.get('aType', '')).lower() in ('debit', 'dr', 'd'):
+                by_type[at]['D'] += amt
+            else:
+                by_type[at]['C'] += amt
+
+        # Net balances: Assets carry Debit balance; Liabilities/Equity carry Credit balance
+        asset_bal = round(by_type['Asset']['D']     - by_type['Asset']['C'],     2)
+        liab_bal  = round(by_type['Liability']['C'] - by_type['Liability']['D'], 2)
+        eq_bal    = round(by_type['Equity']['C']    - by_type['Equity']['D'],    2)
+
+        lhs  = round(asset_bal, 2)           # Total Assets
+        rhs  = round(liab_bal + eq_bal, 2)   # Total Liabilities + Equity
+        diff = round(lhs - rhs, 2)
+
+        status = '✅ Holds' if abs(diff) < 0.01 else f'❌ Fails (diff={diff:+.2f})'
+        if abs(diff) < 0.01:
+            return []
+
+        return [{
+            'code':     'ACCT_EQUATION',
+            'severity': 'error',
+            'title':    f'Accounting Equation Fails — Assets ≠ Liabilities + Equity',
+            'description': (
+                f"Assets ({asset_bal:.2f}) ≠ Liabilities ({liab_bal:.2f}) + Equity ({eq_bal:.2f}).\n"
+                f"L + E total = {rhs:.2f}  |  Difference = {diff:+.2f}\n\n"
+                "The fundamental equation A = L + E must always hold.\n"
+                "Common causes: mis-classified acctType, missing counterpart entry, "
+                "or Income/Expense accounts not yet closed to Equity."
+            ),
+            'affected': [
+                {'type': 'Assets',      'balance': asset_bal},
+                {'type': 'Liabilities', 'balance': liab_bal},
+                {'type': 'Equity',      'balance': eq_bal},
+                {'type': 'L + E total', 'balance': rhs},
+                {'type': 'Difference',  'balance': diff},
+            ],
+            'correction': {
+                'type':       'manual',
+                'auto_apply': False,
+                'description': (
+                    "Review the Balance Sheet. Identify accounts that are "
+                    "mis-classified or transactions missing their counterpart entry."
+                ),
+                'entries': [],
+            },
+        }]
+
     def _check_duplicates(self) -> List[Dict[str, Any]]:
         # Only flag non-zero dups; zero-amount dups are caught by ZERO_AMT
         dup_rows = [
@@ -144,15 +205,16 @@ class GLAuditor:
 
         issues = []
         for tid, entries in by_tid.items():
-            dbs = sorted({e.get('refDB', '') for e in entries})
+            dbs = sorted({e.get('tDB', '') or e.get('refDB', '') for e in entries})
+            # Sort by abs(amt) descending
+            entries_sorted = sorted(entries, key=lambda e: abs(float(e.get('amt') or 0)), reverse=True)
             affected = [
                 {'tID': e.get('tID'), 'acct': e.get('acct'),
-                 'refDB': e.get('refDB'), 'amt': e.get('amt')}
-                for e in entries
+                 'tDB': e.get('tDB', '') or e.get('refDB', ''), 'amt': e.get('amt')}
+                for e in entries_sorted
             ]
-            # Keep first occurrence; remove the rest
             to_remove = [
-                {'tID': e.get('tID'), 'refDB': e.get('refDB'),
+                {'tID': e.get('tID'), 'tDB': e.get('tDB', '') or e.get('refDB', ''),
                  'acct': e.get('acct'), 'lineNo': e.get('_lineNo')}
                 for e in entries[1:]
             ]
@@ -188,11 +250,11 @@ class GLAuditor:
             return []
         affected = [
             {'tID': r.get('tID'), 'acct': r.get('acct'),
-             'refDB': r.get('refDB'), 'desc': r.get('desc', '')}
+             'tDB': r.get('tDB', '') or r.get('refDB', ''), 'desc': r.get('desc', '')}
             for r in zero_rows
         ]
         entries = [
-            {'tID': r.get('tID'), 'refDB': r.get('refDB'),
+            {'tID': r.get('tID'), 'tDB': r.get('tDB', '') or r.get('refDB', ''),
              'acct': r.get('acct'), 'lineNo': r.get('_lineNo')}
             for r in zero_rows
         ]
@@ -235,7 +297,7 @@ class GLAuditor:
                 ),
                 'affected': [
                     {'tID': r.get('tID'), 'acct': r.get('acct'),
-                     'refDB': r.get('refDB')}
+                     'tDB': r.get('tDB', '') or r.get('refDB', '')}
                     for r in unknown
                 ],
                 'correction': {
@@ -259,7 +321,8 @@ class GLAuditor:
                 ),
                 'affected': [
                     {'tID': r.get('tID'), 'acct': r.get('acct'),
-                     'acctType': r.get('acctType'), 'refDB': r.get('refDB')}
+                     'acctType': r.get('acctType'),
+                     'tDB': r.get('tDB', '') or r.get('refDB', '')}
                     for r in bad
                 ],
                 'correction': {
@@ -275,36 +338,54 @@ class GLAuditor:
         return issues
 
     def _check_single_side(self) -> List[Dict[str, Any]]:
-        by_acct: Dict[str, Dict[str, float]] = defaultdict(lambda: {'D': 0.0, 'C': 0.0})
+        by_acct_totals: Dict[str, Dict[str, float]] = defaultdict(lambda: {'D': 0.0, 'C': 0.0})
+        by_acct_rows:   Dict[str, List[Dict]]        = defaultdict(list)
         for r in self._rows:
             acct = r.get('acct', '') or ''
             amt  = float(r.get('amt') or 0)
             if str(r.get('aType', '')).lower() in ('debit', 'dr', 'd'):
-                by_acct[acct]['D'] += amt
+                by_acct_totals[acct]['D'] += amt
             else:
-                by_acct[acct]['C'] += amt
+                by_acct_totals[acct]['C'] += amt
+            by_acct_rows[acct].append(r)
 
-        one_sided = []
-        for acct, v in by_acct.items():
+        affected = []
+        for acct, v in by_acct_totals.items():
             d, c = round(v['D'], 2), round(v['C'], 2)
-            if d > 0 and c == 0:
-                one_sided.append({'acct': acct, 'side': 'Debit-only',
-                                   'Debit': d, 'Credit': 0.0})
-            elif c > 0 and d == 0:
-                one_sided.append({'acct': acct, 'side': 'Credit-only',
-                                   'Debit': 0.0, 'Credit': c})
-        if not one_sided:
+            if not (d > 0 and c == 0) and not (c > 0 and d == 0):
+                continue
+            side = 'Debit-only' if d > 0 else 'Credit-only'
+            # Individual transactions for this account, sorted by abs(amt) descending
+            rows = sorted(by_acct_rows[acct],
+                          key=lambda r: abs(float(r.get('amt') or 0)), reverse=True)
+            for r in rows:
+                affected.append({
+                    'acct':  acct,
+                    'side':  side,
+                    'tID':   r.get('tID', ''),
+                    'tDB':   r.get('tDB', '') or r.get('refDB', ''),
+                    'aType': r.get('aType', ''),
+                    'amt':   r.get('amt', 0),
+                    'dt':    r.get('dt', ''),
+                })
+
+        if not affected:
             return []
+
+        # Sort overall list by abs(amt) descending
+        affected.sort(key=lambda x: abs(float(x.get('amt') or 0)), reverse=True)
+
+        n_accts = len({a['acct'] for a in affected})
         return [{
             'code':     'SINGLE_SIDE',
             'severity': 'warning',
-            'title':    f'Single-Sided Account Balances ({len(one_sided)})',
+            'title':    f'Single-Sided Account Balances ({n_accts} account(s))',
             'description': (
-                f"{len(one_sided)} account(s) have entries on only one side "
+                f"{n_accts} account(s) have entries on only one side "
                 "(all Debit or all Credit). This may indicate a missing "
                 "counterpart dual-entry."
             ),
-            'affected': one_sided,
+            'affected': affected,
             'correction': {
                 'type':       'manual',
                 'auto_apply': False,
@@ -342,8 +423,9 @@ class GLAuditor:
         sorted_rows = sorted(escrow_rows, key=lambda r: abs(float(r.get('amt') or 0)), reverse=True)
         affected = [
             {
+                'acct':  r.get('acct', ''),
                 'tID':   r.get('tID', ''),
-                'refDB': r.get('refDB', ''),
+                'tDB':   r.get('tDB', '') or r.get('refDB', ''),
                 'aType': r.get('aType', ''),
                 'amt':   r.get('amt', 0),
                 'dt':    r.get('dt', ''),
@@ -352,12 +434,10 @@ class GLAuditor:
             for r in sorted_rows
         ]
 
-        # Identify the imbalance direction and its accounting meaning.
         if balance < 0:  # Credit > Debit
             imbalance_explain = (
                 f"Credits ({c:.2f}) exceed Debits ({d:.2f}) by {abs(balance):.2f}.\n"
-                "This means cash OUTFLOWS from escrow (disbursements to sellers, "
-                "closing costs, etc.) were posted but the matching cash INFLOW "
+                "Cash OUTFLOWS from escrow were posted but the matching cash INFLOW "
                 "(funding of the escrow account) was never recorded.\n"
                 "MISSING ENTRY: a Debit to Acct.Cash.Escrow offset by a Credit to\n"
                 "  - Acct.Cash.Bank (LLC wire / bank transfer to escrow), OR\n"
@@ -373,15 +453,13 @@ class GLAuditor:
                 "purchase line items (asset, closing costs, etc.)."
             )
 
-        # Explain where the GL picks up escrow rows.
         source_explain = (
             "WHERE THESE ROWS COME FROM:\n"
             "The GL contains an Acct.Cash.Escrow row for every source record where:\n"
             "  (a) acct = 'Acct.Cash.Escrow'  (direct posting), OR\n"
             "  (b) Ledger = 'Acct.Cash.Escrow' (toDoubleEntry() generates the\n"
-            "      counter-entry automatically — the original record uses a\n"
-            "      different account as its primary acct).\n"
-            "Check the tID/refDB in the affected list to trace which source DB\n"
+            "      counter-entry automatically).\n"
+            "Check the tID/tDB in the affected list to trace which source DB\n"
             "record generated each row."
         )
 
@@ -391,12 +469,11 @@ class GLAuditor:
             + imbalance_explain + "\n\n"
             + source_explain + "\n\n"
             "HOW TO FIX:\n"
-            "  1. Check each row in the affected list (tID + refDB) to find\n"
+            "  1. Check each row in the affected list (tID + tDB) to find\n"
             "     which source records are responsible.\n"
             "  2. If the closing journal was entered without Ledger='Acct.Cash.Escrow',\n"
             "     open PropAgent → re-commit the property closing.  PropAgent\n"
-            "     sets Ledger='Acct.Cash.Escrow' on every disbursement row and\n"
-            "     posts the offsetting cash-in entry automatically.\n"
+            "     sets Ledger='Acct.Cash.Escrow' on every disbursement row.\n"
             "  3. After fixing, reload the GL and re-run Audit — this issue\n"
             "     should disappear and Acct.Cash.Escrow should show $0.00."
         )
@@ -425,17 +502,17 @@ class GLAuditor:
         '''Remove specific tID rows from their source DBs.'''
         by_db: Dict[str, set] = defaultdict(set)
         for e in entries:
-            refdb = e.get('refDB', '')
-            tid   = e.get('tID', '')
-            if refdb and tid:
-                by_db[refdb].add(tid)
+            tdb = e.get('tDB', '') or e.get('refDB', '')
+            tid = e.get('tID', '')
+            if tdb and tid:
+                by_db[tdb].add(tid)
 
         applied: List[str] = []
         errors:  List[str] = []
-        for refdb, tids in by_db.items():
-            cls_path = _REFDB_CLASS.get(refdb)
+        for tdb, tids in by_db.items():
+            cls_path = _REFDB_CLASS.get(tdb)
             if not cls_path:
-                errors.append(f"Unknown source DB: {refdb}")
+                errors.append(f"Unknown source DB: {tdb}")
                 continue
             try:
                 mod_name, cls_name = cls_path.rsplit('.', 1)
@@ -447,10 +524,10 @@ class GLAuditor:
                 records = [r for r in records if self._row_tid(r) not in tids]
                 obj.save(records)
                 applied.append(
-                    f"Removed {before - len(records)} record(s) from {refdb}"
+                    f"Removed {before - len(records)} record(s) from {tdb}"
                 )
             except Exception as err:
-                errors.append(f"Error updating {refdb}: {err}")
+                errors.append(f"Error updating {tdb}: {err}")
         return {'applied': applied, 'errors': errors}
 
     @staticmethod

@@ -109,12 +109,17 @@
         const s = data.summary;
         const issues = data.issues || [];
 
+        const eqIssue   = issues.find(i => i.code === 'ACCT_EQUATION');
+        const eqChip    = eqIssue
+            ? `<span class="aud-chip dirty" title="${eqIssue.title}">❌ A ≠ L+E</span>`
+            : `<span class="aud-chip clean" title="Assets = Liabilities + Equity">✅ A = L+E</span>`;
         const summaryHtml = `
             <div class="aud-summary">
                 <span class="aud-title">🔍 GL Audit Report</span>
                 <span class="aud-chip ${s.clean ? 'clean' : 'dirty'}">
                     ${s.clean ? '✅ Clean' : `${s.errors} error${s.errors!==1?'s':''}, ${s.warnings} warning${s.warnings!==1?'s':''}`}
                 </span>
+                ${eqChip}
                 <button class="aud-close" onclick="closeAudit()">✕ Close</button>
             </div>`;
 
