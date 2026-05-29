@@ -42,11 +42,25 @@ if _default is None:
 LLC_NAME, LLC_YEAR = _default
 _sp.load_config(LLC_NAME, LLC_YEAR)
 
-from util.utilEditSession import utilEditSession
-from ui.llcMgmt import llcMgmt
+import traceback as _tb
 
-_eSession = utilEditSession(llcName=LLC_NAME, year=LLC_YEAR, load=True)
-_mgmt = llcMgmt(_eSession)
+try:
+    from util.utilEditSession import utilEditSession
+    from ui.llcMgmt import llcMgmt
 
-# PythonAnywhere (and any WSGI server) looks for `application`.
-application = _mgmt.app
+    _eSession = utilEditSession(llcName=LLC_NAME, year=LLC_YEAR, load=True)
+    _mgmt     = llcMgmt(_eSession)
+    application = _mgmt.app
+
+except Exception as _startup_err:
+    # Emit full traceback to the uWSGI log so PA's error tab shows it.
+    _tb.print_exc()
+    # Expose a minimal WSGI app that returns the traceback as plain text
+    # so the PA "browser" preview also shows the error.
+    _tb_text = _tb.format_exc()
+    def application(environ, start_response):
+        body = f"LLC Startup Error:\n\n{_tb_text}".encode()
+        start_response("500 Internal Server Error",
+                       [("Content-Type", "text/plain"),
+                        ("Content-Length", str(len(body)))])
+        return [body]
