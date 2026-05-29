@@ -1509,6 +1509,38 @@ class llcMgmt:
 
         # ── GL Audit routes ────────────────────────────────────────────────────
 
+        @app.route("/api/debug/sources")
+        def debug_sources():
+            '''Show exact file paths and record counts read by the GL engine.'''
+            import json as _json
+            from pathlib import Path as _Path
+            info = {}
+            for src in ('llcAssets', 'llcExpRev', 'llcPayables', 'llcReceivables'):
+                wk = self.eSession.oDict.get(src)
+                if wk is None:
+                    info[src] = {'error': 'not in eSession.oDict'}
+                    continue
+                real_fn   = wk.o.FN()
+                temp_fn   = wk.FN()
+                real_path = _Path(real_fn)
+                temp_path = _Path(temp_fn)
+                real_count = None
+                if real_path.exists():
+                    try:
+                        real_count = len(_json.loads(real_path.read_text()))
+                    except Exception as e:
+                        real_count = f'parse error: {e}'
+                info[src] = {
+                    'real_path':   real_fn,
+                    'real_exists': real_path.exists(),
+                    'real_count':  real_count,
+                    'temp_path':   temp_fn,
+                    'temp_exists': temp_path.exists(),
+                }
+            return jsonify({'ok': True, 'sources': info,
+                            'llc_top': str(self.eSession.llc.TOP),
+                            'acct_dir': self.eSession.llc.acctDir()})
+
         @app.route("/api/audit/gl")
         def audit_gl():
             '''Run all GL audit checks and return structured findings.'''
