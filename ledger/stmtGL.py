@@ -203,8 +203,23 @@ class ledgerGeneral(ledgerObject):
 
         Both entries drop the 'Ledger' key, recompute tID, and re-type acctType.
         Records without a Ledger pass through as a single entry.
+
+        tID uniqueness: within one source DB, two different transactions can
+        produce the same base tID (same date + same signed amount).  A per-call
+        counter suffix (_001, _002 …) is appended on collision so every GL
+        entry has a unique tID.  The first occurrence keeps the bare tID so
+        existing references are unchanged; only duplicates get a suffix.
         '''
-        result = []
+        result  = []
+        seen: dict = {}   # base_tID → count of times already used
+
+        def _unique_tid(base: str) -> str:
+            if base not in seen:
+                seen[base] = 0
+                return base
+            seen[base] += 1
+            return f"{base}_{seen[base]:03d}"
+
         for r in records:
             _lv = r.get('Ledger')
             ledger_acct = (
@@ -216,7 +231,7 @@ class ledgerGeneral(ledgerObject):
             src_tid = r.get('tID', '') or ''
             e1 = {k: v for k, v in r.items() if k not in ('Ledger', 'tID')}
             e1['srcTID']   = src_tid
-            e1['tID']      = toTid(e1)
+            e1['tID']      = _unique_tid(toTid(e1))
             e1['acctType'] = self.coa._Type(e1.get('acct', ''))
             result.append(e1)
 
@@ -225,7 +240,7 @@ class ledgerGeneral(ledgerObject):
                 e2['acct']     = ledger_acct
                 e2['aType']    = self._toggle_atype(r.get('aType', 'Debit'))
                 e2['srcTID']   = src_tid
-                e2['tID']      = toTid(e2)
+                e2['tID']      = _unique_tid(toTid(e2))
                 e2['acctType'] = self.coa._Type(e2['acct'])
                 result.append(e2)
         return result
