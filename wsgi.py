@@ -52,6 +52,25 @@ try:
     _mgmt     = llcMgmt(_eSession)
     application = _mgmt.app
 
+    # ── Startup path diagnostics (printed to uWSGI server log) ──────────
+    print("=== STARTUP PATH DIAGNOSTICS ===", flush=True)
+    print(f"  config file : {_sp.CONFIG_FILE}", flush=True)
+    print(f"  LLC_NAME    : {LLC_NAME}  year={LLC_YEAR}", flush=True)
+    print(f"  TOP         : {_sp.TOP}", flush=True)
+    print(f"  BOOKS_DIR   : {_sp.BOOKS_DIR}", flush=True)
+    for _src in ('llcAssets', 'llcExpRev', 'llcPayables', 'llcReceivables'):
+        _wk = _eSession.oDict.get(_src)
+        if _wk:
+            _real = _wk.o.FN()
+            _exists = Path(_real).exists()
+            _count = '?'
+            if _exists:
+                import json as _j
+                try: _count = len(_j.loads(Path(_real).read_text()))
+                except: _count = 'parse-error'
+            print(f"  {_src:20s}: {_real}  exists={_exists}  records={_count}", flush=True)
+    print("=== END DIAGNOSTICS ===", flush=True)
+
 except Exception as _startup_err:
     # Emit full traceback to the uWSGI log so PA's error tab shows it.
     _tb.print_exc()
