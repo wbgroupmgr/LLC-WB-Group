@@ -85,6 +85,29 @@ def _subset_summing_to(rows: List[Dict], target: float,
     return None
 
 
+def _best_subset_match(rows: List[Dict], target: float) -> List[Dict]:
+    '''
+    Find the subset of rows (using abs amounts) whose sum is closest to target.
+    Returns the best-matching subset — exact match if found, nearest otherwise.
+    Cap at 20 rows to keep brute-force feasible.
+    '''
+    if not rows:
+        return []
+    cap = rows[:20]
+    best_diff  = float('inf')
+    best_combo: List[Dict] = []
+    for size in range(1, len(cap) + 1):
+        for combo in itertools.combinations(cap, size):
+            s    = sum(_amt(r) for r in combo)
+            diff = abs(s - target)
+            if diff < best_diff:
+                best_diff  = diff
+                best_combo = list(combo)
+            if best_diff < 0.01:
+                return best_combo   # exact match — no need to search further
+    return best_combo
+
+
 class GLAuditor:
     '''Run accounting-compliance checks on a GL record list.'''
 
@@ -321,15 +344,15 @@ class GLAuditor:
             ub_tdb  = _tdb(ub) or ub.get('tID', '')
             ub_desc = (ub.get('desc') or '')[:60]
 
-            # Search ALL escrow rows (paired or not) for the closest amount on the same side,
-            # excluding the entry itself. This handles cases where the matching closing
-            # entry is also unbalanced.
+            # Find best-matching subset of same-side escrow rows (excluding this entry).
+            # Sum all matching closing records rather than picking just one.
             same_side = [r for r in escrow_rows if _is_debit(r) == _is_debit(ub) and r is not ub]
             if not same_side:
                 continue
-            closest   = min(same_side, key=lambda r: abs(_amt(r) - ub_amt))
-            cl_amt    = _amt(closest)
-            cl_desc   = (closest.get('desc') or '')[:60]
+            cl_subset = _best_subset_match(same_side, ub_amt)
+            cl_amt    = round(sum(_amt(r) for r in cl_subset), 2)
+            cl_count  = len(cl_subset)
+            cl_label  = f"{cl_count} record{'s' if cl_count != 1 else ''}"
             delta     = round(ub_amt - cl_amt, 2)
             if abs(delta) < 0.01:
                 continue
@@ -340,12 +363,12 @@ class GLAuditor:
             else:
                 fix_dr, fix_cr = 'Acct.Cash.Escrow', 'Acct.Cash.Bank'
 
-            # Check for another unbalanced entry matching the delta (same-side only)
+            # Check for another unbalanced entry matching the delta
             dup_note = ''
             dup_match = next(
                 (r for r in escrow_rows
                  if abs(_amt(r) - abs(delta)) < 0.01
-                 and r is not ub and r is not closest
+                 and r is not ub and id(r) not in set(id(x) for x in cl_subset)
                  and id(r) in orphan_set),
                 None
             )
@@ -358,14 +381,14 @@ class GLAuditor:
 
             recon_notes.append(
                 f"\nBank vs Closing:\n"
-                f"  Bank ({ub_tdb}):  ${ub_amt:.2f}  \"{ub_desc}\"  (tID: {ub.get('tID','')})\n"
-                f"  Closing:         ${cl_amt:.2f}  \"{cl_desc}\"\n"
-                f"  Difference:      ${abs(delta):.2f}\n"
+                f"  Bank ({ub_tdb}):  ${ub_amt:,.2f}  \"{ub_desc}\"  (tID: {ub.get('tID','')})\n"
+                f"  Closing ({cl_label}):  ${cl_amt:,.2f}\n"
+                f"  Difference:      ${abs(delta):,.2f}\n"
                 + dup_note +
                 f"\nTo fix:\n"
                 f"  Option A — Post a correcting entry to llcAssets:\n"
-                f"    DEBIT  {fix_dr}  ${abs(delta):.2f}\n"
-                f"    CREDIT {fix_cr}  ${abs(delta):.2f}\n"
+                f"    DEBIT  {fix_dr}  ${abs(delta):,.2f}\n"
+                f"    CREDIT {fix_cr}  ${abs(delta):,.2f}\n"
                 f"  Option B — If the bank entry is a duplicate of the closing entry,\n"
                 f"    remove tID {ub.get('tID','')} from {ub_tdb}.\n"
                 f"  Option C — If a closing line item is missing,\n"
