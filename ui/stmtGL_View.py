@@ -103,7 +103,8 @@ class stmtGL_View:
         Pipeline: AggBy().ViewBy(view_by, include_coa_seed=False).load().
         Returns flat transaction rows under the selected view_by.
         '''
-        self._stmt = None   # always rebuild from live GL on each explicit load
+        self._stmt = None                   # force rebuild from live GL
+        self.engine._gl_cache = None        # clear engine cache so _load_source re-reads from disk
         s = self._ensure_stmt()
         self._last_view_by = view_by
         return s.view(view_by=view_by, include_coa_seed=False)
