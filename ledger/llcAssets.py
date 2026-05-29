@@ -73,10 +73,10 @@ import datetime
 from ledger.ledgerDB import ledgerDB
 
 # Get balances from most ledgers, debit:+ , credit:-
-getBal = lambda df : df.apply(lambda r: abs(r.amt) if r.aType == 'Debit' else -abs(r.amt), axis=1)
+getBal = lambda df : df.apply(lambda r: abs(float(r.amt or 0)) if r.aType == 'Debit' else -abs(float(r.amt or 0)), axis=1)
 
 # Get balances from Asset ledger, debit:- , credit:+
-getBalSh = lambda df : df.apply(lambda r: -abs(r.amt) if r.aType == 'Debit' else abs(r.amt), axis=1)
+getBalSh = lambda df : df.apply(lambda r: -abs(float(r.amt or 0)) if r.aType == 'Debit' else abs(float(r.amt or 0)), axis=1)
     
 
 

@@ -84,6 +84,12 @@ class llcRecordsView:
                 lv = tDict['Ledger']
                 if lv is None or (isinstance(lv, str) and lv.strip().lower() in ('nan', '')):
                     tDict['Ledger'] = 'nan'
+            # Coerce amt to float so getBal/getBalSh never receive a string
+            if 'amt' in tDict:
+                try:
+                    tDict['amt'] = float(tDict['amt'] or 0)
+                except (TypeError, ValueError):
+                    tDict['amt'] = 0.0
 
         self.wk.save(payload)          # write to working (temp) file
         self.wk.o.save(payload)        # immediately sync to the committed real file
