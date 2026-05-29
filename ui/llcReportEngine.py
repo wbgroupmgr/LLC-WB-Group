@@ -52,21 +52,12 @@ class llcReportEngine:
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_source(self, name: str) -> List[Dict[str, Any]]:
+        # Immutable stmt objects always read from the real (committed) DB.
+        # savePayload() writes to the real file on every Save so stmt objects
+        # are always 1-1 with the authoritative source of truth.
         wk = self.eSession.oDict.get(name)
         if wk is None:
             return []
-        # Primary: working (temp) file — reflects every editor Save immediately.
-        # The getBal/getBalSh lambdas that previously crashed on string amt are
-        # now fixed (float coercion in ledger/llcAssets.py) so this path is safe.
-        try:
-            from pathlib import Path as _Path
-            if _Path(wk.FN()).exists():
-                wk_data = wk.load()
-                if isinstance(wk_data, list) and wk_data:
-                    return wk_data
-        except Exception:
-            pass
-        # Fallback: committed real file (used on fresh starts before any edits)
         data = wk.o.load()
         return data if isinstance(data, list) else []
 
