@@ -1514,10 +1514,11 @@ class llcMgmt:
             '''Run all GL audit checks and return structured findings.'''
             try:
                 from ledger.auditor import GLAuditor
-                from ledger.stmtGL import stmtGL
-                llc = self.eSession.llc
-                gl_records = list(stmtGL(llc).load() or [])
-                result = GLAuditor(llc, gl_records).audit()
+                from ui.llcReportEngine import llcReportEngine
+                llc        = self.eSession.llc
+                engine     = llcReportEngine(self.eSession)
+                gl_records = engine.getGLList(resolve_dups=True, force=True)
+                result     = GLAuditor(llc, gl_records).audit()
                 return jsonify({"ok": True, **result})
             except HTTPException:
                 raise
@@ -1529,11 +1530,12 @@ class llcMgmt:
             '''Apply operator-approved auto-applicable corrections.'''
             try:
                 from ledger.auditor import GLAuditor
-                from ledger.stmtGL import stmtGL
+                from ui.llcReportEngine import llcReportEngine
                 data        = request.get_json(force=True) or {}
                 corrections = data.get("corrections", [])
                 llc         = self.eSession.llc
-                gl_records  = list(stmtGL(llc).load() or [])
+                engine      = llcReportEngine(self.eSession)
+                gl_records  = engine.getGLList(resolve_dups=True, force=True)
                 result      = GLAuditor(llc, gl_records).apply_corrections(corrections)
                 return jsonify({"ok": True, **result})
             except HTTPException:

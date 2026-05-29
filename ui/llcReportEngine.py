@@ -55,6 +55,16 @@ class llcReportEngine:
         wk = self.eSession.oDict.get(name)
         if wk is None:
             return []
+        # Read from the working (temp) file so the GL reflects the current edit
+        # session state.  wk.load() reads /tmp/<oID>_<llc>_temp.json which is
+        # kept in sync by every Save from the editor.  wk.o.load() reads the
+        # committed real file, which is only updated on Save-Publish — meaning
+        # in-progress edits would be invisible in the GL until published.
+        from pathlib import Path
+        wk_data = wk.load() if Path(wk.FN()).exists() else None
+        if isinstance(wk_data, list) and wk_data:
+            return wk_data
+        # Fallback to real file if working file is absent or empty
         data = wk.o.load()
         return data if isinstance(data, list) else []
 
