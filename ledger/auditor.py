@@ -333,31 +333,40 @@ class GLAuditor:
         affected = sorted([_fmt(r) for r in suspects],
                           key=lambda x: abs(float(x.get('amt') or 0)), reverse=True)
 
-        # ── Forensic Trail ────────────────────────────────────────────────
+        # ── Forensic Trail (HTML table) ───────────────────────────────────
         # Walk from total Escrow Debits through each Credit (largest first),
         # labeling each with its counter-account.  Show a sub-total at the
         # natural midpoint; end with the balance discrepancy and the fix target.
         debit_rows  = sorted([r for r in escrow_rows if _is_debit(r)],     key=_amt, reverse=True)
         credit_rows = sorted([r for r in escrow_rows if not _is_debit(r)], key=_amt, reverse=True)
 
+        def _tr(cls, sym, amt, lbl):
+            # Build one table row — no newlines so \n→<br> in JS won't break the table
+            return (f'<tr class="{cls}">'
+                    f'<td class="t-sym">{sym}</td>'
+                    f'<td class="t-amt">${amt:,.2f}</td>'
+                    f'<td class="t-lbl">{lbl}</td>'
+                    f'</tr>')
+
         n_deb   = len(debit_rows)
-        trail   = [f"  + {d:>12,.2f}  Escrow Debit total  "
-                   f"({n_deb} {'entry' if n_deb == 1 else 'entries'})"]
+        rows    = [_tr('tr-start', '+', d,
+                       f'Escrow Debit total '
+                       f'({n_deb} {"entry" if n_deb == 1 else "entries"})')]
         running = d
-        mid     = max(1, len(credit_rows) // 2) - 1   # show sub-total at midpoint
+        mid     = max(1, len(credit_rows) // 2) - 1   # sub-total after first half
 
         for i, r in enumerate(credit_rows):
             a       = _amt(r)
             running = round(running - a, 2)
             counter = self._find_counter_acct(r)
             tdb     = _tdb(r) or 'Closing'
-            label   = f"{tdb}  →  {counter}" if counter else \
-                      f"{tdb}  {(r.get('desc') or '')[:50]}"
-            trail.append(f"  - {a:>12,.2f}  {label.strip()}")
+            label   = f"{tdb} &rarr; {counter}" if counter else \
+                      f"{tdb} &nbsp; {(r.get('desc') or '')[:50]}"
+            rows.append(_tr('tr-credit', '−', a, label))
             if len(credit_rows) > 2 and i == mid:
-                trail.append(f"  = {running:>12,.2f}  sub total")
+                rows.append(_tr('tr-sub', '=', running, 'sub total'))
 
-        # Identify leading suspect: Equity account seen in closing credits, or default
+        # Identify leading suspect: Equity/Capital account seen in closing credits
         credit_counters = [self._find_counter_acct(r) for r in credit_rows]
         equity_suspects = [a for a in credit_counters if a and ('Equity' in a or 'Capital' in a)]
         fix_dr = equity_suspects[0] if equity_suspects else 'Acct.Equity.Owner.Capital.Funds'
@@ -369,13 +378,16 @@ class GLAuditor:
             fix_dr_act, fix_cr_act = ESCROW, fix_dr
             needs = f"Needs ${abs(balance):,.2f} Debit to {ESCROW}"
 
-        trail.append(f"  = {balance:>12,.2f}  Difference  ← {needs}  — Suspect: {fix_dr}")
+        rows.append(_tr('tr-diff', '=', balance,
+                        f'{needs} &mdash; Suspect: <b>{fix_dr}</b>'))
+        trail_table = '<table class="aud-trail-table">' + ''.join(rows) + '</table>'
 
         description = (
             f"Acct.Cash.Escrow balance = {balance:+.2f}  (Debit={d:,.2f}, Credit={c:,.2f}).\n"
             f"{needs}.\n\n"
-            f"Forensics Trail:\n" + '\n'.join(trail) + '\n\n'
-            f"To fix:\n"
+            f"Forensics Trail:\n"
+            + trail_table +
+            f"\nTo fix:\n"
             f"  Option A — Post a manual correcting entry to llcAssets:\n"
             f"    DEBIT  {fix_dr_act}  ${abs(balance):,.2f}\n"
             f"    CREDIT {fix_cr_act}  ${abs(balance):,.2f}\n"
