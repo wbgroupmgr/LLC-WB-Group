@@ -85,9 +85,10 @@ class llcRecordsView:
                 if lv is None or (isinstance(lv, str) and lv.strip().lower() in ('nan', '')):
                     tDict['Ledger'] = 'nan'
 
-        self.wk.save(payload)
+        self.wk.save(payload)          # write to working (temp) file
+        self.wk.o.save(payload)        # immediately sync to the committed real file
         return
-        
+
     def save(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # Strip acctType from every record so toAcctType() always runs a fresh
         # COA lookup for all rows — never preserves a potentially stale value.
@@ -99,6 +100,7 @@ class llcRecordsView:
         return payload
 
     def save_object(self, data=None) -> List[Dict[str, Any]]:
+        # sync temp → real; payload arg is kept for backward compatibility
         payload = self.toAcctType(self._as_list(self.load() if data is None else data))
         self.wk.o.save(payload)
         return payload
