@@ -52,23 +52,20 @@ class llcReportEngine:
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_source(self, name: str) -> List[Dict[str, Any]]:
-        # Immutable stmt objects always read from the real (committed) DB.
+        # Immutable stmt objects always read the authoritative real DB file.
+        # Read directly from the filesystem path (bypassing wk.o.load()) so
+        # any in-memory caching in llcAssets.fetch()/df does not return stale
+        # data after a Save that updated the file since server startup.
         import json as _json
         from pathlib import Path as _Path
         wk = self.eSession.oDict.get(name)
         if wk is None:
-            print(f"_load_source: {name} NOT IN eSession.oDict", flush=True)
             return []
         real_path = _Path(wk.o.FN())
         try:
             data = _json.loads(real_path.read_text(encoding='utf-8'))
-            if isinstance(data, list):
-                print(f"_load_source: {name} path={real_path} records={len(data)}", flush=True)
-                return data
-            print(f"_load_source: {name} not a list — got {type(data)}", flush=True)
-            return []
-        except Exception as _e:
-            print(f"_load_source: {name} READ ERROR {_e} path={real_path}", flush=True)
+            return data if isinstance(data, list) else []
+        except Exception:
             return []
 
     def getGLList(self, resolve_dups: bool = True, force: bool = False) -> List[Dict[str, Any]]:

@@ -96,7 +96,6 @@ class llcRecordsView:
         real_fn = self.wk.o.FN()
         with open(real_fn, 'w') as _fio:
             _json.dump(payload, _fio, indent=4)
-        print(f"savePayload: wrote {len(payload)} records to {real_fn}", flush=True)
 
         # Mirror to working (temp) file so the editor view stays consistent.
         self.wk.save(payload)
