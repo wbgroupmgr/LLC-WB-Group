@@ -85,28 +85,6 @@ def _subset_summing_to(rows: List[Dict], target: float,
     return None
 
 
-def _best_subset_match(rows: List[Dict], target: float) -> List[Dict]:
-    '''
-    Find the subset of rows (using abs amounts) whose sum is closest to target.
-    Returns the best-matching subset — exact match if found, nearest otherwise.
-    Cap at 20 rows to keep brute-force feasible.
-    '''
-    if not rows:
-        return []
-    cap = rows[:20]
-    best_diff  = float('inf')
-    best_combo: List[Dict] = []
-    for size in range(1, len(cap) + 1):
-        for combo in itertools.combinations(cap, size):
-            s    = sum(_amt(r) for r in combo)
-            diff = abs(s - target)
-            if diff < best_diff:
-                best_diff  = diff
-                best_combo = list(combo)
-            if best_diff < 0.01:
-                return best_combo   # exact match — no need to search further
-    return best_combo
-
 
 class GLAuditor:
     '''Run accounting-compliance checks on a GL record list.'''
@@ -298,10 +276,32 @@ class GLAuditor:
             },
         }]
 
+    def _find_counter_acct(self, r: Dict) -> str:
+        '''Return the counter-account for row r via srcTID index, then tID sign-flip.'''
+        acct = r.get('acct', '')
+        src  = r.get('srcTID', '')
+        tid  = r.get('tID', '')
+        if src and src != tid:
+            for other in self._src_idx.get(src, []):
+                if other.get('acct') != acct:
+                    return other.get('acct', '')
+        if '_' in tid:
+            parts = tid.rsplit('_', 1)
+            try:
+                flip_tid = f"{parts[0]}_{-float(parts[1]):.2f}"
+                other    = self._tid_idx.get(flip_tid)
+                if other and other.get('acct') != acct:
+                    return other.get('acct', '')
+            except ValueError:
+                pass
+        return ''
+
     def _check_escrow_balance(self) -> List[Dict[str, Any]]:
         '''
         Acct.Cash.Escrow is a clearing account — must net to $0.
-        Identifies unbalanced transactions and provides actionable fix steps.
+        Forensic trail: start from total Debits, step through each Credit with its
+        counter-account label, show sub-totals, arrive at the difference.
+        Leading suspect at closing: Acct.Equity.Owner.Capital.Funds.
         '''
         ESCROW = 'Acct.Cash.Escrow'
         escrow_rows = [r for r in self._rows if r.get('acct') == ESCROW
@@ -319,12 +319,11 @@ class GLAuditor:
         if abs(balance) < 0.01:
             return []
 
-        # Unbalanced = no double-entry counterpart (srcTID absent or equals tID)
+        # Unbalanced = direct-posted with no double-entry counterpart
         unbalanced = [r for r in escrow_rows
                       if not r.get('srcTID') or r.get('srcTID') == r.get('tID')]
-        paired     = [r for r in escrow_rows if r not in unbalanced]
 
-        # Find minimal set that explains the balance
+        # Minimal suspect set for affected records list
         suspects = _subset_summing_to(unbalanced, balance, signed=True)
         if suspects is None:
             suspects = _subset_summing_to(escrow_rows, balance, signed=True)
@@ -334,94 +333,54 @@ class GLAuditor:
         affected = sorted([_fmt(r) for r in suspects],
                           key=lambda x: abs(float(x.get('amt') or 0)), reverse=True)
 
-        # ── Bank vs Closing reconciliation ───────────────────────────────
-        recon_notes = []
-        orphan_set  = set(id(r) for r in unbalanced)
-        for ub in sorted(unbalanced, key=lambda r: _amt(r), reverse=True):
-            if _amt(ub) < 0.01:
-                continue
-            ub_amt  = _amt(ub)
-            ub_tdb  = _tdb(ub) or ub.get('tID', '')
-            ub_desc = (ub.get('desc') or '')[:60]
+        # ── Forensic Trail ────────────────────────────────────────────────
+        # Walk from total Escrow Debits through each Credit (largest first),
+        # labeling each with its counter-account.  Show a sub-total at the
+        # natural midpoint; end with the balance discrepancy and the fix target.
+        debit_rows  = sorted([r for r in escrow_rows if _is_debit(r)],     key=_amt, reverse=True)
+        credit_rows = sorted([r for r in escrow_rows if not _is_debit(r)], key=_amt, reverse=True)
 
-            # Find best-matching subset of same-side escrow rows (excluding this entry).
-            # Sum all matching closing records rather than picking just one.
-            same_side = [r for r in escrow_rows if _is_debit(r) == _is_debit(ub) and r is not ub]
-            if not same_side:
-                continue
-            cl_subset = _best_subset_match(same_side, ub_amt)
-            cl_amt    = round(sum(_amt(r) for r in cl_subset), 2)
-            cl_count  = len(cl_subset)
-            cl_label  = f"{cl_count} record{'s' if cl_count != 1 else ''}"
-            delta     = round(ub_amt - cl_amt, 2)
-            if abs(delta) < 0.01:
-                continue
+        n_deb   = len(debit_rows)
+        trail   = [f"  + {d:>12,.2f}  Escrow Debit total  "
+                   f"({n_deb} {'entry' if n_deb == 1 else 'entries'})"]
+        running = d
+        mid     = max(1, len(credit_rows) // 2) - 1   # show sub-total at midpoint
 
-            # Correcting journal entry
-            if delta > 0:
-                fix_dr, fix_cr = 'Acct.Equity.Owner.Capital.Funds', 'Acct.Cash.Escrow'
-            else:
-                fix_dr, fix_cr = 'Acct.Cash.Escrow', 'Acct.Cash.Bank'
+        for i, r in enumerate(credit_rows):
+            a       = _amt(r)
+            running = round(running - a, 2)
+            counter = self._find_counter_acct(r)
+            tdb     = _tdb(r) or 'Closing'
+            label   = f"{tdb}  →  {counter}" if counter else \
+                      f"{tdb}  {(r.get('desc') or '')[:50]}"
+            trail.append(f"  - {a:>12,.2f}  {label.strip()}")
+            if len(credit_rows) > 2 and i == mid:
+                trail.append(f"  = {running:>12,.2f}  sub total")
 
-            # Check for another unbalanced entry matching the delta
-            dup_note = ''
-            dup_match = next(
-                (r for r in escrow_rows
-                 if abs(_amt(r) - abs(delta)) < 0.01
-                 and r is not ub and id(r) not in set(id(x) for x in cl_subset)
-                 and id(r) in orphan_set),
-                None
-            )
-            if dup_match:
-                dup_note = (
-                    f"\n  Note: another unbalanced entry of ${_amt(dup_match):.2f} "
-                    f"(tID: {dup_match.get('tID','')}) also equals this difference — "
-                    f"may be the same transaction recorded twice."
-                )
+        # Identify leading suspect: Equity account seen in closing credits, or default
+        credit_counters = [self._find_counter_acct(r) for r in credit_rows]
+        equity_suspects = [a for a in credit_counters if a and ('Equity' in a or 'Capital' in a)]
+        fix_dr = equity_suspects[0] if equity_suspects else 'Acct.Equity.Owner.Capital.Funds'
 
-            recon_notes.append(
-                f"\nBank vs Closing:\n"
-                f"  Bank ({ub_tdb}):  ${ub_amt:,.2f}  \"{ub_desc}\"  (tID: {ub.get('tID','')})\n"
-                f"  Closing ({cl_label}):  ${cl_amt:,.2f}\n"
-                f"  Difference:      ${abs(delta):,.2f}\n"
-                + dup_note +
-                f"\nTo fix:\n"
-                f"  Option A — Post a correcting entry to llcAssets:\n"
-                f"    DEBIT  {fix_dr}  ${abs(delta):,.2f}\n"
-                f"    CREDIT {fix_cr}  ${abs(delta):,.2f}\n"
-                f"  Option B — If the bank entry is a duplicate of the closing entry,\n"
-                f"    remove tID {ub.get('tID','')} from {ub_tdb}.\n"
-                f"  Option C — If a closing line item is missing,\n"
-                f"    add the missing entry via PropAgent and re-commit."
-            )
+        if balance > 0:
+            fix_dr_act, fix_cr_act = fix_dr, ESCROW
+            needs = f"Needs ${balance:,.2f} Credit against {ESCROW}"
+        else:
+            fix_dr_act, fix_cr_act = ESCROW, fix_dr
+            needs = f"Needs ${abs(balance):,.2f} Debit to {ESCROW}"
 
-        # ── Build description ─────────────────────────────────────────────
-        ub_tids = '  '.join(r.get('tID', '') for r in unbalanced[:5])
-        ub_line = (
-            f"\nUnbalanced transaction(s) ({len(unbalanced)}): {ub_tids}"
-            if unbalanced else ''
-        )
+        trail.append(f"  = {balance:>12,.2f}  Difference  ← {needs}  — Suspect: {fix_dr}")
 
         description = (
-            f"Acct.Cash.Escrow balance = {balance:+.2f}  "
-            f"(Debit={d:.2f}, Credit={c:.2f})."
-            + ub_line
-            + ''.join(recon_notes)
-        )
-        if not recon_notes and unbalanced:
-            description += (
-                "\n\nNo matching closing entry found for the unbalanced transaction. "
-                "Verify the tID in the source DB and confirm it was not posted manually "
-                "in place of a PropAgent commit."
-            )
-
-        corr_desc = (
-            "Choose Option A, B, or C in the description above. "
-            "Re-run Audit after saving to confirm Acct.Cash.Escrow nets to $0."
-        ) if recon_notes else (
-            "Verify each unbalanced transaction (tID listed above). "
-            "If it duplicates a PropAgent record, remove it. "
-            "If it is the only record, re-commit via PropAgent."
+            f"Acct.Cash.Escrow balance = {balance:+.2f}  (Debit={d:,.2f}, Credit={c:,.2f}).\n"
+            f"{needs}.\n\n"
+            f"Forensics Trail:\n" + '\n'.join(trail) + '\n\n'
+            f"To fix:\n"
+            f"  Option A — Post a manual correcting entry to llcAssets:\n"
+            f"    DEBIT  {fix_dr_act}  ${abs(balance):,.2f}\n"
+            f"    CREDIT {fix_cr_act}  ${abs(balance):,.2f}\n"
+            f"  Option B — Review Closing Statement journaling for extra ${abs(balance):,.2f}\n"
+            f"  Option C — Review llcBank for a transaction the PropAgent missed."
         )
 
         return [{
@@ -432,7 +391,10 @@ class GLAuditor:
             'affected': affected,
             'correction': {
                 'type': 'manual', 'auto_apply': False,
-                'description': corr_desc,
+                'description': (
+                    "Choose Option A, B, or C above. "
+                    "Re-run Audit after saving to confirm Acct.Cash.Escrow nets to $0."
+                ),
                 'entries': [],
             },
         }]
