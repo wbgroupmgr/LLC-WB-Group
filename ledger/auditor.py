@@ -321,7 +321,10 @@ class GLAuditor:
             ub_tdb  = _tdb(ub) or ub.get('tID', '')
             ub_desc = (ub.get('desc') or '')[:60]
 
-            same_side = [r for r in paired if _is_debit(r) == _is_debit(ub)]
+            # Search ALL escrow rows (paired or not) for the closest amount on the same side,
+            # excluding the entry itself. This handles cases where the matching closing
+            # entry is also unbalanced.
+            same_side = [r for r in escrow_rows if _is_debit(r) == _is_debit(ub) and r is not ub]
             if not same_side:
                 continue
             closest   = min(same_side, key=lambda r: abs(_amt(r) - ub_amt))
