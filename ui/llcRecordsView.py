@@ -92,12 +92,11 @@ class llcRecordsView:
                     tDict['amt'] = 0.0
 
         # Write to real (committed) DB — the authoritative source of truth.
-        # Immutable stmt objects (stmtGL, stmtBS, stmtIS …) read from here,
-        # so this write must succeed for GL/Audit to see the change on Refresh.
         import json as _json
         real_fn = self.wk.o.FN()
         with open(real_fn, 'w') as _fio:
             _json.dump(payload, _fio, indent=4)
+        print(f"savePayload: wrote {len(payload)} records to {real_fn}", flush=True)
 
         # Mirror to working (temp) file so the editor view stays consistent.
         self.wk.save(payload)

@@ -53,13 +53,23 @@ class llcReportEngine:
 
     def _load_source(self, name: str) -> List[Dict[str, Any]]:
         # Immutable stmt objects always read from the real (committed) DB.
-        # savePayload() writes to the real file on every Save so stmt objects
-        # are always 1-1 with the authoritative source of truth.
+        import json as _json
+        from pathlib import Path as _Path
         wk = self.eSession.oDict.get(name)
         if wk is None:
+            print(f"_load_source: {name} NOT IN eSession.oDict", flush=True)
             return []
-        data = wk.o.load()
-        return data if isinstance(data, list) else []
+        real_path = _Path(wk.o.FN())
+        try:
+            data = _json.loads(real_path.read_text(encoding='utf-8'))
+            if isinstance(data, list):
+                print(f"_load_source: {name} path={real_path} records={len(data)}", flush=True)
+                return data
+            print(f"_load_source: {name} not a list — got {type(data)}", flush=True)
+            return []
+        except Exception as _e:
+            print(f"_load_source: {name} READ ERROR {_e} path={real_path}", flush=True)
+            return []
 
     def getGLList(self, resolve_dups: bool = True, force: bool = False) -> List[Dict[str, Any]]:
         '''
