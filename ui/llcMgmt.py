@@ -1700,11 +1700,18 @@ class llcMgmt:
                             place_year  = int(parts[0])
                             place_month = int(parts[1])
                             if place_year == year:
-                                months    = 13 - place_month
-                                depr_amt  = round(total_cost / useful_life * months / 24.0, 2)
-                                mon_name  = _dt.date(year, place_month, 1).strftime('%b')
+                                # IRS MACRS mid-month convention: property treated as placed in
+                                # service at the midpoint of the month → 0.5 months for the
+                                # placement month + full months remaining.
+                                # Fraction = (12.5 − place_month) / 12
+                                #          = (25 − 2×place_month) / 24   (integer arithmetic)
+                                # e.g. August (M=8): (25−16)/24 = 9/24 = 4.5/12 = 0.375
+                                half_months = 25 - 2 * place_month   # numerator over /24
+                                depr_amt    = round(total_cost / useful_life * half_months / 24.0, 2)
+                                mon_name    = _dt.date(year, place_month, 1).strftime('%b')
                                 note = (f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr "
-                                        f"× {months}/24 ({mon_name} mid-month, first year)")
+                                        f"× {half_months}/24 = {half_months/2:.1f}/12 months "
+                                        f"({mon_name} mid-month, first year)")
                             else:
                                 depr_amt = round(total_cost / useful_life, 2)
                                 note = f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr (full year)"
@@ -1731,8 +1738,10 @@ class llcMgmt:
                                 pm    = int(parts[1])
                                 py    = int(parts[0])
                                 if py == year:
-                                    implied = round(existing_amt / useful_life * 24.0 / (13 - pm)
-                                                    * useful_life, 2)
+                                    # Reverse: existing_amt = cost/life × (25−2M)/24
+                                    # → implied cost = existing_amt × life × 24 / (25−2M)
+                                    hm = 25 - 2 * pm
+                                    implied = round(existing_amt * useful_life * 24.0 / hm, 2)
                                 else:
                                     implied = round(existing_amt * useful_life, 2)
                             except Exception:
