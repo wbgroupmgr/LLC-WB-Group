@@ -880,59 +880,113 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
         }
     };
 
+    function _fmtAmt(v) {
+        if (v === null || v === undefined) return '';
+        const abs = Math.abs(Number(v));
+        const s = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        return Number(v) < 0 ? `(${s})` : s;
+    }
+
+    function _chipHtml(status) {
+        if (status === 'exists')  return '<span class="ye-chip ye-chip-exists">🟢 Post exists</span>';
+        if (status === 'new')     return '<span class="ye-chip ye-chip-new">🔵 New — will post</span>';
+        return '<span class="ye-chip ye-chip-review">⚠️ Review Required</span>';
+    }
+
     function _renderYE(data) {
         document.getElementById('yeTitle').textContent = `📅 Year-End Posting Preview — ${data.year}`;
+        const ni = data.net_income ?? 0;
         document.getElementById('yeSubtitle').textContent =
-            `Showing ${data.properties.length} propert${data.properties.length === 1 ? 'y' : 'ies'} with InService assets.`;
+            `${data.properties.length} propert${data.properties.length === 1 ? 'y' : 'ies'} with InService assets.  ` +
+            `Net ${ni >= 0 ? 'Income' : 'Loss'}: ${_fmtAmt(ni)}`;
 
         const tbody = document.getElementById('yeTbody');
         tbody.innerHTML = '';
         let hasNew = false;
 
         for (const prop of data.properties) {
-            // Property header row
             const hdr = document.createElement('tr');
             hdr.className = 'ye-prop-header';
             hdr.innerHTML = `<td colspan="6">🏠 ${prop.propNm}${prop.propAddr ? ' — ' + prop.propAddr : ''}</td>`;
             tbody.appendChild(hdr);
 
             for (const item of prop.items) {
-                const tr = document.createElement('tr');
-                let chipClass = 'ye-chip-review';
-                let chipLabel = '⚠️ Review Required';
-                let checkCell = '<td></td>';
 
-                if (item.status === 'exists') {
-                    chipClass = 'ye-chip-exists';
-                    chipLabel = '🟢 Post exists';
-                } else if (item.status === 'new') {
-                    chipClass = 'ye-chip-new';
-                    chipLabel = '🔵 New — will post';
-                    const propSlug = prop.propNm.replace(/[^a-zA-Z0-9_]/g, '_');
-                    checkCell = `<td style="text-align:center"><input type="checkbox" class="ye-check" data-prop="${propSlug}" data-item="${item.item}" checked></td>`;
-                    hasNew = true;
+                // ── Retained Earnings: per-member sub-rows ──────────────
+                if (item.item === 'retained_earnings') {
+                    const hdrRow = document.createElement('tr');
+                    hdrRow.innerHTML = `
+                        <td></td><td></td>
+                        <td><b>${item.label}</b></td>
+                        <td>${_chipHtml(item.status)}</td>
+                        <td class="ye-amount">${_fmtAmt(item.amount)}</td>
+                        <td style="font-size:12px;color:#6b7280">${item.note || ''}</td>`;
+                    tbody.appendChild(hdrRow);
+
+                    for (const m of (item.members || [])) {
+                        const mr = document.createElement('tr');
+                        mr.style.background = '#fafafa';
+                        const isNew = m.status === 'new';
+                        const cbId  = `ye_re_${m.oID}`;
+                        const cbCell = isNew
+                            ? `<td style="text-align:center;padding-left:24px">
+                                 <input type="checkbox" class="ye-check ye-check-re" id="${cbId}" checked>
+                               </td>`
+                            : '<td></td>';
+                        const direction = m.atype === 'Credit'
+                            ? '→ <i>Credit equity</i>' : '→ <i>Debit equity (loss)</i>';
+                        mr.innerHTML = `
+                            ${cbCell}
+                            <td style="padding-left:24px">👤 ${m.name}</td>
+                            <td style="padding-left:8px;color:#6b7280">${m.pct}% ownership</td>
+                            <td>${_chipHtml(m.status)}</td>
+                            <td class="ye-amount" style="${m.amount < 0 ? 'color:#dc2626' : ''}">${_fmtAmt(m.amount)} ${direction}</td>
+                            <td></td>`;
+                        if (isNew && m.record) {
+                            const cb = mr.querySelector('.ye-check-re');
+                            if (cb) { cb._record = m.record; hasNew = true; }
+                        }
+                        tbody.appendChild(mr);
+                    }
+                    continue;
                 }
 
-                const amtDisplay = (item.amount !== null && item.amount !== undefined)
-                    ? `$${Number(item.amount).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`
-                    : '';
+                // ── Standard single-row items ───────────────────────────
+                const tr = document.createElement('tr');
+                const isNew = item.status === 'new';
+                const checkCell = isNew
+                    ? `<td style="text-align:center"><input type="checkbox" class="ye-check" checked></td>`
+                    : '<td></td>';
 
+                // Discrepancy banner for depreciation
+                let extraRows = '';
+                const disc = item.discrepancy;
+                if (disc) {
+                    const direction = disc.diff > 0 ? 'higher' : 'lower';
+                    extraRows = `<tr><td colspan="6" style="background:#fffbeb;padding:6px 24px;font-size:12px;border:1px solid #fbbf24">
+                        ⚠️ <b>Discrepancy detected</b>:
+                        Existing post <b>${_fmtAmt(disc.existing_amt)}</b> vs
+                        GL-computed <b>${_fmtAmt(disc.computed_amt)}</b>
+                        (${direction} by ${_fmtAmt(Math.abs(disc.diff))})<br>
+                        <span style="color:#6b7280">${disc.explanation}</span>
+                    </td></tr>`;
+                }
+
+                if (isNew) hasNew = true;
                 tr.innerHTML = `
                     ${checkCell}
                     <td></td>
                     <td>${item.label}</td>
-                    <td><span class="ye-chip ${chipClass}">${chipLabel}</span></td>
-                    <td class="ye-amount">${amtDisplay}</td>
-                    <td style="font-size:12px;color:#6b7280">${item.note || ''}</td>
-                `;
+                    <td>${_chipHtml(item.status)}</td>
+                    <td class="ye-amount">${_fmtAmt(item.amount)}</td>
+                    <td style="font-size:12px;color:#6b7280">${item.note || ''}</td>`;
 
-                // Store record data on the checkbox for later collection
-                if (item.status === 'new' && item.record) {
+                if (isNew && item.record) {
                     const cb = tr.querySelector('.ye-check');
                     if (cb) cb._record = item.record;
                 }
-
                 tbody.appendChild(tr);
+                if (extraRows) tbody.insertAdjacentHTML('beforeend', extraRows);
             }
         }
 
@@ -942,7 +996,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
     }
 
     window.applyYEPosting = async function () {
-        const checks = document.querySelectorAll('.ye-check:checked');
+        const checks = document.querySelectorAll('.ye-check:checked, .ye-check-re:checked');
         const records = [];
         checks.forEach(cb => { if (cb._record) records.push(cb._record); });
 

@@ -1583,160 +1583,281 @@ class llcMgmt:
         def ye_preview():
             '''Scan llcAssets for InService properties and return YE posting status.'''
             try:
-                import datetime as _dt
+                import datetime as _dt, json as _json
+                from pathlib import Path as _Path
+
                 mgr = self.objects.get('llcAssets')
                 if mgr is None:
                     return jsonify({"ok": False, "error": "llcAssets not available"}), 500
 
-                # Use the LLC session year (tax year), not today's year
                 year  = getattr(getattr(self.eSession, 'llc', None), 'yr', None) \
                         or _dt.date.today().year
                 ye_dt = f"{year}.12.31"
 
-                # Read directly from real file (same path as _load_source)
-                from pathlib import Path as _Path
-                import json as _json
+                # Read real file directly (bypasses in-memory llcAssets.df cache)
                 wk_assets = self.eSession.oDict.get('llcAssets')
                 real_fn   = _Path(wk_assets.o.FN()) if wk_assets else None
                 records   = _json.loads(real_fn.read_text()) if real_fn and real_fn.exists() else []
 
-                # Group ONLY Acct.Fixed.Tangible.InService cost records by propNm.
-                # Exclude: land, depreciation entries, operating expenses — these
-                # are in the GL but are NOT the depreciable cost basis.
-                DEPR_ACCT = 'Acct.Fixed.Tangible.InService'
-                props = {}  # propNm → list of cost records
-                for r in records:
-                    if (r.get('acct', '') or '') != DEPR_ACCT:
-                        continue   # only the depreciable building/improvements account
-                    if r.get('_is_depr'):
-                        continue   # skip depreciation entries even if acct matches
-                    pnm = r.get('propNm', 'Unknown')
-                    props.setdefault(pnm, []).append(r)
+                # ── Net Income from GL ──────────────────────────────────────
+                from ui.llcReportEngine import llcReportEngine as _RE
+                from ledger.auditor import GLAuditor as _Aud
+                _engine    = _RE(self.eSession)
+                _gl        = _engine.getGLList(resolve_dups=True, force=True)
+                _eq        = _Aud(self.eSession.llc, _gl).equation_summary()
+                net_income = _eq.get('net_income', 0.0)   # positive = profit, negative = loss
 
-                # Detect existing YE depr postings for THIS tax year (any date in year)
-                existing_depr = set()
+                # ── Owner lookup (oID → name) ───────────────────────────────
+                owners_list = _engine.load_owners()
+                def _normalize_oid(oid):
+                    # propOwners stores "020250801_1" (digit zero); llcOwners stores
+                    # "o20250801_1" (letter o).  Normalise both to the letter-o form.
+                    s = str(oid)
+                    if s and s[0] == '0' and len(s) > 1 and s[1].isdigit():
+                        return 'o' + s[1:]
+                    return s
+
+                def _owner_name(oID):
+                    norm = _normalize_oid(oID)
+                    for o in owners_list:
+                        if _normalize_oid(o.get('oID', '')) == norm:
+                            nm = o.get('nm', [])
+                            return ', '.join(nm) if isinstance(nm, list) else str(nm)
+                    return oID
+
+                def _parse_prop_owners(raw):
+                    '''Return dict {oID: pct_int} handling both dict and JSON-string forms.'''
+                    if isinstance(raw, dict):
+                        return {k: float(v) for k, v in raw.items()}
+                    if isinstance(raw, str):
+                        try:
+                            return {k: float(v) for k, v in _json.loads(raw).items()}
+                        except Exception:
+                            pass
+                    return {}
+
+                # ── Property groups ─────────────────────────────────────────
+                DEPR_ACCT = 'Acct.Fixed.Tangible.InService'
+                props = {}  # propNm → {cost_rows, all_rows}
+                for r in records:
+                    pnm = r.get('propNm') or 'Unknown'
+                    if pnm not in props:
+                        props[pnm] = {'cost_rows': [], 'all_rows': []}
+                    props[pnm]['all_rows'].append(r)
+                    acct = r.get('acct', '') or ''
+                    if acct == DEPR_ACCT and not r.get('_is_depr'):
+                        props[pnm]['cost_rows'].append(r)
+
+                # Keep only properties that have InService cost rows
+                props = {k: v for k, v in props.items() if v['cost_rows']}
+
+                # ── Existing YE depr per propNm ─────────────────────────────
+                existing_depr_rows = {}   # propNm → list of _is_depr records this year
                 for r in records:
                     if r.get('_is_depr') and str(r.get('dt', '')).startswith(str(year)):
-                        existing_depr.add(r.get('propNm', ''))
+                        pnm = r.get('propNm', '')
+                        existing_depr_rows.setdefault(pnm, []).append(r)
+
+                # ── Existing YE retained-earnings per propNm+owner ──────────
+                existing_re = set()   # (propNm, oID) pairs already posted
+                for r in records:
+                    if (r.get('acctSub') == 'YE Net Income'
+                            and str(r.get('dt', '')).startswith(str(year))):
+                        pnm = r.get('propNm', '')
+                        po  = _parse_prop_owners(r.get('propOwners', {}))
+                        for oID in po:
+                            existing_re.add((pnm, oID))
 
                 result_props = []
-                for pnm, cost_rows in props.items():
-                    # Net depreciable cost = Debits - Credits on Acct.Fixed.Tangible.InService
+                for pnm, pdata in props.items():
+                    cost_rows = pdata['cost_rows']
+
+                    # Depreciable cost: net Debits − Credits on Acct.Fixed.Tangible.InService
                     total_cost = 0.0
                     for r in cost_rows:
                         amt = float(r.get('amt', 0) or 0)
                         if (r.get('aType', '') or '').strip().lower() in ('debit', 'dr', 'd'):
                             total_cost += amt
                         else:
-                            total_cost -= amt   # credits reduce the basis
+                            total_cost -= amt
                     total_cost = round(total_cost, 2)
 
-                    # Determine asset type from first record with assetType set
-                    asset_type = 'Residential'
-                    for r in cost_rows:
-                        at = (r.get('assetType') or '').strip()
-                        if at:
-                            asset_type = at
-                            break
-
+                    asset_type = next((
+                        r.get('assetType', '') for r in cost_rows if r.get('assetType')
+                    ), 'Residential')
                     useful_life = 39.0 if asset_type == 'Commercial' else 27.5
 
-                    # Determine placement date from earliest InService dt
-                    placement_dt = None
-                    for r in sorted(cost_rows, key=lambda x: x.get('dt', '')):
-                        dt_raw = (r.get('dt') or '').strip()
-                        if dt_raw:
-                            placement_dt = dt_raw
-                            break
+                    placement_dt = next((
+                        r.get('dt', '') for r in sorted(cost_rows, key=lambda x: x.get('dt', ''))
+                        if r.get('dt')
+                    ), None)
 
-                    # Calculate depreciation
                     depr_amt = 0.0
                     note = ''
                     if placement_dt:
                         try:
                             parts = placement_dt.replace('-', '.').replace('/', '.').split('.')
-                            place_year = int(parts[0])
+                            place_year  = int(parts[0])
                             place_month = int(parts[1])
                             if place_year == year:
-                                # First year: IRS mid-month convention
-                                months = (13 - place_month)  # half-month counted
-                                depr_amt = round(total_cost / useful_life * months / 24.0, 2)
-                                mon_name = _dt.date(year, place_month, 1).strftime('%b')
-                                note = (f"Cost ${total_cost:,.2f} × 1/{useful_life}yr "
+                                months    = 13 - place_month
+                                depr_amt  = round(total_cost / useful_life * months / 24.0, 2)
+                                mon_name  = _dt.date(year, place_month, 1).strftime('%b')
+                                note = (f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr "
                                         f"× {months}/24 ({mon_name} mid-month, first year)")
                             else:
-                                # Full year
                                 depr_amt = round(total_cost / useful_life, 2)
-                                note = f"Cost ${total_cost:,.2f} / {useful_life}yr (full year)"
+                                note = f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr (full year)"
                         except Exception:
                             depr_amt = round(total_cost / useful_life, 2)
-                            note = f"Cost ${total_cost:,.2f} / {useful_life}yr"
+                            note = f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr"
 
-                    prop_addr  = cost_rows[0].get('propAddr', '') if cost_rows else ''
-                    prop_owners = cost_rows[0].get('propOwners', {}) if cost_rows else {}
-                    pnm_slug   = pnm.replace(' ', '_').replace('/', '-')
+                    # ── Depreciation discrepancy analysis ─────────────────
+                    ex_depr_list  = existing_depr_rows.get(pnm, [])
+                    depr_exists   = bool(ex_depr_list)
+                    discrepancy   = None
+                    existing_amt  = None
+                    # Use UNIQUE amounts (deduplicate duplicate postings); flag if dups present
+                    _unique_amts  = list({round(float(r.get('amt', 0) or 0), 2) for r in ex_depr_list})
+                    _has_dup_depr = len(ex_depr_list) > len(_unique_amts) or len(ex_depr_list) > 1
+                    if depr_exists and ex_depr_list:
+                        existing_amt = _unique_amts[0] if len(_unique_amts) == 1 \
+                                       else round(sum(_unique_amts) / len(_unique_amts), 2)
+                        diff = round(existing_amt - depr_amt, 2)
+                        if abs(diff) > 0.01:
+                            # Infer the implied cost basis from the existing posting
+                            try:
+                                parts = placement_dt.replace('-','.').split('.')
+                                pm    = int(parts[1])
+                                py    = int(parts[0])
+                                if py == year:
+                                    implied = round(existing_amt / useful_life * 24.0 / (13 - pm)
+                                                    * useful_life, 2)
+                                else:
+                                    implied = round(existing_amt * useful_life, 2)
+                            except Exception:
+                                implied = None
+                            discrepancy = {
+                                "existing_amt": existing_amt,
+                                "computed_amt": depr_amt,
+                                "diff":         diff,
+                                "implied_basis": implied,
+                                "dup_records": _has_dup_depr,
+                                "dup_count":   len(ex_depr_list),
+                                "explanation": (
+                                    (f"⚠ {len(ex_depr_list)} duplicate depreciation records found "
+                                     f"— delete extras before filing.  " if _has_dup_depr else "") +
+                                    f"Posted ${existing_amt:,.2f} (PropAgent, closing-statement basis"
+                                    + (f" ≈ ${implied:,.2f}" if implied else "") + "). "
+                                    f"GL-computed ${depr_amt:,.2f} uses only "
+                                    f"Acct.Fixed.Tangible.InService net (${total_cost:,.2f}) — "
+                                    f"may exclude closing costs capitalised into basis "
+                                    f"(title fees, legal, transfer taxes). "
+                                    f"PropAgent amount is likely correct; "
+                                    f"verify against Form 4562 / closing statement."
+                                ),
+                            }
 
-                    depr_exists = pnm in existing_depr
+                    prop_addr   = cost_rows[0].get('propAddr', '') if cost_rows else ''
+                    prop_owners_raw = cost_rows[0].get('propOwners', {}) if cost_rows else {}
+                    prop_owners = _parse_prop_owners(prop_owners_raw)
+                    pnm_slug    = pnm.replace(' ', '_').replace('/', '-')
 
                     depr_record = {
-                        "dt":         ye_dt,
-                        "desc":       f"YE Depreciation - {pnm}",
-                        "amt":        depr_amt,
-                        "aType":      "Debit",
-                        "acct":       "Acct.Exp.Depreciation",
-                        "Ledger":     "Acct.Fixed.Depreciation.Accum",
-                        "propNm":     pnm,
-                        "propAddr":   prop_addr,
-                        "propOwners": prop_owners,
-                        "tDB":        "llcAssets",
-                        "acctSub":    "YE:Acct.Exp.Depreciation",
-                        "assetType":  asset_type,
-                        "_is_depr":   True,
-                        "tID":        f"{year}.12.31_depr_{pnm_slug}",
+                        "dt": ye_dt, "desc": f"YE Depreciation - {pnm}",
+                        "amt": depr_amt, "aType": "Debit",
+                        "acct": "Acct.Exp.Depreciation",
+                        "Ledger": "Acct.Fixed.Depreciation.Accum",
+                        "propNm": pnm, "propAddr": prop_addr,
+                        "propOwners": prop_owners_raw, "tDB": "llcAssets",
+                        "acctSub": "YE:Acct.Exp.Depreciation",
+                        "assetType": asset_type, "_is_depr": True,
+                        "tID": f"{year}.12.31_depr_{pnm_slug}",
                     }
+
+                    # ── YE Retained Earnings (Net Income → Member Capital) ─
+                    re_members = []
+                    if prop_owners:
+                        for oID, pct in prop_owners.items():
+                            member_share = round(net_income * pct / 100.0, 2)
+                            atype = 'Credit' if member_share >= 0 else 'Debit'
+                            re_exists = (pnm, oID) in existing_re
+                            oname = _owner_name(oID)
+                            re_record = {
+                                "dt":         ye_dt,
+                                "desc":       f"YE Net Income - {pnm} - {oname} ({pct:.0f}%)",
+                                "amt":        abs(member_share),
+                                "aType":      atype,
+                                "acct":       "Acct.Equity.Owner.Capital.Funds",
+                                "Ledger":     "nan",
+                                "propNm":     pnm,
+                                "propAddr":   prop_addr,
+                                "propOwners": {oID: pct},
+                                "tDB":        "llcAsset",
+                                "acctSub":    "YE Net Income",
+                                "refDB":      f"General Ledger - {ye_dt}",
+                                "tID":        f"{ye_dt}_re_{oID}_{pnm_slug}",
+                            }
+                            re_members.append({
+                                "oID":    oID,
+                                "name":   oname,
+                                "pct":    pct,
+                                "amount": member_share,
+                                "atype":  atype,
+                                "status": "exists" if re_exists else "new",
+                                "record": re_record if not re_exists else None,
+                            })
 
                     items = [
                         {
-                            "item":   "depreciation",
-                            "label":  "Depreciation & Amortization",
-                            "status": "exists" if depr_exists else "new",
-                            "amount": depr_amt,
-                            "note":   note,
-                            "record": depr_record if not depr_exists else None,
+                            "item":          "depreciation",
+                            "label":         "Depreciation & Amortization",
+                            "status":        "exists" if depr_exists else "new",
+                            "amount":        existing_amt if depr_exists else depr_amt,
+                            "note":          note,
+                            "discrepancy":   discrepancy,
+                            "record":        depr_record if not depr_exists else None,
+                        },
+                        {
+                            "item":    "retained_earnings",
+                            "label":   "YE Retained Earnings (Net Income → Member Capital)",
+                            "status":  "new" if any(m['status'] == 'new' for m in re_members)
+                                       else ("exists" if re_members else "review"),
+                            "amount":  net_income,
+                            "note":    (f"Net {'Income' if net_income >= 0 else 'Loss'} "
+                                        f"${abs(net_income):,.2f} split per ownership %"),
+                            "members": re_members,
+                            "record":  None,
                         },
                         {
                             "item":   "loan_amortization",
                             "label":  "Loan Amortization",
-                            "status": "review",
-                            "amount": None,
+                            "status": "review", "amount": None, "record": None,
                             "note":   "Check llcPayables for annual interest/principal split",
-                            "record": None,
                         },
                         {
                             "item":   "accrued_rent",
                             "label":  "Accrued / Prepaid Rent",
-                            "status": "review",
-                            "amount": None,
+                            "status": "review", "amount": None, "record": None,
                             "note":   "Check if Dec 28–31 rent received applies to Jan",
-                            "record": None,
                         },
                         {
                             "item":   "security_deposits",
                             "label":  "Security Deposits",
-                            "status": "review",
-                            "amount": None,
+                            "status": "review", "amount": None, "record": None,
                             "note":   "Confirm deposits classified as Liability in llcPayables",
-                            "record": None,
                         },
                     ]
 
                     result_props.append({
-                        "propNm":   pnm,
-                        "propAddr": prop_addr,
-                        "items":    items,
+                        "propNm": pnm, "propAddr": prop_addr, "items": items,
                     })
 
-                return jsonify({"ok": True, "year": year, "properties": result_props})
+                return jsonify({
+                    "ok": True, "year": year,
+                    "net_income": net_income,
+                    "properties": result_props,
+                })
             except HTTPException:
                 raise
             except Exception as err:
@@ -1746,17 +1867,16 @@ class llcMgmt:
         def ye_apply():
             '''Append approved YE posting records to llcAssets (no double-posting).'''
             try:
-                data    = request.get_json(force=True) or {}
-                new_recs = data.get("records", [])
-                mgr     = self.objects.get('llcAssets')
+                data     = request.get_json(force=True) or {}
+                new_recs = data.get("records", [])  # flat list of record dicts
+                mgr      = self.objects.get('llcAssets')
                 if mgr is None:
                     return jsonify({"ok": False, "error": "llcAssets not available"}), 500
 
-                existing = mgr.load() or []
-
-                # Guard: skip any record whose tID already exists
+                existing     = mgr.load() or []
                 existing_tids = {r.get('tID') for r in existing if r.get('tID')}
-                to_add = [r for r in new_recs if r.get('tID') not in existing_tids]
+                to_add = [r for r in new_recs
+                          if r and isinstance(r, dict) and r.get('tID') not in existing_tids]
 
                 if not to_add:
                     return jsonify({"ok": True, "added": 0, "skipped": len(new_recs)})
