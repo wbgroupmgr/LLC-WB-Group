@@ -1775,38 +1775,47 @@ class llcMgmt:
                         "tID": f"{year}.12.31_depr_{pnm_slug}",
                     }
 
-                    # ── YE Retained Earnings (Net Income → Member Capital) ─
+                    # ── YE Retained Earnings — split by llcOwners pct, not propOwners ─
+                    # propOwners tracks capital fund investment % per property.
+                    # Net Income allocation uses the LLC-wide ownership % from llcOwners.
+                    # acct = Acct.Equity.Earnings.PnL (P&L clearing account for each member).
+                    # aType = Debit for gain (clears credit P&L balance),
+                    #         Credit for loss (clears debit P&L balance).
                     re_members = []
-                    if prop_owners:
-                        for oID, pct in prop_owners.items():
-                            member_share = round(net_income * pct / 100.0, 2)
-                            atype = 'Credit' if member_share >= 0 else 'Debit'
-                            re_exists = (pnm, oID) in existing_re
-                            oname = _owner_name(oID)
-                            re_record = {
-                                "dt":         ye_dt,
-                                "desc":       f"YE Net Income - {pnm} - {oname} ({pct:.0f}%)",
-                                "amt":        abs(member_share),
-                                "aType":      atype,
-                                "acct":       "Acct.Equity.Owner.Capital.Funds",
-                                "Ledger":     "nan",
-                                "propNm":     pnm,
-                                "propAddr":   prop_addr,
-                                "propOwners": {oID: pct},
-                                "tDB":        "llcAsset",
-                                "acctSub":    "YE Net Income",
-                                "refDB":      f"General Ledger - {ye_dt}",
-                                "tID":        f"{ye_dt}_re_{oID}_{pnm_slug}",
-                            }
-                            re_members.append({
-                                "oID":    oID,
-                                "name":   oname,
-                                "pct":    pct,
-                                "amount": member_share,
-                                "atype":  atype,
-                                "status": "exists" if re_exists else "new",
-                                "record": re_record if not re_exists else None,
-                            })
+                    # gain → Debit Acct.Equity.Earnings.PnL; loss → Credit
+                    re_atype = 'Debit' if net_income >= 0 else 'Credit'
+                    for o in owners_list:
+                        oID  = o.get('oID', '')
+                        pct  = float(o.get('pct', 0) or 0) * 100  # llcOwners.pct is 0–1
+                        if pct <= 0:
+                            continue
+                        member_share = round(abs(net_income) * pct / 100.0, 2)
+                        oname  = _owner_name(oID)
+                        re_exists = (pnm, oID) in existing_re
+                        re_record = {
+                            "dt":         ye_dt,
+                            "desc":       f"YE Net Income - {pnm} - {oname} ({pct:.0f}%)",
+                            "amt":        member_share,
+                            "aType":      re_atype,
+                            "acct":       "Acct.Equity.Earnings.PnL",
+                            "Ledger":     "nan",
+                            "propNm":     pnm,
+                            "propAddr":   prop_addr,
+                            "propOwners": {oID: pct},
+                            "tDB":        "llcAsset",
+                            "acctSub":    "YE Net Income",
+                            "refDB":      f"General Ledger - {ye_dt}",
+                            "tID":        f"{ye_dt}_re_{oID}_{pnm_slug}",
+                        }
+                        re_members.append({
+                            "oID":    oID,
+                            "name":   oname,
+                            "pct":    pct,
+                            "amount": member_share,
+                            "atype":  re_atype,
+                            "status": "exists" if re_exists else "new",
+                            "record": re_record if not re_exists else None,
+                        })
 
                     items = [
                         {
