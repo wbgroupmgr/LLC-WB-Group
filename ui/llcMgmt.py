@@ -1577,6 +1577,198 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        # ── YE Posting routes ──────────────────────────────────────────────────
+
+        @app.route("/api/llcAssets/ye/preview")
+        def ye_preview():
+            '''Scan llcAssets for InService properties and return YE posting status.'''
+            try:
+                import datetime as _dt
+                mgr = self.objects.get('llcAssets')
+                if mgr is None:
+                    return jsonify({"ok": False, "error": "llcAssets not available"}), 500
+
+                # Use the LLC session year (tax year), not today's year
+                year  = getattr(getattr(self.eSession, 'llc', None), 'yr', None) \
+                        or _dt.date.today().year
+                ye_dt = f"{year}.12.31"
+
+                # Read directly from real file (same path as _load_source)
+                from pathlib import Path as _Path
+                import json as _json
+                wk_assets = self.eSession.oDict.get('llcAssets')
+                real_fn   = _Path(wk_assets.o.FN()) if wk_assets else None
+                records   = _json.loads(real_fn.read_text()) if real_fn and real_fn.exists() else []
+
+                # Group ONLY Acct.Fixed.Tangible.InService cost records by propNm.
+                # Exclude: land, depreciation entries, operating expenses — these
+                # are in the GL but are NOT the depreciable cost basis.
+                DEPR_ACCT = 'Acct.Fixed.Tangible.InService'
+                props = {}  # propNm → list of cost records
+                for r in records:
+                    if (r.get('acct', '') or '') != DEPR_ACCT:
+                        continue   # only the depreciable building/improvements account
+                    if r.get('_is_depr'):
+                        continue   # skip depreciation entries even if acct matches
+                    pnm = r.get('propNm', 'Unknown')
+                    props.setdefault(pnm, []).append(r)
+
+                # Detect existing YE depr postings for THIS tax year (any date in year)
+                existing_depr = set()
+                for r in records:
+                    if r.get('_is_depr') and str(r.get('dt', '')).startswith(str(year)):
+                        existing_depr.add(r.get('propNm', ''))
+
+                result_props = []
+                for pnm, cost_rows in props.items():
+                    # Net depreciable cost = Debits - Credits on Acct.Fixed.Tangible.InService
+                    total_cost = 0.0
+                    for r in cost_rows:
+                        amt = float(r.get('amt', 0) or 0)
+                        if (r.get('aType', '') or '').strip().lower() in ('debit', 'dr', 'd'):
+                            total_cost += amt
+                        else:
+                            total_cost -= amt   # credits reduce the basis
+                    total_cost = round(total_cost, 2)
+
+                    # Determine asset type from first record with assetType set
+                    asset_type = 'Residential'
+                    for r in cost_rows:
+                        at = (r.get('assetType') or '').strip()
+                        if at:
+                            asset_type = at
+                            break
+
+                    useful_life = 39.0 if asset_type == 'Commercial' else 27.5
+
+                    # Determine placement date from earliest InService dt
+                    placement_dt = None
+                    for r in sorted(cost_rows, key=lambda x: x.get('dt', '')):
+                        dt_raw = (r.get('dt') or '').strip()
+                        if dt_raw:
+                            placement_dt = dt_raw
+                            break
+
+                    # Calculate depreciation
+                    depr_amt = 0.0
+                    note = ''
+                    if placement_dt:
+                        try:
+                            parts = placement_dt.replace('-', '.').replace('/', '.').split('.')
+                            place_year = int(parts[0])
+                            place_month = int(parts[1])
+                            if place_year == year:
+                                # First year: IRS mid-month convention
+                                months = (13 - place_month)  # half-month counted
+                                depr_amt = round(total_cost / useful_life * months / 24.0, 2)
+                                mon_name = _dt.date(year, place_month, 1).strftime('%b')
+                                note = (f"Cost ${total_cost:,.2f} × 1/{useful_life}yr "
+                                        f"× {months}/24 ({mon_name} mid-month, first year)")
+                            else:
+                                # Full year
+                                depr_amt = round(total_cost / useful_life, 2)
+                                note = f"Cost ${total_cost:,.2f} / {useful_life}yr (full year)"
+                        except Exception:
+                            depr_amt = round(total_cost / useful_life, 2)
+                            note = f"Cost ${total_cost:,.2f} / {useful_life}yr"
+
+                    prop_addr  = cost_rows[0].get('propAddr', '') if cost_rows else ''
+                    prop_owners = cost_rows[0].get('propOwners', {}) if cost_rows else {}
+                    pnm_slug   = pnm.replace(' ', '_').replace('/', '-')
+
+                    depr_exists = pnm in existing_depr
+
+                    depr_record = {
+                        "dt":         ye_dt,
+                        "desc":       f"YE Depreciation - {pnm}",
+                        "amt":        depr_amt,
+                        "aType":      "Debit",
+                        "acct":       "Acct.Exp.Depreciation",
+                        "Ledger":     "Acct.Fixed.Depreciation.Accum",
+                        "propNm":     pnm,
+                        "propAddr":   prop_addr,
+                        "propOwners": prop_owners,
+                        "tDB":        "llcAssets",
+                        "acctSub":    "YE:Acct.Exp.Depreciation",
+                        "assetType":  asset_type,
+                        "_is_depr":   True,
+                        "tID":        f"{year}.12.31_depr_{pnm_slug}",
+                    }
+
+                    items = [
+                        {
+                            "item":   "depreciation",
+                            "label":  "Depreciation & Amortization",
+                            "status": "exists" if depr_exists else "new",
+                            "amount": depr_amt,
+                            "note":   note,
+                            "record": depr_record if not depr_exists else None,
+                        },
+                        {
+                            "item":   "loan_amortization",
+                            "label":  "Loan Amortization",
+                            "status": "review",
+                            "amount": None,
+                            "note":   "Check llcPayables for annual interest/principal split",
+                            "record": None,
+                        },
+                        {
+                            "item":   "accrued_rent",
+                            "label":  "Accrued / Prepaid Rent",
+                            "status": "review",
+                            "amount": None,
+                            "note":   "Check if Dec 28–31 rent received applies to Jan",
+                            "record": None,
+                        },
+                        {
+                            "item":   "security_deposits",
+                            "label":  "Security Deposits",
+                            "status": "review",
+                            "amount": None,
+                            "note":   "Confirm deposits classified as Liability in llcPayables",
+                            "record": None,
+                        },
+                    ]
+
+                    result_props.append({
+                        "propNm":   pnm,
+                        "propAddr": prop_addr,
+                        "items":    items,
+                    })
+
+                return jsonify({"ok": True, "year": year, "properties": result_props})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/llcAssets/ye/apply", methods=["POST"])
+        def ye_apply():
+            '''Append approved YE posting records to llcAssets (no double-posting).'''
+            try:
+                data    = request.get_json(force=True) or {}
+                new_recs = data.get("records", [])
+                mgr     = self.objects.get('llcAssets')
+                if mgr is None:
+                    return jsonify({"ok": False, "error": "llcAssets not available"}), 500
+
+                existing = mgr.load() or []
+
+                # Guard: skip any record whose tID already exists
+                existing_tids = {r.get('tID') for r in existing if r.get('tID')}
+                to_add = [r for r in new_recs if r.get('tID') not in existing_tids]
+
+                if not to_add:
+                    return jsonify({"ok": True, "added": 0, "skipped": len(new_recs)})
+
+                mgr.save(existing + to_add)
+                return jsonify({"ok": True, "added": len(to_add),
+                                "skipped": len(new_recs) - len(to_add)})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)
 

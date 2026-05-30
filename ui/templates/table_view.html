@@ -607,6 +607,28 @@
         text-align: center;
         white-space: nowrap;
     }
+    /* ── YE Posting dialog ── */
+    #yeBackdrop { z-index: 500; }
+    #yeDialog { max-width: 860px; width: 94vw; }
+    .ye-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    .ye-table th {
+        background: #f3f4f6; border: 1px solid #e5e7eb;
+        padding: 7px 10px; text-align: left; font-weight: 600;
+    }
+    .ye-table td { border: 1px solid #e5e7eb; padding: 7px 10px; vertical-align: top; }
+    .ye-table tr.ye-prop-header td {
+        background: #eff6ff; font-weight: 700; color: #1e3a8a;
+        padding: 6px 10px;
+    }
+    .ye-chip {
+        display: inline-block; padding: 2px 8px; border-radius: 999px;
+        font-size: 12px; font-weight: 600; white-space: nowrap;
+    }
+    .ye-chip-new    { background: #dbeafe; color: #1d4ed8; }
+    .ye-chip-exists { background: #dcfce7; color: #15803d; }
+    .ye-chip-review { background: #fef3c7; color: #92400e; }
+    .ye-amount { font-family: monospace; text-align: right; }
+    #yeSpinner { text-align: center; padding: 32px; color: #6b7280; font-size: 14px; }
 </style>
 {% endblock %}
 
@@ -663,6 +685,10 @@
                         <button class="act-success" onclick="propAgentOpen(); document.getElementById('actionsMenu').removeAttribute('open')"
                                 title="Import settlement statement or bill of sale as ledger entries">
                             🏠 PurchaseAid — propAgent
+                        </button>
+                        <button class="act-primary" onclick="openYEDialog(); document.getElementById('actionsMenu').removeAttribute('open')"
+                                title="Preview and post Year-End depreciation and review items">
+                            📅 YE Posting
                         </button>
                         {% endif %}
                         {% if obj_type == 'llcExpRev' %}
@@ -789,6 +815,175 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
 
 {% if obj_type == 'llcAssets' %}
 {% include '_propAgent_dialog.html' %}
+{% endif %}
+
+{% if obj_type == 'llcAssets' %}
+<!-- ── YE Posting dialog ──────────────────────────────────────────────────── -->
+<div id="yeBackdrop" class="modal-backdrop" onclick="if(event.target===this) yeClose()">
+    <div class="modal" id="yeDialog">
+        <h3 id="yeTitle">📅 Year-End Posting Preview</h3>
+        <div id="yeSpinner">Loading YE data…</div>
+        <div id="yeContent" style="display:none">
+            <p id="yeSubtitle" style="font-size:13px;color:#6b7280;margin-bottom:6px"></p>
+            <div style="overflow-x:auto">
+                <table class="ye-table" id="yeTable">
+                    <thead>
+                        <tr>
+                            <th style="width:30px"></th>
+                            <th>Property</th>
+                            <th>Item</th>
+                            <th>Status</th>
+                            <th style="text-align:right">Amount</th>
+                            <th>Note</th>
+                        </tr>
+                    </thead>
+                    <tbody id="yeTbody"></tbody>
+                </table>
+            </div>
+            <p style="font-size:12px;color:#6b7280;margin-top:10px">
+                Only <strong>New</strong> items have checkboxes and will be posted when you click Apply.
+                Items marked Review Required need manual verification before posting.
+            </p>
+        </div>
+        <div class="modal-toolbar">
+            <button class="btn btn-secondary" onclick="yeClose()">Cancel</button>
+            <button id="yeApplyBtn" class="btn btn-success" style="display:none" onclick="applyYEPosting()">
+                ✅ Apply Selected
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let _yeData = null;
+
+    window.openYEDialog = async function () {
+        _yeData = null;
+        document.getElementById('yeSpinner').style.display = 'block';
+        document.getElementById('yeContent').style.display = 'none';
+        document.getElementById('yeApplyBtn').style.display = 'none';
+        document.getElementById('yeTbody').innerHTML = '';
+        document.getElementById('yeBackdrop').style.display = 'flex';
+
+        try {
+            const res  = await fetch(`${_scriptRoot}/api/llcAssets/ye/preview`);
+            const data = await res.json();
+            if (!data.ok) {
+                document.getElementById('yeSpinner').textContent = '❌ Error: ' + (data.error || 'unknown');
+                return;
+            }
+            _yeData = data;
+            _renderYE(data);
+        } catch (err) {
+            document.getElementById('yeSpinner').textContent = '❌ Network error: ' + err;
+        }
+    };
+
+    function _renderYE(data) {
+        document.getElementById('yeTitle').textContent = `📅 Year-End Posting Preview — ${data.year}`;
+        document.getElementById('yeSubtitle').textContent =
+            `Showing ${data.properties.length} propert${data.properties.length === 1 ? 'y' : 'ies'} with InService assets.`;
+
+        const tbody = document.getElementById('yeTbody');
+        tbody.innerHTML = '';
+        let hasNew = false;
+
+        for (const prop of data.properties) {
+            // Property header row
+            const hdr = document.createElement('tr');
+            hdr.className = 'ye-prop-header';
+            hdr.innerHTML = `<td colspan="6">🏠 ${prop.propNm}${prop.propAddr ? ' — ' + prop.propAddr : ''}</td>`;
+            tbody.appendChild(hdr);
+
+            for (const item of prop.items) {
+                const tr = document.createElement('tr');
+                let chipClass = 'ye-chip-review';
+                let chipLabel = '⚠️ Review Required';
+                let checkCell = '<td></td>';
+
+                if (item.status === 'exists') {
+                    chipClass = 'ye-chip-exists';
+                    chipLabel = '🟢 Post exists';
+                } else if (item.status === 'new') {
+                    chipClass = 'ye-chip-new';
+                    chipLabel = '🔵 New — will post';
+                    const propSlug = prop.propNm.replace(/[^a-zA-Z0-9_]/g, '_');
+                    checkCell = `<td style="text-align:center"><input type="checkbox" class="ye-check" data-prop="${propSlug}" data-item="${item.item}" checked></td>`;
+                    hasNew = true;
+                }
+
+                const amtDisplay = (item.amount !== null && item.amount !== undefined)
+                    ? `$${Number(item.amount).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`
+                    : '';
+
+                tr.innerHTML = `
+                    ${checkCell}
+                    <td></td>
+                    <td>${item.label}</td>
+                    <td><span class="ye-chip ${chipClass}">${chipLabel}</span></td>
+                    <td class="ye-amount">${amtDisplay}</td>
+                    <td style="font-size:12px;color:#6b7280">${item.note || ''}</td>
+                `;
+
+                // Store record data on the checkbox for later collection
+                if (item.status === 'new' && item.record) {
+                    const cb = tr.querySelector('.ye-check');
+                    if (cb) cb._record = item.record;
+                }
+
+                tbody.appendChild(tr);
+            }
+        }
+
+        document.getElementById('yeSpinner').style.display = 'none';
+        document.getElementById('yeContent').style.display = 'block';
+        if (hasNew) document.getElementById('yeApplyBtn').style.display = 'inline-block';
+    }
+
+    window.applyYEPosting = async function () {
+        const checks = document.querySelectorAll('.ye-check:checked');
+        const records = [];
+        checks.forEach(cb => { if (cb._record) records.push(cb._record); });
+
+        if (!records.length) {
+            alert('No new items selected.');
+            return;
+        }
+
+        const btn = document.getElementById('yeApplyBtn');
+        btn.disabled = true;
+        btn.textContent = 'Posting…';
+
+        try {
+            const res  = await fetch(`${_scriptRoot}/api/llcAssets/ye/apply`, {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({records}),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                alert('❌ Error: ' + (data.error || 'unknown'));
+                btn.disabled = false;
+                btn.textContent = '✅ Apply Selected';
+                return;
+            }
+            alert(`✅ Posted ${data.added} record(s)${data.skipped ? ` (${data.skipped} skipped — already existed)` : ''}.`);
+            yeClose();
+            window.location.href = buildViewUrl();
+        } catch (err) {
+            alert('❌ Network error: ' + err);
+            btn.disabled = false;
+            btn.textContent = '✅ Apply Selected';
+        }
+    };
+
+    window.yeClose = function () {
+        document.getElementById('yeBackdrop').style.display = 'none';
+        _yeData = null;
+    };
+})();
+</script>
 {% endif %}
 
 {% if obj_type == 'llcExpRev' %}
