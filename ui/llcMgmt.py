@@ -1543,14 +1543,16 @@ class llcMgmt:
 
         @app.route("/api/audit/gl")
         def audit_gl():
-            '''Run all GL audit checks and return structured findings.'''
+            '''Run all GL audit checks and return structured findings + equation breakdown.'''
             try:
                 from ledger.auditor import GLAuditor
                 from ui.llcReportEngine import llcReportEngine
                 llc        = self.eSession.llc
                 engine     = llcReportEngine(self.eSession)
                 gl_records = engine.getGLList(resolve_dups=True, force=True)
-                result     = GLAuditor(llc, gl_records).audit()
+                auditor    = GLAuditor(llc, gl_records)
+                result     = auditor.audit()
+                result['equation'] = auditor.equation_summary()
                 return jsonify({"ok": True, **result})
             except HTTPException:
                 raise

@@ -130,6 +130,41 @@ class GLAuditor:
             },
         }
 
+    def equation_summary(self) -> Dict[str, float]:
+        '''
+        Return the A / L / E / NI breakdown for the open-period equation display.
+        A = L + E + NI is the open-period form; A ≠ L+E is expected (NI = gap).
+        '''
+        by_type: Dict[str, Dict[str, float]] = {}
+        for r in self._rows:
+            at = r.get('acctType', '') or ''
+            if at not in by_type:
+                by_type[at] = {'D': 0.0, 'C': 0.0}
+            if _is_debit(r):
+                by_type[at]['D'] += _amt(r)
+            else:
+                by_type[at]['C'] += _amt(r)
+
+        def _bal(t, sign=1.0):
+            v = by_type.get(t, {'D': 0.0, 'C': 0.0})
+            return round(sign * (v['D'] - v['C']), 2)
+
+        assets      = _bal('Asset')
+        liabilities = _bal('Liability', -1.0)
+        equity      = _bal('Equity',    -1.0)
+        income      = _bal('Income',    -1.0)
+        expenses    = _bal('Expense')
+        net_income  = round(income - expenses, 2)
+        return {
+            'assets':      assets,
+            'liabilities': liabilities,
+            'equity':      equity,
+            'income':      income,
+            'expenses':    expenses,
+            'net_income':  net_income,
+            'le_gap':      round(assets - (liabilities + equity), 2),
+        }
+
     def apply_corrections(self, corrections: List[Dict[str, Any]]) -> Dict[str, Any]:
         applied: List[str] = []
         errors:  List[str] = []

@@ -110,9 +110,23 @@
         const issues = data.issues || [];
 
         const eqIssue   = issues.find(i => i.code === 'ACCT_EQUATION');
+        // Chip reflects the EXTENDED open-period equation A = L + E + (Inc − Exp).
+        // A ≠ L+E is NORMAL in an open period — the gap equals Net Income / Net Loss.
+        // Only flag when the extended equation itself fails (mis-classified accounts).
         const eqChip    = eqIssue
-            ? `<span class="aud-chip dirty" title="${eqIssue.title}">❌ A ≠ L+E</span>`
-            : `<span class="aud-chip clean" title="Assets = Liabilities + Equity">✅ A = L+E</span>`;
+            ? `<span class="aud-chip dirty" title="${eqIssue.title}">❌ A ≠ L+E+NI</span>`
+            : `<span class="aud-chip clean" title="Extended equation holds: Assets = Liabilities + Equity + Net Income (open period — A ≠ L+E is normal; the gap is Net Income / Net Loss)">✅ A = L+E+NI</span>`;
+        const eqInfo    = data.equation || {};
+        const eqInfoHtml = eqInfo.net_income !== undefined ? `
+            <div class="aud-eq-info">
+                <span class="aud-eq-row"><b>Assets</b> = ${eqInfo.assets?.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                <span class="aud-eq-sep">|</span>
+                <span class="aud-eq-row"><b>Liabilities</b> = ${eqInfo.liabilities?.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                <span class="aud-eq-sep">|</span>
+                <span class="aud-eq-row"><b>Equity</b> = ${eqInfo.equity?.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                <span class="aud-eq-sep">|</span>
+                <span class="aud-eq-row ${eqInfo.net_income < 0 ? 'aud-eq-loss' : 'aud-eq-profit'}"><b>Net ${eqInfo.net_income >= 0 ? 'Income' : 'Loss'}</b> = ${Math.abs(eqInfo.net_income)?.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>` : '';
         const summaryHtml = `
             <div class="aud-summary">
                 <span class="aud-title">🔍 GL Audit Report</span>
@@ -121,7 +135,8 @@
                 </span>
                 ${eqChip}
                 <button class="aud-close" onclick="closeAudit()">✕ Close</button>
-            </div>`;
+            </div>
+            ${eqInfoHtml}`;
 
         if (s.clean) {
             panel.innerHTML = summaryHtml + '<div class="aud-clean">✅ All checks passed — GL is in compliance.</div>';
@@ -473,6 +488,13 @@
                         padding: 2px 8px; background: #f9fafb; margin-top: 2px;
                         border-radius: 4px; }
     .aud-affected-row .aud-kv { margin-right: 10px; }
+    .aud-eq-info  { display: flex; flex-wrap: wrap; gap: 4px 0; align-items: center;
+                    background: #f8faff; border: 1px solid #dbeafe; border-radius: 6px;
+                    padding: 6px 14px; font-size: 12px; margin-bottom: 8px; }
+    .aud-eq-row   { padding: 0 10px; }
+    .aud-eq-sep   { color: #d1d5db; }
+    .aud-eq-profit{ color: #059669; font-weight: 700; }
+    .aud-eq-loss  { color: #dc2626; font-weight: 700; }
     .aud-trail-table  { font-family: monospace; font-size: 12px; border-collapse: collapse;
                         margin: 6px 0 10px 4px; white-space: normal; }
     .aud-trail-table td { padding: 2px 10px 2px 4px; vertical-align: middle; }
