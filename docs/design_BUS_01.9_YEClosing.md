@@ -76,6 +76,58 @@ When you file your multi-member LLC tax return (Form 1065), you must issue a Sch
 
 ---
 
+## Architecture Decision: YE Posting + BSAuditAgent — One Dialog or Two?
+
+### Question
+Should the BSAuditAgent (currently in the BS view Actions menu) be merged into the
+YE Closing dialog in llcAssets, or kept as a separate tool?
+
+### Decision: Keep Separate — Link Them With a Post-Apply Handoff
+
+**Rationale:**
+
+| Concern | YE Posting (llcAssets) | BSAuditAgent (BS view) |
+|---|---|---|
+| Operation type | **Write** — appends records to `llcAssets` | **Read-only** — reads full GL across all 4 source DBs |
+| Scope | Single source DB (`llcAssets`) | Full GL (Assets + ExpRev + Payables + Receivables) |
+| When useful | Once per year at year-end | Any time — mid-year, post-edit, pre-filing |
+| User intent | "Post my closing entries" | "Is my BS correct right now?" |
+
+Merging them into one dialog would:
+- Create a dialog that both **writes data** and **audits results** — hard to reason about
+- Make `Apply` ambiguous (does it post? does it audit? both?)
+- Remove the ability to run BSAuditAgent independently mid-year
+- Violate the separation between source-DB write actions and GL-wide read diagnostics
+
+This is consistent with how professional accounting software works: journal entry posting
+and report verification are always separate steps.
+
+### Implementation: Smooth UX Handoff (not a merge)
+
+After YE `Apply` succeeds, the dialog closes and the success message includes a
+**"✅ Posted — Verify BS →"** button that navigates to the BS view with
+`?autoAudit=1` in the URL, causing the BSAuditAgent to open automatically.
+
+The user experiences a seamless two-step flow without the tools being architecturally coupled:
+
+```
+llcAssets view
+  └─ 📅 YE Posting dialog
+       └─ [Apply Selected]
+            └─ ✅ Posted 4 records
+               [Go to BS Audit →]  ← navigates to /view/stmtBalanceSheet?autoAudit=1
+                    └─ BS view auto-opens 🔍 BSAuditAgent
+                         └─ 🟡 open_period_ni — GL balanced A=L+E+NI ✓
+```
+
+### When to Implement
+Phase 2 (see Change Plan below) — after per-member COA accounts are in place, the
+BSAuditAgent will be more informative (showing per-member capital balances). The
+handoff URL parameter (`?autoAudit=1`) is a small addition to both the YE apply
+success handler and the BS view page-load script.
+
+---
+
 ## Review: Gaps Between This Doc and Current Implementation
 
 ### Gap 1 — Net Loss Figure is Stale
