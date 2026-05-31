@@ -517,7 +517,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
 
 <script>
 (function(){
-    const _root = (window._scriptRoot || '');
+    const _root = (typeof _scriptRoot !== 'undefined' ? _scriptRoot : '');
 
     window.openBSAudit = async function() {
         document.getElementById('bsaBackdrop').style.display = 'flex';
