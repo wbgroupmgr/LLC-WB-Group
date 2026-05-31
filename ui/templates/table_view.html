@@ -624,9 +624,10 @@
         display: inline-block; padding: 2px 8px; border-radius: 999px;
         font-size: 12px; font-weight: 600; white-space: nowrap;
     }
-    .ye-chip-new    { background: #dbeafe; color: #1d4ed8; }
-    .ye-chip-exists { background: #dcfce7; color: #15803d; }
-    .ye-chip-review { background: #fef3c7; color: #92400e; }
+    .ye-chip-new     { background: #dbeafe; color: #1d4ed8; }
+    .ye-chip-exists  { background: #dcfce7; color: #15803d; }
+    .ye-chip-review  { background: #fef3c7; color: #92400e; }
+    .ye-chip-replace { background: #fee2e2; color: #991b1b; }
     .ye-amount { font-family: monospace; text-align: right; }
     #yeSpinner { text-align: center; padding: 32px; color: #6b7280; font-size: 14px; }
 </style>
@@ -890,6 +891,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
     function _chipHtml(status) {
         if (status === 'exists')  return '<span class="ye-chip ye-chip-exists">🟢 Post exists</span>';
         if (status === 'new')     return '<span class="ye-chip ye-chip-new">🔵 New — will post</span>';
+        if (status === 'replace') return '<span class="ye-chip ye-chip-replace">🔁 Replace wrong amount</span>';
         return '<span class="ye-chip ye-chip-review">⚠️ Review Required</span>';
     }
 
@@ -953,7 +955,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
 
                 // ── Standard single-row items ───────────────────────────
                 const tr = document.createElement('tr');
-                const isNew = item.status === 'new';
+                const isNew = item.status === 'new' || item.status === 'replace';
                 const checkCell = isNew
                     ? `<td style="text-align:center"><input type="checkbox" class="ye-check" checked></td>`
                     : '<td></td>';
@@ -1022,7 +1024,10 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
                 btn.textContent = '✅ Apply Selected';
                 return;
             }
-            alert(`✅ Posted ${data.added} record(s)${data.skipped ? ` (${data.skipped} skipped — already existed)` : ''}.`);
+            const parts = [`✅ Posted ${data.added} record(s)`];
+            if (data.replaced) parts.push(`${data.replaced} replaced`);
+            if (data.skipped)  parts.push(`${data.skipped} skipped`);
+            alert(parts.join(' · ') + '.');
             yeClose();
             window.location.href = buildViewUrl();
         } catch (err) {

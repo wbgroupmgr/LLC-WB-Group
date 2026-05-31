@@ -1784,21 +1784,24 @@ class llcMgmt:
                         "tID": f"{year}.12.31_depr_{pnm_slug}",
                     }
 
+                    # ── Adjusted NI for RE: if depr is new in this batch, subtract it now
+                    # so RE amounts are based on post-depr NI in a one-shot apply.
+                    depr_pending = not depr_exists and depr_amt != 0
+                    adjusted_ni  = round(net_income - (depr_amt if depr_pending else 0.0), 2)
+
                     # ── YE Retained Earnings — split by llcOwners pct, not propOwners ─
-                    # propOwners tracks capital fund investment % per property.
-                    # Net Income allocation uses the LLC-wide ownership % from llcOwners.
-                    # acct = Acct.Equity.Earnings.PnL (P&L clearing account for each member).
-                    # aType = Debit for gain (clears credit P&L balance),
-                    #         Credit for loss (clears debit P&L balance).
+                    # Closing entry: Acct.Equity.Earnings.PnL (P&L clearing, 3100)
+                    #                → Acct.Equity.Owner.Capital.Funds (member capital, 3010)
+                    # gain: Dr PnL / Cr Capital — clears credit P&L balance, builds capital
+                    # loss: Cr PnL / Dr Capital — records loss, reduces capital
                     re_members = []
-                    # gain → Debit Acct.Equity.Earnings.PnL; loss → Credit
-                    re_atype = 'Debit' if net_income >= 0 else 'Credit'
+                    re_atype = 'Debit' if adjusted_ni >= 0 else 'Credit'
                     for o in owners_list:
                         oID  = o.get('oID', '')
                         pct  = float(o.get('pct', 0) or 0) * 100  # llcOwners.pct is 0–1
                         if pct <= 0:
                             continue
-                        member_share = round(abs(net_income) * pct / 100.0, 2)
+                        member_share = round(abs(adjusted_ni) * pct / 100.0, 2)
                         oname  = _owner_name(oID)
                         re_exists = (pnm, oID) in existing_re
                         re_record = {
@@ -1807,7 +1810,7 @@ class llcMgmt:
                             "amt":        member_share,
                             "aType":      re_atype,
                             "acct":       "Acct.Equity.Earnings.PnL",
-                            "Ledger":     "nan",
+                            "Ledger":     "Acct.Equity.Owner.Capital.Funds",  # double-entry: keeps A=L+E+NI balanced
                             "propNm":     pnm,
                             "propAddr":   prop_addr,
                             "propOwners": {oID: pct},
@@ -1826,24 +1829,37 @@ class llcMgmt:
                             "record": re_record if not re_exists else None,
                         })
 
+                    # ── Depreciation item — include replacement record when discrepancy exists
+                    depr_status = "exists" if depr_exists else "new"
+                    depr_record_out = None
+                    if not depr_exists:
+                        depr_record_out = depr_record
+                    elif discrepancy:
+                        # Replacement: _replace_tID tells ye_apply to delete the old record first
+                        replace_rec = dict(depr_record)
+                        replace_rec["_replace_tID"] = ex_depr_list[0].get("tID", "") if ex_depr_list else ""
+                        depr_record_out = replace_rec
+                        depr_status = "replace"
+
                     items = [
                         {
                             "item":          "depreciation",
                             "label":         "Depreciation & Amortization",
-                            "status":        "exists" if depr_exists else "new",
+                            "status":        depr_status,
                             "amount":        existing_amt if depr_exists else depr_amt,
                             "note":          note,
                             "discrepancy":   discrepancy,
-                            "record":        depr_record if not depr_exists else None,
+                            "record":        depr_record_out,
                         },
                         {
                             "item":    "retained_earnings",
                             "label":   "YE Retained Earnings (Net Income → Member Capital)",
                             "status":  "new" if any(m['status'] == 'new' for m in re_members)
                                        else ("exists" if re_members else "review"),
-                            "amount":  net_income,
-                            "note":    (f"Net {'Income' if net_income >= 0 else 'Loss'} "
-                                        f"${abs(net_income):,.2f} split per ownership %"),
+                            "amount":  adjusted_ni,
+                            "note":    (f"Net {'Income' if adjusted_ni >= 0 else 'Loss'} "
+                                        f"${abs(adjusted_ni):,.2f} split per ownership %"
+                                        + (" (incl. pending depr)" if depr_pending else "")),
                             "members": re_members,
                             "record":  None,
                         },
@@ -1891,17 +1907,33 @@ class llcMgmt:
                 if mgr is None:
                     return jsonify({"ok": False, "error": "llcAssets not available"}), 500
 
-                existing     = mgr.load() or []
-                existing_tids = {r.get('tID') for r in existing if r.get('tID')}
-                to_add = [r for r in new_recs
-                          if r and isinstance(r, dict) and r.get('tID') not in existing_tids]
+                existing = mgr.load() or []
 
-                if not to_add:
-                    return jsonify({"ok": True, "added": 0, "skipped": len(new_recs)})
+                # Strip _replace_tID from each record, collect tIDs to delete first
+                replace_tids = set()
+                clean_recs   = []
+                for r in new_recs:
+                    if not r or not isinstance(r, dict):
+                        continue
+                    rid = r.pop('_replace_tID', None)
+                    if rid:
+                        replace_tids.add(rid)
+                    clean_recs.append(r)
+
+                # Remove old records targeted for replacement
+                if replace_tids:
+                    existing = [r for r in existing if r.get('tID') not in replace_tids]
+
+                existing_tids = {r.get('tID') for r in existing if r.get('tID')}
+                to_add   = [r for r in clean_recs if r.get('tID') not in existing_tids]
+                replaced = len(replace_tids)
+
+                if not to_add and not replaced:
+                    return jsonify({"ok": True, "added": 0, "replaced": 0, "skipped": len(clean_recs)})
 
                 mgr.save(existing + to_add)
-                return jsonify({"ok": True, "added": len(to_add),
-                                "skipped": len(new_recs) - len(to_add)})
+                return jsonify({"ok": True, "added": len(to_add), "replaced": replaced,
+                                "skipped": len(clean_recs) - len(to_add)})
             except HTTPException:
                 raise
             except Exception as err:
