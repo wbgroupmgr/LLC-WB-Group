@@ -15,6 +15,8 @@ LLC accounting and IRS tax management system for **W&B Group, LLC** — a multi-
 - When a minor/major release is tested, we will push the code to a release/vMajor.Minor, currently working on Major:0 and Minor 3+
 - Claude can work in its own worktree but when the fixes/enhancement are done, the changes should be put into `*main`
 - At the end of every session, commit all changed source files (Python, JSON, HTML, Markdown — NOT .gdoc, .DS_Store, or binary PDFs) and merge the worktree branch into main with `--no-ff` so the user can test.
+- **After every commit (or set of commits), always `git push origin main`** — pushing to the remote is a required step, not optional. PA (PythonAnywhere) pulls from this repo; untracked local commits block PA syncs.
+- `.claude/sessionLogs/` is gitignored — do not commit session log files.
 
 #### Design Workflow
 
