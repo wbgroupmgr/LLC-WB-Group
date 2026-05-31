@@ -476,6 +476,11 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
         var d = b.closest('details'); if(d) d.removeAttribute('open');
     });
 });
+// Auto-open BSAuditAgent when navigated here from YE apply handoff
+if (new URLSearchParams(window.location.search).get('autoAudit') === '1' &&
+    typeof openBSAudit === 'function') {
+    window.addEventListener('load', function() { openBSAudit(); });
+}
 </script>
 
 {% if obj_type == 'stmtBalanceSheet' %}

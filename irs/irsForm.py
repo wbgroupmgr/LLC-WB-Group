@@ -120,8 +120,8 @@ class irsForm:
         # irsDir = books/<yr>/Forms/
         # parents[0] = books/<yr>/   parents[1] = books/   parents[2] = repo root
         try:
-            self._root_dir  = self.irsDir.parents[2]           # LLC-WB-Group/
-            self._accts_dir = self.irsDir.parents[0] / "Accts" # books/<yr>/Accts/
+            self._root_dir  = self.irsDir.parents[2]                  # LLC-WB-Group/
+            self._accts_dir = self.irsDir.parents[1] / "Accts"        # books/Accts/ (shared)
         except IndexError:
             self._root_dir  = self.irsDir.parent
             self._accts_dir = self.irsDir.parent

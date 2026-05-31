@@ -345,6 +345,9 @@ class PropAgent:
                 'propOwners': prop_owners,
                 'tax_bucket': tax_bucket,
             }
+            # acctOwner: set when a single member fully funds this equity entry
+            if isinstance(prop_owners, dict) and len(prop_owners) == 1:
+                record['acctOwner'] = next(iter(prop_owners))
             records.append(record)
 
         return records

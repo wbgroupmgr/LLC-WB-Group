@@ -152,7 +152,7 @@ class BookToIRS:
         except Exception:
             top  = os.path.expanduser(getattr(self.llc, "TOP", "") or "")
             acct = getattr(self.llc, "dirAccounting", "") or ""
-            return Path(top) / acct / "Accts" / f"llcProfile_{self.llc.objName}.json"
+            return Path(top) / acct / "Accts" / f"llcProfile_{self.llc.objName}.json"  # books/Accts/
 
     # ── stmt class / instance lookup ────────────────────────────
     def _stmtClass(self, src: str):

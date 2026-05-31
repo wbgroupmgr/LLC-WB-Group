@@ -173,19 +173,18 @@ class LLC(object):
 
     def acctDir(self, **kwargs):
         '''
-        Get AccountingData directories
+        Get AccountingData directories.
+        Accts/ is shared across all years (single DB).
+        Year-specific subdirs (Forms/, BankStmts/, YE_Tax_Records/) still use self.yr.
         '''
-        # Save entity information
+        booksDir  = os.path.join(self.TOP, self.dirAccounting)
+        yearDir   = os.path.join(booksDir, str(self.yr))
 
-        # Top of AccountingData, based on year
-        acctDIR = os.path.join(self.TOP, self.dirAccounting, str(self.yr))
-        
         dir = kwargs.get('dirName', 'acctTop')
-        if dir == 'acctTop' : 
-            return acctDIR
-        elif dir == 'ye' : 
-            # REeturn YE Records dir for the given year
-            return os.path.join(acctDIR, 'YE_Tax_Records')
+        if dir == 'acctTop':
+            return booksDir          # books/  (Accts/ is directly under books/)
+        elif dir == 'ye':
+            return os.path.join(yearDir, 'YE_Tax_Records')
 
 
     def acctsDF(self):

@@ -168,7 +168,8 @@ class ChartOfAccounts(ledgerDB):
             propID  = kwargs.get('propID', np.nan), # nan or real property 
             propAddr  = kwargs.get('propAddr', np.nan), # nan if ref, accual prop address
             propOwners  = kwargs.get('propOwners', np.nan), # nan if ref, accual prop, stakeholderPct
-        
+            acctOwner   = kwargs.get('acctOwner',  np.nan), # oID of the member this equity entry belongs to
+
         #-------------- Reference within DB
             tID  = kwargs.get('tID', np.nan), # :    transaction key 
             tDB  = kwargs.get('tDB', np.nan), # 

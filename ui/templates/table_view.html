@@ -1027,9 +1027,16 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
             const parts = [`✅ Posted ${data.added} record(s)`];
             if (data.replaced) parts.push(`${data.replaced} replaced`);
             if (data.skipped)  parts.push(`${data.skipped} skipped`);
-            alert(parts.join(' · ') + '.');
             yeClose();
-            window.location.href = buildViewUrl();
+            // Offer immediate BS verification via BSAuditAgent
+            const goAudit = confirm(
+                parts.join(' · ') + '.\n\nOpen Balance Sheet Audit to verify?'
+            );
+            if (goAudit) {
+                window.location.href = `${_scriptRoot}/view/stmtBalanceSheet?autoAudit=1`;
+            } else {
+                window.location.href = buildViewUrl();
+            }
         } catch (err) {
             alert('❌ Network error: ' + err);
             btn.disabled = false;

@@ -93,8 +93,8 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
     if llc_name != detected:
         print(f"  ℹ  llcName overridden: '{detected}' (folder) → '{llc_name}' (--llcName)")
 
-    # Auto-detect dataName from existing Accts files (e.g. llcAssets_WBGroupLLC.json)
-    accts_dir = bus_path / books_dir / str(year) / "Accts"
+    # Auto-detect dataName from existing Accts files (single shared DB under books/Accts/)
+    accts_dir = bus_path / books_dir / "Accts"
     data_name = llc_name
     for p in accts_dir.glob("llcAssets_*.json"):
         stem = p.stem

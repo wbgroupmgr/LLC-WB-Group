@@ -32,7 +32,7 @@ CONFIG_FILE     = TRACKER_CFG_DIR / "config.json"
 # ── Runtime paths — populated by load_config() ───────────────────────────────
 TOP:           Path | None = None   # business repo root
 ACCT_DATA_DIR: Path | None = None   # books/
-ACCTS_DIR:     Path | None = None   # books/<year>/Accts/
+ACCTS_DIR:     Path | None = None   # books/Accts/  (shared across all years)
 EXPENSES_DIR:  Path | None = None   # books/<year>/Expenses/
 IRS_FORMS_DIR: Path | None = None   # books/<year>/Forms/
 BANK_STMTS:    Path | None = None   # books/<year>/BankStmts/
@@ -113,7 +113,7 @@ def load_year(llc_name: str, year: int) -> SessionPaths:
     books = base / stanza["books_dir"]
     yr    = int(stanza["year"])
     return SessionPaths(
-        accts_dir     = books / str(yr) / "Accts",
+        accts_dir     = books / "Accts",                  # shared across all years
         expenses_dir  = books / str(yr) / "Expenses",
         irs_forms_dir = books / str(yr) / "Forms",
         bank_stmts    = books / str(yr) / "BankStmts",
@@ -161,7 +161,7 @@ def load_config(llcName: str, year: int) -> dict:
     BOOKS_DIR     = stanza["books_dir"]
     DATA_NAME     = stanza.get("dataName", stanza["llcName"])
     ACCT_DATA_DIR = books
-    ACCTS_DIR     = books / str(yr) / "Accts"
+    ACCTS_DIR     = books / "Accts"                  # shared across all years
     EXPENSES_DIR  = books / str(yr) / "Expenses"
     IRS_FORMS_DIR = books / str(yr) / "Forms"
     BANK_STMTS    = books / str(yr) / "BankStmts"

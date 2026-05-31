@@ -1914,6 +1914,7 @@ class llcMgmt:
                             "aType":      re_atype,
                             "acct":       "Acct.Equity.Earnings.PnL",
                             "Ledger":     "Acct.Equity.Owner.Capital.Funds",  # double-entry: keeps A=L+E+NI balanced
+                            "acctOwner":  oID,   # per-member equity tracking (Phase 2)
                             "propNm":     pnm,
                             "propAddr":   prop_addr,
                             "propOwners": {oID: pct},

@@ -52,10 +52,9 @@ class llcReportEngine:
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_source(self, name: str) -> List[Dict[str, Any]]:
-        # Immutable stmt objects always read the authoritative real DB file.
-        # Read directly from the filesystem path (bypassing wk.o.load()) so
-        # any in-memory caching in llcAssets.fetch()/df does not return stale
-        # data after a Save that updated the file since server startup.
+        # Read the shared DB file directly (bypasses in-memory llcAssets.df cache).
+        # Filters to the active fiscal year so the single cross-year DB only
+        # contributes the current year's records to the GL.
         import json as _json
         from pathlib import Path as _Path
         wk = self.eSession.oDict.get(name)
@@ -64,7 +63,12 @@ class llcReportEngine:
         real_path = _Path(wk.o.FN())
         try:
             data = _json.loads(real_path.read_text(encoding='utf-8'))
-            return data if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+            yr = str(getattr(self.eSession.llc, 'yr', '') or '')
+            if yr:
+                data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+            return data
         except Exception:
             return []
 

@@ -54,8 +54,12 @@ class utilWorkingDB(ledgerDB):
     def load(self):
         if Path(self.FN()).exists():
             tList = super().load()
-            return self.llc.coa.getAcctType(tList)
-            
+            tList = self.llc.coa.getAcctType(tList)
+            # filter to active fiscal year (single shared DB contains all years)
+            yr = str(getattr(self.llc, 'yr', '') or '')
+            if yr and tList:
+                tList = [r for r in tList if str(r.get('dt', '')).startswith(yr)]
+            return tList
         return []
 
     #
