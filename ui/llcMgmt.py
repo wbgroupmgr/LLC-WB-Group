@@ -894,10 +894,18 @@ class llcMgmt:
                         show_detail=is_details,
                     )
 
-                # For Balance Sheet: also pass the accounting-equation check
+                # For Balance Sheet: also pass the accounting-equation check + open-period flag
                 bs_check = None
                 if obj_type == "stmtBalanceSheet" and hasattr(manager, "last_check"):
                     bs_check = manager.last_check()
+                    if bs_check and bs_check.get('equation_diff') is not None:
+                        from ui.llcReportEngine import llcReportEngine as _RE
+                        from ledger.auditor     import GLAuditor      as _Aud
+                        _gl  = _RE(self.eSession).getGLList(resolve_dups=True, force=True)
+                        _eq  = _Aud(self.eSession.llc, _gl).equation_summary()
+                        _ni  = _eq.get('net_income', 0)
+                        _gap = bs_check['equation_diff']
+                        bs_check['gap_is_ni'] = abs(_gap - _ni) < 0.01
 
                 return render_template(
                     "financial_view.html",
@@ -1572,6 +1580,101 @@ class llcMgmt:
                 gl_records  = engine.getGLList(resolve_dups=True, force=True)
                 result      = GLAuditor(llc, gl_records).apply_corrections(corrections)
                 return jsonify({"ok": True, **result})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        # ── Balance Sheet Audit ────────────────────────────────────────────────
+
+        @app.route("/api/stmtBalanceSheet/audit")
+        def bs_audit():
+            '''Forensic BS audit: equation analysis + full GL audit via GLAuditor.'''
+            try:
+                from ui.llcReportEngine import llcReportEngine as _RE
+                from ledger.auditor     import GLAuditor      as _Aud
+
+                engine     = _RE(self.eSession)
+                gl_records = engine.getGLList(resolve_dups=True, force=True)
+                auditor    = _Aud(self.eSession.llc, gl_records)
+
+                # ── Equation summary ──────────────────────────────────────────
+                eq      = auditor.equation_summary()
+                assets  = eq['assets']
+                liabs   = eq['liabilities']
+                equity  = eq['equity']
+                ni      = eq['net_income']
+                le_gap  = eq['le_gap']              # A − (L+E), signed D-C convention
+
+                open_gap     = round(assets - (liabs + equity + ni), 2)
+                open_balanced = abs(open_gap) < 0.01
+                gap_is_ni    = abs(le_gap - ni) < 0.01   # BS gap explained by NI
+
+                # ── Verdict ───────────────────────────────────────────────────
+                if abs(le_gap) < 0.01:
+                    verdict = 'balanced'
+                    summary = 'Balance Sheet is fully balanced — Assets = Liabilities + Equity.'
+                elif gap_is_ni and open_balanced:
+                    verdict = 'open_period_ni'
+                    direction = 'Net Loss' if ni < 0 else 'Net Income'
+                    summary  = (
+                        f"BS gap (${abs(le_gap):,.2f}) equals the period {direction}. "
+                        f"This is expected in an open-period system: revenue/expense accounts "
+                        f"remain open; the GL is balanced under A = L + E + NI. "
+                        f"No corrective action needed — the books are correct."
+                    )
+                else:
+                    verdict = 'error'
+                    summary = (
+                        f"BS gap (${abs(le_gap):,.2f}) is NOT explained by Net Income alone — "
+                        f"there may be mis-classified accounts or missing double-entry. "
+                        f"Review the issues below."
+                    )
+
+                # ── NI breakdown (income + expense accounts) ──────────────────
+                ni_rows: dict = {}
+                for r in gl_records:
+                    at = r.get('acctType', '') or ''
+                    if at not in ('Income', 'Expense'):
+                        continue
+                    acct = r.get('acct', '')
+                    amt  = float(r.get('amt', 0) or 0)
+                    atyp = (r.get('aType', '') or '').strip().lower()
+                    if acct not in ni_rows:
+                        ni_rows[acct] = {'acct': acct, 'acctType': at, 'balance': 0.0}
+                    if at == 'Income':
+                        ni_rows[acct]['balance'] += (amt if 'credit' in atyp else -amt)
+                    else:
+                        ni_rows[acct]['balance'] += (amt if 'debit' in atyp else -amt)
+                ni_breakdown = sorted(
+                    [{'acct': v['acct'], 'acctType': v['acctType'],
+                      'balance': round(v['balance'], 2)} for v in ni_rows.values()],
+                    key=lambda x: (x['acctType'], x['acct'])
+                )
+
+                # ── Full GL audit ─────────────────────────────────────────────
+                full_audit  = auditor.audit()
+                issues      = full_audit.get('issues', [])
+                audit_sum   = full_audit.get('summary', {})
+
+                return jsonify({
+                    "ok": True,
+                    "equation": {
+                        "assets":        assets,
+                        "liabilities":   liabs,
+                        "equity":        equity,
+                        "net_income":    ni,
+                        "le_gap":        le_gap,
+                        "open_balanced": open_balanced,
+                        "open_gap":      open_gap,
+                        "gap_is_ni":     gap_is_ni,
+                    },
+                    "verdict":      verdict,
+                    "summary":      summary,
+                    "ni_breakdown": ni_breakdown,
+                    "issues":       issues,
+                    "audit_summary": audit_sum,
+                })
             except HTTPException:
                 raise
             except Exception as err:

@@ -244,6 +244,9 @@
                 {% endfor %}
             </select>
             {% endif %}
+            {% if obj_type == 'stmtBalanceSheet' %}
+            <button class="btn btn-secondary" style="margin-left:6px" onclick="openBSAudit()">🔍 BalSheetAudit</button>
+            {% endif %}
             <div class="actions-menu">
                 <details id="actionsMenu">
                     <summary>Actions ▾</summary>
@@ -283,13 +286,13 @@
     <div class="eq-warning">
         <span class="icon">⚠️</span>
         <span>
-            <strong>Accounting equation imbalance:</strong>
-            Assets + Liabilities + Equity = {{ bs_check.equation_diff }}
-            (expected 0.00).
-            Asset balance: {{ bs_check.asset }},
-            Liability balance: {{ bs_check.liability }},
-            Equity balance: {{ bs_check.equity }}.
-            Check for missing or incorrectly classified transactions.
+            <strong>BS equation gap: {{ bs_check.equation_diff }}</strong>
+            (Assets={{ bs_check.asset }}, L={{ bs_check.liability }}, E={{ bs_check.equity }}).
+            {% if bs_check.get('gap_is_ni') %}
+            Gap equals period Net {{ 'Loss' if bs_check.equation_diff < 0 else 'Income' }} — open-period system; GL is balanced A=L+E+NI.
+            {% else %}
+            Click <strong>🔍 BalSheetAudit</strong> to identify root cause.
+            {% endif %}
         </span>
     </div>
     {% elif bs_check.balanced == true %}
@@ -303,16 +306,18 @@
     <h3>{{ view_title }}</h3>
     <div class="table-wrap">
         {# ── Column visibility flags ── #}
-        {% set show_detail     = view_by == 'Details' %}
-        {% set n_cols          = 8 if show_detail else 5 %}
-        {% set label_cols      = 5 if show_detail else 2 %}
+        {% set show_detail = view_by == 'Details' %}
+        {% set show_minor  = (obj_type == 'stmtBalanceSheet') or show_detail %}
+        {% set _extra      = (1 if show_minor else 0) + (2 if show_detail else 0) %}
+        {% set n_cols      = 5 + _extra %}
+        {% set label_cols  = 2 + _extra %}
         {% set is_is_view      = obj_type == "stmtIncomeStmt" %}
         <table class="fin-table">
             <thead>
                 <tr>
                     <th style="width:110px">acctType</th>
                     <th>acct</th>
-                    {% if show_detail %}<th style="width:160px">Minor</th>{% endif %}
+                    {% if show_minor  %}<th style="width:160px">Minor</th>{% endif %}
                     {% if show_detail %}<th style="width:160px">acctSub</th>{% endif %}
                     {% if show_detail %}<th style="width:110px">propNm</th>{% endif %}
                     <th class="num" style="width:120px">Debit</th>
@@ -441,7 +446,7 @@
                         <tr>
                             <td></td>
                             <td class="acct-name">{{ acct_disp }}</td>
-                            {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>{% endif %}
+                            {% if show_minor  %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_minor }}</td>{% endif %}
                             {% if show_detail %}<td style="font-size:12px; color:#6b7280; font-family:monospace">{{ acct_sub }}</td>{% endif %}
                             {% if show_detail %}<td style="font-size:12px; color:#374151">{{ prop_nm }}</td>{% endif %}
                             <td class="num {% if debit > 0 %}amt-pos{% endif %}">{{ "%.2f"|format(debit) if debit else "" }}</td>
@@ -472,4 +477,145 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
     });
 });
 </script>
+
+{% if obj_type == 'stmtBalanceSheet' %}
+<!-- ── BSAuditAgent Modal ──────────────────────────────────────────────── -->
+<style>
+#bsaBackdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+               z-index:600; align-items:center; justify-content:center; }
+#bsaDialog   { background:#fff; border-radius:10px; padding:24px; max-width:820px;
+               width:94vw; max-height:86vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,.28); }
+#bsaDialog h3 { margin:0 0 12px; font-size:17px; }
+.bsa-eq-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+.bsa-eq-cell { background:#f3f4f6; border-radius:6px; padding:10px 14px; }
+.bsa-eq-cell .label { font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600; }
+.bsa-eq-cell .value { font-size:18px; font-weight:700; font-family:monospace; margin-top:2px; }
+.bsa-verdict { border-radius:6px; padding:10px 16px; margin-bottom:14px; font-size:13px; font-weight:600; }
+.bsa-verdict.ok      { background:#dcfce7; color:#15803d; }
+.bsa-verdict.warn    { background:#fef3c7; color:#92400e; }
+.bsa-verdict.error   { background:#fee2e2; color:#991b1b; }
+.bsa-section { margin-bottom:16px; }
+.bsa-section h4 { font-size:13px; font-weight:700; color:#374151; margin:0 0 6px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }
+.bsa-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.bsa-tbl th { background:#f9fafb; padding:5px 8px; text-align:left; border:1px solid #e5e7eb; font-weight:600; }
+.bsa-tbl td { padding:5px 8px; border:1px solid #e5e7eb; }
+.bsa-tbl td.num { text-align:right; font-family:monospace; }
+.bsa-issue { background:#fffbeb; border:1px solid #fbbf24; border-radius:6px; padding:8px 12px; margin-bottom:8px; font-size:12px; }
+.bsa-issue.error { background:#fee2e2; border-color:#f87171; }
+.bsa-issue .sev  { font-weight:700; margin-right:6px; }
+</style>
+<div id="bsaBackdrop" onclick="if(event.target===this) bsaClose()">
+  <div id="bsaDialog">
+    <h3>🔍 Balance Sheet Audit</h3>
+    <div id="bsaSpinner" style="text-align:center;padding:32px;color:#6b7280">Running forensic analysis…</div>
+    <div id="bsaContent" style="display:none"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button class="btn btn-secondary" onclick="bsaClose()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+    const _root = (window._scriptRoot || '');
+
+    window.openBSAudit = async function() {
+        document.getElementById('bsaBackdrop').style.display = 'flex';
+        document.getElementById('bsaSpinner').style.display  = 'block';
+        document.getElementById('bsaContent').style.display  = 'none';
+        try {
+            const res  = await fetch(`${_root}/api/stmtBalanceSheet/audit`);
+            const data = await res.json();
+            document.getElementById('bsaSpinner').style.display = 'none';
+            if (!data.ok) {
+                document.getElementById('bsaContent').innerHTML =
+                    `<div class="bsa-verdict error">❌ ${data.error || 'Unknown error'}</div>`;
+            } else {
+                document.getElementById('bsaContent').innerHTML = _renderBSA(data);
+            }
+            document.getElementById('bsaContent').style.display = 'block';
+        } catch(err) {
+            document.getElementById('bsaSpinner').style.display = 'none';
+            document.getElementById('bsaContent').innerHTML =
+                `<div class="bsa-verdict error">❌ Network error: ${err}</div>`;
+            document.getElementById('bsaContent').style.display = 'block';
+        }
+    };
+
+    window.bsaClose = function() {
+        document.getElementById('bsaBackdrop').style.display = 'none';
+    };
+
+    function _fmtAmt(v) {
+        const n = Number(v);
+        const s = '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+        return n < 0 ? `(${s})` : s;
+    }
+
+    function _renderBSA(d) {
+        const eq = d.equation;
+        const gapLabel = eq.gap_is_ni
+            ? (eq.net_income < 0 ? '= Period Net Loss (open-period gap, expected)' : '= Period Net Income (open-period gap, expected)')
+            : '⚠ Unexplained gap';
+        const verdictCls  = d.verdict === 'balanced'       ? 'ok'
+                          : d.verdict === 'open_period_ni' ? 'warn' : 'error';
+        const verdictIcon = verdictCls === 'ok' ? '✅' : verdictCls === 'warn' ? '🟡' : '❌';
+
+        let html = `
+        <div class="bsa-eq-grid">
+          <div class="bsa-eq-cell"><div class="label">Assets</div><div class="value">${_fmtAmt(eq.assets)}</div></div>
+          <div class="bsa-eq-cell"><div class="label">Liabilities</div><div class="value">${_fmtAmt(eq.liabilities)}</div></div>
+          <div class="bsa-eq-cell"><div class="label">Equity</div><div class="value">${_fmtAmt(eq.equity)}</div></div>
+          <div class="bsa-eq-cell"><div class="label">Net Income/(Loss)</div><div class="value" style="color:${eq.net_income<0?'#dc2626':'#15803d'}">${_fmtAmt(eq.net_income)}</div></div>
+          <div class="bsa-eq-cell"><div class="label">A = L+E+NI?</div><div class="value" style="color:${eq.open_balanced?'#15803d':'#dc2626'}">${eq.open_balanced ? '✅ Balanced' : '❌ Off by '+_fmtAmt(eq.open_gap)}</div></div>
+          <div class="bsa-eq-cell"><div class="label">BS Gap (A−L−E)</div><div class="value" style="color:${eq.le_gap===0?'#15803d':'#92400e'}">${_fmtAmt(eq.le_gap)} <span style="font-size:11px;font-weight:400">${gapLabel}</span></div></div>
+        </div>
+        <div class="bsa-verdict ${verdictCls}">${verdictIcon} ${d.summary}</div>`;
+
+        // NI breakdown
+        if (d.ni_breakdown && d.ni_breakdown.length) {
+            html += `<div class="bsa-section"><h4>Net Income Breakdown (Income & Expense Accounts)</h4>
+            <table class="bsa-tbl"><thead><tr><th>Account</th><th>Type</th><th class="num">Balance</th></tr></thead><tbody>`;
+            for (const r of d.ni_breakdown) {
+                const neg = r.balance < 0;
+                html += `<tr><td style="font-family:monospace">${r.acct}</td><td>${r.acctType}</td>
+                         <td class="num" style="color:${neg?'#dc2626':'inherit'}">${_fmtAmt(r.balance)}</td></tr>`;
+            }
+            html += `</tbody></table></div>`;
+        }
+
+        // Issues from full GL audit
+        if (d.issues && d.issues.length) {
+            html += `<div class="bsa-section"><h4>GL Audit Issues (${d.issues.length})</h4>`;
+            for (const iss of d.issues) {
+                const cls = iss.severity === 'error' ? 'error' : '';
+                const icon = iss.severity === 'error' ? '🔴' : '🟡';
+                html += `<div class="bsa-issue ${cls}">
+                  <span class="sev">${icon} ${iss.severity.toUpperCase()}</span>
+                  <strong>${iss.title}</strong>
+                  <div style="margin-top:4px;white-space:pre-wrap;color:#374151">${iss.description || ''}</div>`;
+                if (iss.affected && iss.affected.length) {
+                    html += `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px">${iss.affected.length} affected record(s)</summary>
+                    <table class="bsa-tbl" style="margin-top:4px"><thead><tr><th>tID</th><th>acct</th><th>aType</th><th class="num">amt</th><th>acctSub</th></tr></thead><tbody>`;
+                    for (const r of iss.affected) {
+                        html += `<tr><td style="font-family:monospace;font-size:11px">${r.tID||''}</td>
+                                     <td style="font-family:monospace;font-size:11px">${r.acct||''}</td>
+                                     <td>${r.aType||''}</td>
+                                     <td class="num">${_fmtAmt(r.amt)}</td>
+                                     <td>${r.acctSub||''}</td></tr>`;
+                    }
+                    html += `</tbody></table></details>`;
+                }
+                html += `</div>`;
+            }
+            html += `</div>`;
+        } else if (d.issues) {
+            html += `<div class="bsa-section"><div class="bsa-verdict ok">✅ No GL issues found — all checks clean.</div></div>`;
+        }
+
+        return html;
+    }
+})();
+</script>
+{% endif %}
 {% endblock %}
