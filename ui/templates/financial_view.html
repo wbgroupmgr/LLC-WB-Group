@@ -244,14 +244,14 @@
                 {% endfor %}
             </select>
             {% endif %}
-            {% if obj_type == 'stmtBalanceSheet' %}
-            <button class="btn btn-secondary" style="margin-left:6px" onclick="openBSAudit()">🔍 BalSheetAudit</button>
-            {% endif %}
             <div class="actions-menu">
                 <details id="actionsMenu">
                     <summary>Actions ▾</summary>
                     <div class="act-dropdown">
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
+                        {% if obj_type == 'stmtBalanceSheet' %}
+                        <button class="act-primary" onclick="openBSAudit()">🔍 BalSheetAudit</button>
+                        {% endif %}
                         <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
                     </div>
                 </details>
