@@ -134,32 +134,35 @@ success handler and the BS view page-load script.
 The doc uses **-$416** throughout. The correct 2025 figure after MACRS depreciation fix is **-$393.50**
 (rental income $4,400 − operating expenses $2,890.37 − MACRS depreciation $1,903.13).
 
-### Gap 2 — COA Does Not Have Per-Member Capital Accounts
+### Gap 2 — No Per-Member Tracking on Equity Records
 The current COA has one shared equity account: `Acct.Equity.Owner.Capital.Funds` (3010).
 All three members' contributions, draws, and PnL allocations are mixed in the same bucket,
-distinguished only by `propOwners` metadata — **not** by separate ledger accounts.
+distinguished only by `propOwners` metadata and free-text `desc`.
 
-The doc correctly identifies the target structure but the COA needs new accounts:
-```
-Acct.Equity.Owner.Capital.Funds      3010  (existing — contributions, keep)
-Acct.Equity.Owner.Capital.Dist       3020  (existing — distributions, keep)
-Acct.Equity.Member.[oID].PnL         3110+ (NEW — per-member YE PnL allocation)
-```
-Without per-member PnL accounts, K-1 Item L (Capital Account Analysis) cannot be read
-directly from the ledger — it must be computed from `propOwners` metadata each time.
+**Decision: use `acctOwner` + `acctSub` fields — do NOT add per-member COA accounts.**
 
-### Gap 3 — `Acct.Equity.Earnings.PnL` Is Used as Two Different Things
-The COA describes `Acct.Equity.Earnings.PnL` (3100) as "Retained Earnings (cumulative
-profit or loss from previous years)". The current YE posting uses it as an **Income Summary**
-(a temporary clearing account that gets debited/credited at year-end then offset to Capital).
+Keep the existing COA account structure. Add an `acctOwner` field (the member's `oID`) to
+every equity-related transaction record, and standardise `acctSub` values for equity actions:
 
-These are conceptually different accounts. After YE posting the current balance is **+$393.50
-Credit** — this represents the loss allocation that was Credited in and Debited out to Capital.
-Over multiple years this account will accumulate and become misleading.
+| `acct` | `acctOwner` | `acctSub` | Meaning |
+|---|---|---|---|
+| `Acct.Equity.Owner.Capital.Funds` | `o20250801_1` | `Contrib` | Francis contribution |
+| `Acct.Equity.Owner.Capital.Funds` | `o20250801_1` | `YE Net Income` | Francis YE PnL share |
+| `Acct.Equity.Owner.Capital.Dist`  | `o20250801_2` | `Draw` | Alexandra distribution |
 
-**Correct design:**
-- `Acct.Equity.Earnings.PnL` = **Income Summary** (temporary, cleared to zero each YE)
-- Per-member PnL accounts carry the running capital balance year-over-year
+This avoids COA proliferation (3 members × 3 action types = 9 new accounts), keeps the
+COA stable regardless of member changes, and lets the BS/IS/K-1 filter by `acctOwner` at
+query time.
+
+### Gap 3 — `Acct.Equity.Earnings.PnL` Role Clarified
+With the single-DB decision (see Gap 5), `Acct.Equity.Earnings.PnL` (3100) naturally
+accumulates all YE closing entries across years:
+- 2025 YE loss: Credit +$393.50 → running balance = $393.50 credit
+- 2026 YE income: Debit $X → balance adjusts accordingly
+
+The net balance = **cumulative retained earnings** — exactly what the COA description says
+("Cumulative profit or loss from previous years"). This account does NOT need to be cleared
+to zero each year. Gap 3 is resolved by the single-DB design.
 
 ### Gap 4 — BS Still Shows -$393.50 Gap After YE Posting (by design)
 The doc says "your Balance Sheet matches" after closing. **This is only true in a closed-period
@@ -167,33 +170,56 @@ system.** This system is intentionally **open-period** (revenue/expense accounts
 IRS K-1 detail). The BS will always show `equation_diff = NI`. The BSAuditAgent confirms this
 is expected — `verdict: open_period_ni`, GL balanced under `A = L + E + NI`.
 
-### Gap 5 — No New-Year Opening Balance Process Defined
-The doc covers closing 2025 but not opening 2026. The system needs a defined workflow for:
-- Carrying forward the ending capital balance per member into `books/2026/Accts/`
-- Resetting the Income Summary / PnL clearing account to $0
-- Beginning balance entries for cash, fixed assets, and accumulated depreciation
+### Gap 5 — New-Year Opening Balances Are Not Needed (Single DB Decision)
+**Decision: keep a single set of `Accts/*.json` files across all years.**
 
-### Gap 6 — YE Posting `re_atype` Direction Needs Verification Against COA
-Current YE posting posts RE records as:
+Change filesystem structure:
 ```
-Dr Acct.Equity.Earnings.PnL (loss: Credit) / Cr Acct.Equity.Owner.Capital.Funds (loss: Debit)
+FROM: books/<year>/Accts/*.json   (separate files per year)
+TO:   books/Accts/*.json          (one file for all years, filtered by dt at query time)
 ```
-For a **net loss**: Credit PnL, Debit Capital.Funds → reduces member capital ✓ (matches doc Step 3).
-For a **net income**: Debit PnL, Credit Capital.Funds → increases member capital ✓.
-Direction is correct. However, both members share the same `Acct.Equity.Owner.Capital.Funds`
-account — per-member isolation requires Gap 2 to be resolved first.
 
-### Gap 7 — K-1 Item L Capital Account Analysis Not Mapped
+`Forms/` and `BankStmts/` remain year-organised (they are filed documents, not
+accounting records):
+```
+books/
+  Accts/                  ← shared across all years
+    llcAssets_WBGroupLLC.json
+    llcExpRev_WBGroupLLC.json
+    ...
+  2025/
+    Forms/                ← year-specific (PDFs)
+    BankStmts/            ← year-specific
+  2026/
+    Forms/
+    BankStmts/
+```
+
+With a single DB, **no opening-balance entries are needed**. The GL at any date is the
+running total of all prior transactions in the same file. AccumDepr, Capital balances,
+and Cash all carry forward automatically. The year switcher changes the query filter
+(`dt` starts with year), not the file path. `YECloseAgent` is not needed.
+
+### Gap 6 — YE Posting `re_atype` Direction Is Correct
+Current YE posting:
+```
+Loss:   Cr Acct.Equity.Earnings.PnL / Dr Acct.Equity.Owner.Capital.Funds  ✓
+Income: Dr Acct.Equity.Earnings.PnL / Cr Acct.Equity.Owner.Capital.Funds  ✓
+```
+Direction matches Step 3 of this doc. The only remaining issue is adding `acctOwner`
+to each RE record so per-member capital can be queried directly (Gap 2).
+
+### Gap 7 — K-1 Item L Capital Account Analysis
 IRS Schedule K-1 Item L requires per-member:
-- (a) Beginning capital
-- (b) Capital contributed during year
-- (c) Current year net income/(loss) share
-- (d) Other increases/(decreases)
-- (e) Withdrawals and distributions
+- (a) Beginning capital — sum of all equity records for `acctOwner=oID` through prior Dec 31
+- (b) Capital contributed — `acctSub=Contrib`, `acctOwner=oID`, current year
+- (c) Current year net income/(loss) share — `acctSub=YE Net Income`, `acctOwner=oID`, current year
+- (d) Other increases/(decreases) — other equity entries for `acctOwner=oID`
+- (e) Withdrawals/distributions — `acct=Acct.Equity.Owner.Capital.Dist`, `acctOwner=oID`
 - (f) Ending capital = (a)+(b)+(c)+(d)−(e)
 
-The system currently has no direct ledger path to compute (a) without re-running prior-year GL.
-Per-member PnL accounts (Gap 2) would make (c) and (f) ledger-readable directly.
+With `acctOwner` on every equity record and single DB, all six lines are direct GL queries —
+no metadata reconstruction required.
 
 ---
 
@@ -209,33 +235,50 @@ The -$393.50 BS gap is expected (open-period). BSAuditAgent confirms GL is balan
 | 1.2 | Run BSAuditAgent → verify `verdict: open_period_ni`, no GL errors | BS view → Actions |
 | 1.3 | Generate K-1 from IS per-member view — members report -$393.50 loss proportionally | IS PerMember view |
 
-### Phase 2 — COA Enhancement (before 2026 YE)
-Add per-member PnL capital accounts to the COA and update all writers.
+### Phase 2 — `acctOwner` Field: Per-Member Equity Tracking (before 2026 YE)
+Add `acctOwner` field to the record schema and backfill existing equity entries.
+No new COA accounts. No COA file changes.
 
-| # | Action | Files |
-|---|---|---|
-| 2.1 | Add `Acct.Equity.Member.{oID}.PnL` accounts to COA for each member | `ChartOfAccounts_WBGroupLLC.json` |
-| 2.2 | Update YE posting: use per-member PnL account as `Ledger` (not shared Capital.Funds) | `ui/llcMgmt.py` → `ye_preview()` |
-| 2.3 | Audit all existing `Acct.Equity.Owner.Capital.Funds` entries — tag `acctSub` as Contrib/Draw/PnL | `llcAssets`, `llcExpRev` |
-| 2.4 | Update BS view to group equity by member (show per-member capital balance) | `ledger/stmtBS.py`, `financial_view.html` |
-| 2.5 | Verify PropAgent closing still routes equity to correct member-specific accounts | `ledger/propAgent.py` |
+**Codebase impact — 7 files:**
 
-### Phase 3 — New Year Opening Balance Workflow (2026 setup)
-Define and implement the year-transition process.
+| # | Action | File | Scope |
+|---|---|---|---|
+| 2.1 | Add `acctOwner = kwargs.get('acctOwner', np.nan)` to `toRecDict()` | `ledger/llcCOA.py` | 1 line |
+| 2.2 | Add `"acctOwner": oID` to every RE record in `ye_preview()` | `ui/llcMgmt.py` | 1 line |
+| 2.3 | Add `"acctOwner": oID` to equity records in PropAgent closing | `ui/llcPropAgent.py` | Small |
+| 2.4 | Backfill `acctOwner` on existing `Acct.Equity.Owner.Capital.Funds` entries (3 records: FRojas contribution, balance-start, equity-other) | `books/Accts/llcAssets_WBGroupLLC.json` | Data |
+| 2.5 | Update `stmtBS_View.view()` to group equity rows by `acctOwner` when present; show per-member sub-rows in BS equity section | `ledger/stmtBS.py` | Medium |
+| 2.6 | Add `acctOwner` filter to `stmtOwnerEquity` per-member view | `ledger/stmtOwnerEquity.py` | Small |
+| 2.7 | Add handoff: after YE Apply success, show "✅ Posted — Verify BS →" button navigating to `/view/stmtBalanceSheet?autoAudit=1`; add page-load `autoAudit` handler to BS view | `ui/templates/table_view.html`, `financial_view.html` | Small |
 
-| # | Action | Files |
-|---|---|---|
-| 3.1 | Design `YECloseAgent`: reads ending balances from 2025 GL, writes opening entries to 2026 `llcAssets` | new `ledger/yeCloseAgent.py` |
-| 3.2 | Opening entries: Cash, Fixed Assets, AccumDepr, per-member Capital balances | `books/2026/Accts/llcAssets_WBGroupLLC.json` |
-| 3.3 | Reset Income Summary (`Acct.Equity.Earnings.PnL`) to $0 in new year (no opening balance entry needed — it accumulates only within-year) | `ye_preview()` logic |
-| 3.4 | Add `wsCmd.py --newYear 2026` command to automate the transition | `wsCmd.py` |
+### Phase 3 — Single DB Across All Years (filesystem restructure)
+Move `Accts/*.json` out of year subdirectories into a shared `books/Accts/` directory.
+`Forms/` and `BankStmts/` remain year-organised (filed documents, not accounting records).
+No opening-balance entries needed — GL history is continuous; year filter = `dt` prefix.
+
+**Codebase impact — 8 files + 1 data migration:**
+
+| # | Action | File | Scope |
+|---|---|---|---|
+| 3.1 | Change `ACCTS_DIR = books / str(yr) / "Accts"` → `books / "Accts"` | `ledger/setup_paths.py` | 2 lines |
+| 3.2 | Add optional `year: int` param to `load()`; filter records where `dt` starts with `str(year)` | `ledger/ledgerDB.py` | Small |
+| 3.3 | Pass `year` filter when loading DBs for GL construction | `util/utilEditSession.py` | Small |
+| 3.4 | Pass `year` filter through `llcReportEngine.getGLList()` | `ui/llcReportEngine.py` | Small |
+| 3.5 | Update `wsCmd.py` path config; remove `--newYear` command (no longer needed) | `wsCmd.py` | Small |
+| 3.6 | Update `~/.llcRentalTracker/config.json`: `year` becomes active-filter only, not path component | config | Config |
+| 3.7 | Year switcher on home page changes query param, not directory | `ui/templates/home.html` | Small |
+| 3.8 | Update IRS form path helpers (`irsForm.py`, `BookToIRS.py`) — `ACCTS_DIR` now shared; `IRS_FORMS_DIR` stays year-specific | `irs/irsForm.py`, `irs/BookToIRS.py` | Small |
+| 3.9 | **Data migration**: merge `books/2025/Accts/*.json` + any `books/2026/Accts/*.json` into `books/Accts/*.json`; commit to LLC-WBGroup repo | `books/Accts/` | One-time |
 
 ### Phase 4 — K-1 Item L Automation (IRS filing readiness)
-Wire per-member capital accounts to K-1 Item L fields.
+Wire per-member equity records (filtered by `acctOwner` + `acctSub`) to K-1 Item L fields.
+Depends on Phase 2 (`acctOwner` present) and Phase 3 (full history in single DB).
 
-| # | Action | Files |
-|---|---|---|
-| 4.1 | Map `Acct.Equity.Member.{oID}.PnL` ending balances → K-1 Item L(f) Ending Capital | `irs/mapIRS2LLC.py` |
-| 4.2 | Map `Acct.Equity.Owner.Capital.Funds` contribution entries → K-1 Item L(b) | `irs/mapIRS2LLC.py` |
-| 4.3 | Map `Acct.Equity.Owner.Capital.Dist` → K-1 Item L(e) Withdrawals | `irs/mapIRS2LLC.py` |
-| 4.4 | Validate: K-1 Item L(a)+(b)+(c)−(e) = L(f) for each member | `irs/Sch_K1.py` |
+| # | Action | File | K-1 Line |
+|---|---|---|---|
+| 4.1 | Sum all equity records `acctOwner=oID`, `dt < YYYY-01-01` → beginning capital | `irs/mapIRS2LLC.py` | Item L(a) |
+| 4.2 | Sum `acctSub=Contrib`, `acctOwner=oID`, current year → contributions | `irs/mapIRS2LLC.py` | Item L(b) |
+| 4.3 | Sum `acctSub=YE Net Income`, `acctOwner=oID`, current year → NI share | `irs/mapIRS2LLC.py` | Item L(c) |
+| 4.4 | Sum `acct=Acct.Equity.Owner.Capital.Dist`, `acctOwner=oID`, current year → distributions | `irs/mapIRS2LLC.py` | Item L(e) |
+| 4.5 | Compute L(f) = L(a)+L(b)+L(c)−L(e); validate against running balance | `irs/Sch_K1.py` | Item L(f) |
+| 4.6 | Populate K-1 PDF Item L fields from computed values | `irs/Sch_K1.py` | PDF fill |
