@@ -18,15 +18,15 @@ Here is the exact blueprint for handling this for a multi-member LLC.
 Do not use a generic "Owner's Equity" account. You must split your equity section into distinct "buckets" for each member.
 
 * Member A Equity :: acctSub=Action(Contrib, Draw, PnL), acctOwner=A
-    * Member A Capital Contribution (Money they put in) -> COA (Acct.Equity.Owner.Capital.Funds.Contrib)
+    * Member A Capital Contribution (Money they put in) -> COA (Acct.Equity.Owner.Capital.Funds)
     * Member A Draws/Distributions (Money they took out) -> COA (Acct.Equity.Owner.Capital.Funds.Draws)
     * Member A Capital Account (Their share of cumulative profits/losses) -> COA (Acct.Equity.Owner.Capital.Funds.PnL)
 * Member B Equity:: acctSub=Action(Contrib, Draw, PnL), acctOwner=B
-    * Member B Capital Contribution -> -> COA (Acct.Equity.Owner.Capital.Funds.Contrib)
+    * Member B Capital Contribution -> -> COA (Acct.Equity.Owner.Capital.Funds)
     * Member B Draws/Distributions -> COA (Acct.Equity.Owner.Capital.Funds.Draw)
     * Member B Capital Account -> COA (Acct.Equity.Owner.Capital.Funds.PnL)
 * Member C Equity :: acctSub=Action(Contrib, Draw, PnL), acctOwner=C
-    * Member C Capital Contribution -> -> COA (Acct.Equity.Owner.Capital.Funds.Contrib)
+    * Member C Capital Contribution -> -> COA (Acct.Equity.Owner.Capital.Funds)
     * Member C Draws/Distributions -> COA (Acct.Equity.Owner.Capital.Funds.Draw)
     * Member C Capital Account -> COA (Acct.Equity.Owner.Capital.Funds.PnL)
 

@@ -564,6 +564,7 @@
                     <div class="act-dropdown">
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
                         <button class="act-primary" onclick="runAudit()">🔍 Audit</button>
+                        <button class="act-success" onclick="openYEReport()">📄 YEFinancialReport</button>
                         <button class="act-warning" onclick="togglePane('jsonPane')">{ } JSON</button>
                     </div>
                 </details>
@@ -829,5 +830,77 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
         var d = b.closest('details'); if(d) d.removeAttribute('open');
     });
 });
+</script>
+
+<!-- ── YE Financial Report modal ─────────────────────────────────────────── -->
+<style>
+#yfrBackdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+               z-index:600; align-items:center; justify-content:center; }
+#yfrDialog   { background:#fff; border-radius:10px; padding:28px 32px; max-width:520px;
+               width:92vw; box-shadow:0 8px 32px rgba(0,0,0,.28); text-align:center; }
+#yfrDialog h3 { margin:0 0 12px; font-size:16px; color:#1e3a8a; }
+#yfrStatus   { font-size:13px; color:#374151; margin:10px 0 16px; min-height:44px; }
+.yfr-path    { font-size:11px; font-family:monospace; color:#6b7280; word-break:break-all;
+               background:#f3f4f6; padding:6px 8px; border-radius:4px; margin-top:8px; }
+</style>
+<div id="yfrBackdrop" onclick="if(event.target===this) yfrClose()">
+  <div id="yfrDialog">
+    <h3>📄 YE Financial Report</h3>
+    <div id="yfrStatus">Click <b>Generate</b> to build the PDF report.<br>
+    Output → <code>books/{year}/Forms/{LLC}_{year}_YEFinancialReport.pdf</code></div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
+      <button class="btn btn-success" id="yfrGenBtn" onclick="generateYEReport()">⚙️ Generate PDF</button>
+      <button class="btn btn-secondary" onclick="yfrClose()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+    const _root = (typeof _scriptRoot !== 'undefined' ? _scriptRoot : '');
+
+    window.openYEReport = function() {
+        document.getElementById('yfrStatus').innerHTML =
+            'Click <b>Generate</b> to build the PDF report.<br>' +
+            '<small style="color:#6b7280">Output → books/{year}/Forms/{LLC}_{year}_YEFinancialReport.pdf</small>';
+        document.getElementById('yfrGenBtn').disabled = false;
+        document.getElementById('yfrGenBtn').textContent = '⚙️ Generate PDF';
+        document.getElementById('yfrBackdrop').style.display = 'flex';
+    };
+
+    window.yfrClose = function() {
+        document.getElementById('yfrBackdrop').style.display = 'none';
+    };
+
+    window.generateYEReport = async function() {
+        const btn = document.getElementById('yfrGenBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Generating…';
+        document.getElementById('yfrStatus').textContent = 'Building PDF — this may take a few seconds…';
+
+        try {
+            const res  = await fetch(`${_root}/api/stmtGeneralLedger/ye_report`);
+            const data = await res.json();
+            if (!data.ok) {
+                document.getElementById('yfrStatus').innerHTML =
+                    `<span style="color:#dc2626">❌ Error: ${data.error || 'unknown'}</span>` +
+                    (data.trace ? `<details style="margin-top:6px;text-align:left"><summary>Traceback</summary>` +
+                    `<pre style="font-size:10px;overflow:auto">${data.trace}</pre></details>` : '');
+                btn.disabled = false;
+                btn.textContent = '⚙️ Retry';
+            } else {
+                document.getElementById('yfrStatus').innerHTML =
+                    `<span style="color:#15803d;font-weight:700">✅ PDF generated successfully</span>` +
+                    `<div class="yfr-path">${data.rel || data.filename}</div>`;
+                btn.textContent = '✅ Done';
+            }
+        } catch(err) {
+            document.getElementById('yfrStatus').innerHTML =
+                `<span style="color:#dc2626">❌ Network error: ${err}</span>`;
+            btn.disabled = false;
+            btn.textContent = '⚙️ Retry';
+        }
+    };
+})();
 </script>
 {% endblock %}

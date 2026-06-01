@@ -1585,6 +1585,25 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        # ── YE Financial Report ────────────────────────────────────────────────
+
+        @app.route("/api/stmtGeneralLedger/ye_report")
+        def ye_financial_report():
+            '''Generate YE Financial Report PDF → books/{year}/Forms/'''
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                agent   = YEFinancialReportAgent(self.eSession)
+                out     = agent.generate()
+                rel     = str(out).replace(str(self.eSession.llc.TOP), '').lstrip('/')
+                return jsonify({"ok": True, "path": str(out), "rel": rel,
+                                "filename": out.name})
+            except HTTPException:
+                raise
+            except Exception as err:
+                import traceback
+                return jsonify({"ok": False, "error": str(err),
+                                "trace": traceback.format_exc()}), 500
+
         # ── Balance Sheet Audit ────────────────────────────────────────────────
 
         @app.route("/api/stmtBalanceSheet/audit")

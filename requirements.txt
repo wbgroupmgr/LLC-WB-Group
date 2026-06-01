@@ -4,6 +4,7 @@ pandas>=2.0
 numpy>=1.24
 pypdf>=3.0
 deepdiff>=6.0
+reportlab>=4.0
 
 # llcAPI.py (experimental REST API layer — not required for the main Flask app)
 # fastapi>=0.100
