@@ -110,6 +110,7 @@ class YEFinancialReportAgent:
         self._bs_rows  = stmtBS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=False)
         self._is_rows  = stmtIS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=True)
         self._assets   = self._load_assets(setup_paths)
+        self._props    = self._classify_props()   # {active:[...], construction:[...]}
 
         out_dir  = Path(str(setup_paths.IRS_FORMS_DIR))
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -262,13 +263,20 @@ class YEFinancialReportAgent:
             f"{self._owner_name(o)} ({_pct(float(o.get('pct',0))*100)})"
             for o in self._owners
         )
-        props = self._prop_list()
-        prop_text = '; '.join(f"{p['name']} ({p['addr']})" for p in props) or 'No properties on record'
+        active_props = self._props.get('active', [])
+        const_props  = self._props.get('construction', [])
+        active_text  = '; '.join(
+            f"{p['name']}{(' — ' + p['addr']) if p['addr'] else ''}"
+            for p in active_props
+        ) or 'None'
+        const_text   = '; '.join(
+            f"{p['name']} (capitalized basis {_fmt(p['basis'])})"
+            for p in const_props
+        ) or 'None'
 
         ni_word = f"net loss of {_fmt(abs(ni))}" if ni < 0 else f"net income of {_fmt(ni)}"
-        depr = sum(r.get('Balance',0) or 0 for r in self._bs_rows
-                   if 'Depreciation.Accum' in r.get('acctMinor',''))
-        depr = abs(depr)
+        depr = abs(sum(r.get('Balance', 0) or 0 for r in self._bs_rows
+                       if 'Depreciation.Accum' in r.get('acctMinor', '')))
 
         items = [
             Paragraph('Section 1 — Financial Summary', st['h1']),
@@ -282,18 +290,33 @@ class YEFinancialReportAgent:
                 f'and files Form 1065. Members and ownership percentages: {owner_lines}.',
                 st['body']),
 
-            Paragraph('<b>Property Portfolio</b>', st['h2']),
+            Paragraph('<b>Active Rental Properties</b>', st['h2']),
             Paragraph(
-                f'The LLC held the following rental properties as of December 31, {self.year}: '
-                f'{prop_text}.',
+                f'The following properties were placed in service and generating rental '
+                f'income as of December 31, {self.year}: {active_text}.',
                 st['body']),
+        ]
 
+        if const_props:
+            items += [
+                Paragraph('<b>Assets Under Development (Not Yet In Service)</b>', st['h2']),
+                Paragraph(
+                    f'The following assets are under preparation and have not been placed '
+                    f'in service as of December 31, {self.year}. No depreciation may be '
+                    f'claimed until each asset is available for rental use: {const_text}. '
+                    f'Note: pre-service costs expensed against these assets may need to be '
+                    f'reclassified as capitalized basis — see Section 6 (CPA Flags).',
+                    st['body']),
+            ]
+
+        items += [
             Paragraph('<b>Year in Review</b>', st['h2']),
             Paragraph(
                 f'For the year ended December 31, {self.year}, the LLC reported gross rental '
                 f'income of {_fmt(income)} and total operating expenses of {_fmt(exp)}, '
                 f'resulting in a {ni_word}. Depreciation expense of {_fmt(depr)} '
-                f'(MACRS, 27.5-year residential) is included in total expenses.',
+                f'(MACRS, 27.5-year residential, mid-month convention) is included in '
+                f'total expenses and relates solely to active rental properties.',
                 st['body']),
 
             Paragraph('<b>Cash Position</b>', st['h2']),
@@ -414,6 +437,7 @@ class YEFinancialReportAgent:
         items = [
             Paragraph('Section 4 — Depreciation Schedule (Form 4562 Reference)', st['h1']),
             HRFlowable(width='100%', thickness=1, color=C_BORDER, spaceAfter=8),
+            Paragraph('<b>In-Service Assets (depreciation posted)</b>', st['h2']),
         ]
         rows  = self._depr_rows()
         hdr   = [['Property', 'In Service', 'Type', 'Dep. Basis', 'Method', 'Life', 'Deduction']]
@@ -422,8 +446,42 @@ class YEFinancialReportAgent:
         tbl   = Table(data, colWidths=col_w, repeatRows=1)
         tbl.setStyle(self._depr_style(len(data)))
         items += [tbl, Spacer(1, 0.1*inch),
-                  Paragraph('IRS MACRS mid-month convention: year-1 fraction = (25 − 2M) / 24, '
-                             'where M = placement month.', st['note'])]
+                  Paragraph('IRS MACRS mid-month convention (real property): '
+                             'year-1 fraction = (25 − 2M) / 24, where M = placement month.',
+                             st['note'])]
+
+        # InConstruction sub-table
+        const_props = self._props.get('construction', [])
+        if const_props:
+            items += [
+                Spacer(1, 0.15*inch),
+                Paragraph('<b>Assets Under Construction — Not Yet In Service (no depreciation)</b>',
+                          st['h2']),
+            ]
+            ic_hdr  = [['propNm', 'Asset Class', 'Capitalized Basis', 'Est. MACRS Life',
+                        'Est. Bonus Depr (2025)', 'Status']]
+            ic_rows = []
+            for p in const_props:
+                pnm   = p['name']
+                basis = p['basis']
+                # Classify: RV / personal property vs. real property
+                is_rv = 'RV' in pnm.upper() or 'rv' in pnm.lower()
+                cls   = '5-yr personal property' if is_rv else 'TBD — review with CPA'
+                life  = '5 years (MACRS)' if is_rv else 'TBD'
+                bonus = '60% in year placed in service' if is_rv else 'Depends on asset class'
+                ic_rows.append([pnm, cls, _fmt(basis), life, bonus, 'InConstruction'])
+            ic_data = ic_hdr + ic_rows
+            ic_cw   = [1.0*inch, 1.4*inch, 0.9*inch, 1.0*inch, 1.5*inch, 1.2*inch]
+            ic_tbl  = Table(ic_data, colWidths=ic_cw, repeatRows=1)
+            ic_tbl.setStyle(self._depr_style(len(ic_data)))
+            items += [ic_tbl, Spacer(1, 0.1*inch),
+                      Paragraph(
+                          'RV held for short-term rental: personal property (5-year MACRS, '
+                          '200% DB, half-year convention). 60% first-year bonus depreciation '
+                          'available in year placed in service. Pre-service preparation costs '
+                          'must be capitalized to basis, not expensed. '
+                          'See Section 6 — CPA Flags for required reclassifications.',
+                          st['note'])]
         return items
 
     # ── Section 5: Member Capital ─────────────────────────────────────────────
@@ -544,14 +602,45 @@ class YEFinancialReportAgent:
         nm = o.get('nm', o.get('oID', ''))
         return nm[0] if isinstance(nm, list) and nm else str(nm)
 
-    def _prop_list(self) -> list:
-        seen, props = set(), []
-        for r in self._assets:
-            nm = r.get('propNm', '')
-            if nm and nm not in seen:
-                seen.add(nm)
-                props.append({'name': nm, 'addr': r.get('propAddr', '')})
-        return props
+    def _classify_props(self) -> dict:
+        """
+        Scan ALL GL records to find every propNm and classify it:
+          active       — has Acct.Fixed.Tangible.InService entries (placed in service)
+          construction — only Acct.Fixed.Tangible.InConstruction (not yet in service)
+        Returns {'active': [...], 'construction': [...]}
+        each item: {name, addr, basis, expense_total}
+        """
+        from collections import defaultdict
+        prop_accts   = defaultdict(set)
+        prop_addr    = {}
+        prop_basis   = defaultdict(float)   # InConstruction debit balance
+        prop_exp     = defaultdict(float)   # expensed amounts
+
+        for r in self._gl:
+            pnm  = r.get('propNm', '') or ''
+            if not pnm or pnm in ('Cash_LLC',):
+                continue
+            acct = r.get('acct', '') or ''
+            amt  = float(r.get('amt', 0) or 0)
+            atyp = (r.get('aType', '') or '').lower()
+            prop_accts[pnm].add(acct)
+            if r.get('propAddr') and pnm not in prop_addr:
+                prop_addr[pnm] = r.get('propAddr', '')
+            if 'InConstruction' in acct:
+                prop_basis[pnm] += amt if 'debit' in atyp else -amt
+            if 'Exp.' in acct:
+                prop_exp[pnm] += amt if 'debit' in atyp else -amt
+
+        active, construction = [], []
+        for pnm, accts in sorted(prop_accts.items()):
+            entry = {'name': pnm, 'addr': prop_addr.get(pnm, ''),
+                     'basis': round(prop_basis.get(pnm, 0), 2),
+                     'expense_total': round(prop_exp.get(pnm, 0), 2)}
+            if any('InService' in a for a in accts):
+                active.append(entry)
+            elif any('InConstruction' in a for a in accts):
+                construction.append(entry)
+        return {'active': active, 'construction': construction}
 
     def _bs_section_rows(self) -> list:
         rows = []
@@ -646,14 +735,57 @@ class YEFinancialReportAgent:
             {'cat': 'Docs', 'flag': 'Operating Agreement profit/loss allocation: 96% / 2% / 2%',
              'action': 'Confirm this matches the signed Operating Agreement on file. Any discrepancy voids K-1 allocation.'},
         ]
-        # Dynamic: check if depreciation is posted
+        # Dynamic: check if depreciation is posted for InService assets
         has_depr = any(r.get('_is_depr') for r in self._assets)
-        if not has_depr:
+        if not has_depr and self._props.get('active'):
             flags.insert(0, {
                 'cat': 'Depreciation',
-                'flag': 'No depreciation entry found in llcAssets for this year',
+                'flag': 'No depreciation entry found for in-service assets',
                 'action': 'Run YE Posting from llcAssets view to post MACRS depreciation before filing.',
             })
+
+        # Dynamic: RV / InConstruction flags
+        for p in self._props.get('construction', []):
+            pnm   = p['name']
+            basis = p['basis']
+            exp   = p['expense_total']
+            is_rv = 'RV' in pnm.upper()
+            asset_label = f'RV ({pnm})' if is_rv else f'Asset {pnm}'
+
+            flags.append({
+                'cat': 'Asset',
+                'flag': f'{asset_label}: InConstruction — not yet placed in service as of 12/31/{self.year}',
+                'action': 'Document the date the asset first becomes available for rental. '
+                          'No depreciation until in-service date. Report in-service date on Form 4562.',
+            })
+            if exp > 0:
+                flags.append({
+                    'cat': 'Capitalization',
+                    'flag': f'{asset_label}: {_fmt(exp)} expensed as repairs/other but asset is pre-service',
+                    'action': f'CPA should reclassify {_fmt(exp)} from Acct.Exp.* to '
+                              f'Acct.Fixed.Tangible.InConstruction (increasing basis to '
+                              f'{_fmt(basis + exp)}). Pre-service costs must be capitalized '
+                              f'per IRS Reg. §1.263(a)-1.',
+                })
+            if is_rv:
+                flags.append({
+                    'cat': 'Tax — RV',
+                    'flag': f'RV rental activity type unknown — passive vs. active determines loss deductibility',
+                    'action': 'Determine average rental period. ≤7 days avg → NOT passive (IRC §469(j)(8)); '
+                              'losses deductible against ordinary income immediately. >7 days → passive rules apply.',
+                })
+                flags.append({
+                    'cat': 'Tax — RV',
+                    'flag': 'RV listed property check (IRC §280F)',
+                    'action': 'Confirm GVWR. If >6,000 lbs → not subject to luxury-auto annual caps. '
+                              'Business-use log required regardless.',
+                })
+                flags.append({
+                    'cat': 'Tax — RV',
+                    'flag': '60% bonus depreciation election available in year RV is placed in service',
+                    'action': 'Decide with CPA whether to take 60% first-year bonus (2025 TCJA rate for '
+                              '5-year personal property). Reduces basis for subsequent years.',
+                })
         return flags
 
     # ── Table styles ──────────────────────────────────────────────────────────
