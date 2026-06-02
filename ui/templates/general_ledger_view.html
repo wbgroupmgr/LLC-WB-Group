@@ -848,8 +848,10 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
     <h3>📄 YE Financial Report</h3>
     <div id="yfrStatus">Click <b>Generate</b> to build the PDF report.<br>
     Output → <code>books/{year}/Forms/{LLC}_{year}_YEFinancialReport.pdf</code></div>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;flex-wrap:wrap">
       <button class="btn btn-success" id="yfrGenBtn" onclick="generateYEReport()">⚙️ Generate PDF</button>
+      <a id="yfrDownloadBtn" class="btn btn-primary" style="display:none;text-decoration:none"
+         href="" target="_blank">⬇️ Download PDF</a>
       <button class="btn btn-secondary" onclick="yfrClose()">Close</button>
     </div>
   </div>
@@ -865,6 +867,7 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
             '<small style="color:#6b7280">Output → books/{year}/Forms/{LLC}_{year}_YEFinancialReport.pdf</small>';
         document.getElementById('yfrGenBtn').disabled = false;
         document.getElementById('yfrGenBtn').textContent = '⚙️ Generate PDF';
+        document.getElementById('yfrDownloadBtn').style.display = 'none';
         document.getElementById('yfrBackdrop').style.display = 'flex';
     };
 
@@ -892,7 +895,11 @@ document.querySelectorAll('.act-dropdown button').forEach(function(b){
                 document.getElementById('yfrStatus').innerHTML =
                     `<span style="color:#15803d;font-weight:700">✅ PDF generated successfully</span>` +
                     `<div class="yfr-path">${data.rel || data.filename}</div>`;
-                btn.textContent = '✅ Done';
+                btn.textContent = '🔄 Regenerate';
+                btn.disabled = false;
+                const dl = document.getElementById('yfrDownloadBtn');
+                dl.href = `${_root}/api/stmtGeneralLedger/ye_report/download`;
+                dl.style.display = 'inline-block';
             }
         } catch(err) {
             document.getElementById('yfrStatus').innerHTML =

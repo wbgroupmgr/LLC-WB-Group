@@ -1604,6 +1604,26 @@ class llcMgmt:
                 return jsonify({"ok": False, "error": str(err),
                                 "trace": traceback.format_exc()}), 500
 
+        @app.route("/api/stmtGeneralLedger/ye_report/download")
+        def ye_report_download():
+            '''Stream the last-generated YE Financial Report PDF as a download.'''
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                from ledger import setup_paths
+                data_nm = getattr(self.eSession.llc, 'objName', 'LLC')
+                yr      = getattr(self.eSession.llc, 'yr', '')
+                out     = (setup_paths.IRS_FORMS_DIR /
+                           f'{data_nm}_{yr}_YEFinancialReport.pdf')
+                if not out.exists():
+                    return jsonify({"error": "Report not found — generate it first."}), 404
+                return send_file(str(out), as_attachment=True,
+                                 download_name=out.name,
+                                 mimetype='application/pdf')
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"error": str(err)}), 500
+
         # ── Balance Sheet Audit ────────────────────────────────────────────────
 
         @app.route("/api/stmtBalanceSheet/audit")
