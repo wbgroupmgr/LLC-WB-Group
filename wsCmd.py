@@ -38,11 +38,26 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from ledger import setup_paths as _sp
-# llcLogin_auth is safe to import (no deepdiff dependency).
-from ui.llcLogin_auth import (_db_path, _find_user, _hash, _load_users,
-                               _save_users, _gpg_decrypt, _gpg_encrypt)
-# LLC is imported lazily inside WsCmd.__init__ — its dep chain pulls in deepdiff
-# which may not be installed yet when --newBus runs before --setup installs deps.
+# All heavy imports are lazy — --newBus must work before --setup installs deps.
+# Import llcLogin_auth directly (bypasses ui/__init__.py which pulls the whole
+# UI package and transitively hits deepdiff via ledgerDB → ledgerObject).
+def _lazy_auth():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "llcLogin_auth",
+        pathlib.Path(__file__).parent / "ui" / "llcLogin_auth.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+_auth = _lazy_auth()
+_db_path      = _auth._db_path
+_find_user    = _auth._find_user
+_hash         = _auth._hash
+_load_users   = _auth._load_users
+_save_users   = _auth._save_users
+_gpg_decrypt  = _auth._gpg_decrypt
+_gpg_encrypt  = _auth._gpg_encrypt
 
 
 def _latest_config_year(llc_name: str):
