@@ -210,8 +210,10 @@ class YEFinancialReportAgent:
         items = [
             Spacer(1, 1.8 * inch),
             Paragraph(ent, ParagraphStyle('ct', fontSize=28, textColor=C_HEADER,
-                                          fontName='Helvetica-Bold', spaceAfter=6)),
-            HRFlowable(width='100%', thickness=2, color=C_HEADER, spaceAfter=10),
+                                          fontName='Helvetica-Bold', spaceAfter=0)),
+            Spacer(1, 10),
+            HRFlowable(width='100%', thickness=2, color=C_HEADER, spaceAfter=0),
+            Spacer(1, 10),
             Paragraph('Year-End Financial Report', ParagraphStyle('cs', fontSize=18,
                       textColor=C_SUBHDR, fontName='Helvetica', spaceAfter=4)),
             Paragraph(f'For the Year Ended December 31, {self.year}',
@@ -553,24 +555,41 @@ class YEFinancialReportAgent:
             HRFlowable(width='100%', thickness=1, color=C_BORDER, spaceAfter=8),
         ]
 
-        hdr  = [['#', 'Category', 'Flag', 'Action Required']]
-        rows = [[str(i+1), f['cat'], f['flag'], f['action']] for i, f in enumerate(flags)]
-        data = hdr + rows
-        cw   = [0.3*inch, 1.0*inch, 2.5*inch, 3.3*inch]
+        # Cell styles — plain strings don't wrap in reportlab Tables;
+        # every data cell must be a Paragraph for text to flow across lines.
+        from reportlab.lib.styles import getSampleStyleSheet as _gss
+        _base = _gss()['Normal']
+        _cell = ParagraphStyle('flagCell',  parent=_base, fontSize=8,
+                               leading=11, wordWrap='LTR')
+        _cat  = ParagraphStyle('flagCat',   parent=_base, fontSize=8,
+                               leading=11, textColor=C_MUTED, wordWrap='LTR')
+        _hdr_s = ParagraphStyle('flagHdr',  parent=_base, fontSize=8,
+                                leading=10, textColor=C_WHITE,
+                                fontName='Helvetica-Bold', wordWrap='LTR')
+
+        hdr_row = [Paragraph(t, _hdr_s) for t in ['#', 'Category', 'Flag', 'Action Required']]
+        rows = []
+        for i, f in enumerate(flags):
+            bg = C_WHITE if i % 2 == 0 else C_WARN_BG
+            rows.append([
+                Paragraph(str(i + 1), _cell),
+                Paragraph(f['cat'],    _cat),
+                Paragraph(f['flag'],   _cell),
+                Paragraph(f['action'], _cell),
+            ])
+
+        data = [hdr_row] + rows
+        cw   = [0.3*inch, 0.95*inch, 2.55*inch, 3.3*inch]
         tbl  = Table(data, colWidths=cw, repeatRows=1)
         tbl.setStyle(TableStyle([
-            ('FONTNAME',     (0,0), (-1,0),  'Helvetica-Bold'),
-            ('FONTSIZE',     (0,0), (-1,-1), 8),
-            ('BACKGROUND',   (0,0), (-1,0),  C_HEADER),
-            ('TEXTCOLOR',    (0,0), (-1,0),  C_WHITE),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [C_WHITE, C_WARN_BG]),
-            ('GRID',         (0,0), (-1,-1), 0.5, C_BORDER),
-            ('VALIGN',       (0,0), (-1,-1), 'TOP'),
-            ('TOPPADDING',   (0,1), (-1,-1), 4),
-            ('BOTTOMPADDING',(0,1), (-1,-1), 4),
-            ('LEFTPADDING',  (0,0), (-1,-1), 4),
-            ('RIGHTPADDING', (0,0), (-1,-1), 4),
-            ('WORDWRAP',     (0,0), (-1,-1), True),
+            ('BACKGROUND',    (0,0), (-1,0),  C_HEADER),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [C_WHITE, C_WARN_BG]),
+            ('GRID',          (0,0), (-1,-1), 0.5, C_BORDER),
+            ('VALIGN',        (0,0), (-1,-1), 'TOP'),
+            ('TOPPADDING',    (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING',   (0,0), (-1,-1), 5),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 5),
         ]))
         items.append(tbl)
         return items
