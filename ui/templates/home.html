@@ -145,9 +145,10 @@
     .vc-sub   { font-size: 11px; color: #9ca3af; }
 
     /* Group colour accents — matches group.label | lower | replace(' ', '-') */
-    .group-transactions       .view-card:hover { background: #f0fdf4; border-color: #86efac; box-shadow: 0 4px 10px rgba(34,197,94,.12); }
-    .group-financial-statements .view-card:hover { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 4px 10px rgba(59,130,246,.12); }
-    .group-irs-tax-aids       .view-card:hover { background: #fefce8; border-color: #fde047; box-shadow: 0 4px 10px rgba(234,179,8,.12); }
+    .group-transactions---journal-entry .view-card:hover { background: #f0fdf4; border-color: #86efac; box-shadow: 0 4px 10px rgba(34,197,94,.12); }
+    .group-financial-books .view-card:hover { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 4px 10px rgba(59,130,246,.12); }
+    .group-irs-tax-forms   .view-card:hover { background: #fefce8; border-color: #fde047; box-shadow: 0 4px 10px rgba(234,179,8,.12); }
+    .group-reports---analysis .view-card:hover { background: #fdf4ff; border-color: #d8b4fe; box-shadow: 0 4px 10px rgba(168,85,247,.12); }
 
     /* ── Session table ── */
     .session-panel { margin-top: 8px; }
@@ -211,8 +212,9 @@
         "llcBalanceSheet":  ("⚖️",  "Assets = Liab + Equity"),
         "llcIncomeStmt":    ("📈", "Income & Expenses"),
         "llcOwnerEquity":   ("👥", "Member capital & P&L"),
-        "llcForm1065":      ("🇺🇸", "Partnership return (FILL.pdf)"),
-        "llcFormK1":        ("📋", "Per-partner K-1 (FILL.pdf)"),
+        "llcForm1065":       ("🇺🇸", "Partnership return (FILL.pdf)"),
+        "llcFormK1":         ("📋", "Per-partner K-1 (FILL.pdf)"),
+        "yeFinancialReport": ("📄", "YE Financial Summary PDF"),
     } %}
 
     {% for group in view_groups %}
@@ -227,12 +229,19 @@
             {% for vname in group.views %}
                 {% set vlabel = view_labels.get(vname, vname) %}
                 {% set vicon_sub = icons.get(vname, ("📋", "")) %}
-                <a href="{{ url_for('view_object', obj_type=vname) }}"
+                {% if vname == 'yeFinancialReport' %}
+                    {% set vhref = url_for('view_ye_financial_report') %}
+                {% else %}
+                    {% set vhref = url_for('view_object', obj_type=vname) %}
+                {% endif %}
+                <a href="{{ vhref }}"
                    class="view-card"
                    title="{{ vlabel }}">
                     <span class="vc-icon">{{ vicon_sub[0] }}</span>
                     <div class="vc-text">
-                        <span class="vc-label">{{ vlabel }}</span>
+                        {% for line in vlabel.split('\n') %}
+                        <span class="vc-label" style="{% if not loop.first %}font-weight:400;font-size:11px;color:#6b7280;{% endif %}">{{ line }}</span>
+                        {% endfor %}
                         {% if vicon_sub[1] %}
                         <span class="vc-sub">{{ vicon_sub[1] }}</span>
                         {% endif %}

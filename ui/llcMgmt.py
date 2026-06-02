@@ -88,10 +88,11 @@ class llcMgmt:
         "stmtIncomeStmt":      "Income Statement",
         "stmtOwnerEquity":     "Owner Equity",
         "stmtPropertyEquity":  "Property Equity",
-        "llcForm1065":        "Form 1065",
-        "llcFormK1":          "Schedule K-1",
-        "llcForm8825":        "Form 8825",
-        "llcForm4562":        "Form 4562",
+        "llcForm1065":         "Form 1065",
+        "llcFormK1":           "Schedule K-1",
+        "llcForm8825":         "Form 8825",
+        "llcForm4562":         "Form 4562",
+        "yeFinancialReport":   "Financial Report\nYE Report",
     }
 
     VIEW_TITLES = {
@@ -108,27 +109,26 @@ class llcMgmt:
     # View groups for the home page
     VIEW_GROUPS = [
         {
-            "label": "Transactions",
+            "label": "Transactions - Journal Entry",
             "icon":  "📂",
             "views": ["llcAssets", "llcExpRev", "llcPayables", "llcReceivables",
                       "llcBank"],
         },
         {
-            "label": "Financial Statements",
+            "label": "Financial Books",
             "icon":  "📊",
-            # General Ledger is the first entry here per DataModelGuide § 2
-            # ("NOTE: GeneralLedger should be listed under the financial
-            # statements Home page").
             "views": ["stmtGeneralLedger", "stmtBalanceSheet", "stmtIncomeStmt",
                       "stmtOwnerEquity", "stmtPropertyEquity"],
         },
         {
-            "label": "IRS Tax Aids",
+            "label": "IRS Tax Forms",
             "icon":  "🧾",
-            # v0.2.4.7 — each tax view embeds the canonical FILL.pdf produced
-            # by the IRS pipeline (irs.<Form>.saveFILL()).  No constructed
-            # row tables, no nSpaceMap detour at the view layer.
             "views": ["llcForm1065", "llcFormK1", "llcForm8825", "llcForm4562"],
+        },
+        {
+            "label": "Reports - Analysis",
+            "icon":  "📄",
+            "views": ["yeFinancialReport"],
         },
     ]
 
@@ -712,6 +712,23 @@ class llcMgmt:
             return redirect(url_for("home"))
 
         # ── View ──────────────────────────────────────────────────────────────
+        @app.route("/view/yeFinancialReport")
+        def view_ye_financial_report():
+            '''Dedicated YE Financial Report viewer page.'''
+            from ledger import setup_paths
+            data_nm  = getattr(self.eSession.llc, 'objName', 'LLC')
+            yr       = getattr(self.eSession.llc, 'yr', '')
+            pdf_name = f'{data_nm}_{yr}_YEFinancialReport.pdf'
+            pdf_path = setup_paths.IRS_FORMS_DIR / pdf_name
+            return render_template(
+                "ye_report_view.html",
+                title=self.title,
+                app_title=self.title,
+                pdf_exists=pdf_path.exists(),
+                pdf_name=pdf_name,
+                year=yr,
+            )
+
         @app.route("/view/<obj_type>")
         def view_object(obj_type: str):
             obj_type = self._canonical_name(obj_type)
@@ -1603,6 +1620,23 @@ class llcMgmt:
                 import traceback
                 return jsonify({"ok": False, "error": str(err),
                                 "trace": traceback.format_exc()}), 500
+
+        @app.route("/api/stmtGeneralLedger/ye_report/view")
+        def ye_report_view():
+            '''Inline-display the last-generated YE Financial Report PDF (for iframe embed).'''
+            try:
+                from ledger import setup_paths
+                data_nm = getattr(self.eSession.llc, 'objName', 'LLC')
+                yr      = getattr(self.eSession.llc, 'yr', '')
+                out     = (setup_paths.IRS_FORMS_DIR /
+                           f'{data_nm}_{yr}_YEFinancialReport.pdf')
+                if not out.exists():
+                    return jsonify({"error": "Report not found — generate it first."}), 404
+                return send_file(str(out), as_attachment=False, mimetype='application/pdf')
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"error": str(err)}), 500
 
         @app.route("/api/stmtGeneralLedger/ye_report/download")
         def ye_report_download():
