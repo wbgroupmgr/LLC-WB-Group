@@ -92,16 +92,19 @@ def _prompt_passphrase_pair(label: str, min_len: int = 12) -> str:
         return pp
 
 
-def _ensure_master_passphrase() -> str:
+def _ensure_master_passphrase(force: bool = False) -> str:
     """
     Read master_passphrase from ~/.llcRentalTracker/config.json.
-    If config.json does not exist or lacks the key, prompt and store it.
+    If config.json does not exist, lacks the key, or force=True, prompt and store it.
     Returns the master passphrase.
     """
     cfg = _sp.read_config()
-    if cfg.get("master_passphrase"):
+    if not force and cfg.get("master_passphrase"):
         print("  ✓ MASTER passphrase loaded from config.json")
         return cfg["master_passphrase"]
+    if force:
+        cfg.pop("master_passphrase", None)
+        _sp.write_config(cfg)
 
     print("\n──── MASTER Passphrase ────────────────────────────────────────")
     print("  Encrypts keys.json.gpg. Needed on every host that runs the app.")
@@ -114,14 +117,17 @@ def _ensure_master_passphrase() -> str:
     return pp
 
 
-def _ensure_keys(accts_dir: Path, master_pp: str) -> dict:
+def _ensure_keys(accts_dir: Path, master_pp: str, force: bool = False) -> dict:
     """
     Ensure books/Accts/keys.json.gpg exists and is decryptable with master_pp.
-    If it does not exist, prompt for LLC_GPG_PASSPHRASE, generate LLC_SECRET_KEY,
-    create the file, and notify the user to push it.
+    If force=True, delete any existing file and recreate from a fresh prompt.
     Returns the decrypted keys dict.
     """
     keys_file = accts_dir / "keys.json.gpg"
+
+    if force and keys_file.exists():
+        keys_file.unlink()
+        print(f"  ✓ Deleted existing {keys_file.name}")
 
     if keys_file.exists():
         try:
@@ -156,7 +162,7 @@ def _ensure_keys(accts_dir: Path, master_pp: str) -> dict:
 # ── Business provisioning ─────────────────────────────────────────────────────
 
 def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
-                      llc_name: str = None) -> None:
+                      llc_name: str = None, force: bool = False) -> None:
     """
     Add a business stanza to ~/.llcRentalTracker/config.json and set it as default.
 
@@ -185,11 +191,30 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
     # ── Bootstrap MASTER passphrase + keys.json.gpg ──────────────────────────
     print()
     print("=" * 64)
-    print(f"  --newBus Bootstrap  [{llc_name}]  year={year}")
+    print(f"  --newBus Bootstrap  [{llc_name}]  year={year}"
+          + ("  [--F force]" if force else ""))
     print("=" * 64)
 
-    master_pp = _ensure_master_passphrase()
-    _ensure_keys(accts_dir, master_pp)
+    if force:
+        # Delete pw.json.gpg upfront so it is recreated below
+        pw_file = accts_dir / "pw.json.gpg"
+        if pw_file.exists():
+            pw_file.unlink()
+            print(f"  ✓ Deleted existing pw.json.gpg")
+
+    master_pp = _ensure_master_passphrase(force=force)
+    keys      = _ensure_keys(accts_dir, master_pp, force=force)
+
+    # With --F: recreate pw.json.gpg with the fresh LLC_GPG_PASSPHRASE
+    if force:
+        pw_file = accts_dir / "pw.json.gpg"
+        _gpg_encrypt(
+            json.dumps([dict(_SEED_USER)], indent=2).encode("utf-8"),
+            pw_file,
+            keys["LLC_GPG_PASSPHRASE"],
+        )
+        print(f"  ✓ Created pw.json.gpg  (seed user: llcgroupmgr / llcManager0!)")
+        print(f"    Push this file to GitHub after --newBus completes.")
 
     # ── Register stanza ───────────────────────────────────────────────────────
     stanza = {
@@ -519,6 +544,10 @@ examples:
     # --newBus options
     ap.add_argument("--booksDir", default="books", metavar="DIR",
                     help="[--newBus] Accounting sub-directory name (default: books)")
+    ap.add_argument("--F", action="store_true", dest="force",
+                    help="[--newBus] Force full-stack re-creation: "
+                         "clears config.json master_passphrase, deletes and "
+                         "recreates keys.json.gpg and pw.json.gpg from fresh prompts")
 
     # --setup options
     ap.add_argument("--reset", action="store_true",
@@ -552,7 +581,7 @@ def main():
         if not args.year:
             ap.error("--year is required for --newBus")
         provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir,
-                          llc_name=args.llcName)
+                          llc_name=args.llcName, force=args.force)
         return
 
     if not args.llcName:
