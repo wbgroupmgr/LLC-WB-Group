@@ -9,13 +9,8 @@
         <span>{{ group.label }}</span>
     </div>
     {% for vname in group.views %}
-    {% set _vlabel = view_labels.get(vname, vname).split('\n')[0] %}
-    {% if vname == 'yeFinancialReport' %}
-      {% set _vhref = url_for('view_ye_financial_report') %}
-    {% else %}
-      {% set _vhref = url_for('view_object', obj_type=vname) %}
-    {% endif %}
-    <a href="{{ _vhref }}"
+    {% set _vlabel = view_labels.get(vname, vname) %}
+    <a href="{{ url_for('view_object', obj_type=vname) }}"
        class="nav-view-link{% if obj_type is defined and obj_type == vname %} nav-active{% endif %}"
        title="{{ _vlabel }}">{{ _vlabel }}</a>
     {% endfor %}
