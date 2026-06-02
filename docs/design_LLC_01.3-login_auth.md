@@ -321,82 +321,79 @@ Prerequisites:
 
 **Step 1 — Clone both repos on PA**
 ```bash
-cd ~
-git clone https://github.com/wbgroupmgr/llcRentalTracker.git  pyTrackers/llcRentalTracker
-git clone https://github.com/wbgroupmgr/LLC-WBGroup.git       LLC-WBGroup
+# Clone APP 
+mkdir ~/pyTracker
+cd ~/pyTracker
+git clone https://github.com/wbgroupmgr/llcRentalTracker.git 
+
+# Clone BUS
+mkdir ~/llc
+cd ~/llc
+git clone https://github.com/wbgroupmgr/LLC-WBGroup.git 
+
 ```
 
-**Step 2 — Register the LLC config**
+**Step 2 — Register the LLC, bootstrap MASTER passphrase + keys (single command)**
 ```bash
 cd ~/pyTrackers/llcRentalTracker
-python3 wsCmd.py --newBus ~/LLC-WBGroup --year 2025
-# Creates ~/.llcRentalTracker/config.json with llcList entry
+python3 wsCmd.py --newBus ~/llc/LLC-WBGroup --year 2025 --llcName WBGroupLLC
 ```
 
-**Step 3 — Add MASTER passphrase to config**
-```bash
-python3 - << 'EOF'
-import json, getpass
-from pathlib import Path
-f   = Path.home() / '.llcRentalTracker/config.json'
-cfg = json.loads(f.read_text())
-cfg['master_passphrase'] = getpass.getpass('Choose MASTER passphrase: ')
-f.write_text(json.dumps(cfg, indent=2))
-EOF
-chmod 600 ~/.llcRentalTracker/config.json
+`--newBus` handles all bootstrap logic automatically — no manual scripts:
+
+```
+── --newBus bootstrap sequence ─────────────────────────────
+  a) ~/.llcRentalTracker/config.json check:
+       Does NOT exist  → prompt MASTER passphrase (×2), create file (chmod 600)
+       Exists, no key  → prompt MASTER passphrase (×2), add to file
+       Exists, has key → import silently
+
+  b) books/Accts/keys.json.gpg check:
+       Does NOT exist  → prompt app passphrase (LLC_GPG_PASSPHRASE) (×2)
+                         auto-generate LLC_SECRET_KEY
+                         encrypt keys.json.gpg with MASTER passphrase
+                         print "⚠ Push books/Accts/keys.json.gpg before --setup"
+       Exists          → decrypt with MASTER passphrase → import secrets silently
+
+  c) Register stanza in config.json (same as before)
+  d) Print next steps
+─────────────────────────────────────────────────────────────
 ```
 
-**Step 4 — Generate `keys.json.gpg` (first time only)**
-
-Generates new `LLC_GPG_PASSPHRASE` and `LLC_SECRET_KEY`, encrypts with MASTER passphrase.
+**Step 3 — Push `keys.json.gpg` to GitHub (master host only)**
 ```bash
-python3 - << 'EOF'
-import json, os, secrets, subprocess
-from pathlib import Path
-
-cfg   = json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())
-mpp   = cfg['master_passphrase']
-keys  = {
-    'LLC_GPG_PASSPHRASE': secrets.token_hex(20),
-    'LLC_SECRET_KEY':     secrets.token_hex(32),
-}
-out   = Path('~/LLC-WBGroup/books/Accts/keys.json.gpg').expanduser()
-plain = json.dumps(keys, indent=2).encode()
-subprocess.run(
-    ['gpg','--batch','--yes','--symmetric','--cipher-algo','AES256',
-     '--passphrase', mpp, '--output', str(out), '-'],
-    input=plain, check=True
-)
-print('keys.json.gpg created. LLC_GPG_PASSPHRASE:', keys['LLC_GPG_PASSPHRASE'])
-EOF
-```
-
-**Step 5 — Run `--setup` to create the seed user DB**
-```bash
-python3 wsCmd.py --setup --llcName WBGroupLLC
-# Decrypts keys.json.gpg → creates books/Accts/pw.json.gpg with seed user llcgroupmgr
-```
-
-**Step 6 — Push both files from PA (master host)**
-```bash
-cd ~/LLC-WBGroup
-git add books/Accts/keys.json.gpg books/Accts/pw.json.gpg
-git commit -m "feat: initial keys.json.gpg and pw.json.gpg for master instance"
+cd ~/llc/LLC-WBGroup
+git add books/Accts/keys.json.gpg
+git commit -m "feat: initial keys.json.gpg for master instance"
 git push
 ```
 
-**Step 7 — Configure and start the app**
+**Step 4 — Run `--setup` to create the seed user DB**
 ```bash
 cd ~/pyTrackers/llcRentalTracker
-# wsgi.py mounts the app; PA web tab sets the WSGI file path
-# Reload the app from PA web tab
+python3 wsCmd.py --setup --llcName WBGroupLLC
+# Reads master_passphrase from config.json → decrypts keys.json.gpg
+# → extracts LLC_GPG_PASSPHRASE → creates pw.json.gpg with seed user
 ```
 
-**Step 8 — Login and change seed password**
+**Step 5 — Push `pw.json.gpg` to GitHub**
+```bash
+cd ~/llc/LLC-WBGroup
+git add books/Accts/pw.json.gpg
+git commit -m "feat: initial pw.json.gpg for master instance"
+git push
+```
+
+**Step 6 — Start the app**
+```bash
+# PA: wsgi.py mounts the app; Web tab → Reload
+```
+
+**Step 7 — Login and change seed password**
 ```
 URL: https://<pa-host>/rentalTracker/login
 Username: llcgroupmgr
-Password: llcmanager   ← CHANGE THIS IMMEDIATELY
+Password: llcManager0!   ← CHANGE THIS IMMEDIATELY
 ```
 
 ---
