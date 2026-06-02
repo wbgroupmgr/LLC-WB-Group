@@ -4,262 +4,302 @@ Authentication and user-registration layer for the LLC Management App (`llcMgmt`
 
 ---
 
-## Problem Statement — Why the Current Design Fails
+## Problem Statement — Why the Original Design Failed
 
-The original design stored `pw.json.gpg` inside the Business Repo (`LLC-WBGroup`) and
-encrypted it with a **platform-specific** `LLC_GPG_PASSPHRASE`. This creates an
-irreconcilable conflict:
+The original design encrypted `pw.json.gpg` with a **platform-specific**
+`LLC_GPG_PASSPHRASE` and committed it to the Business Repo. When local pushed
+`680f1ac`, the locally-encrypted `pw.json.gpg` overwrote PA's copy → PA could
+no longer decrypt it → `gpg: decryption failed: Bad session key` → login broken.
 
+Root cause: different passphrases on different platforms + same file in the repo.
+
+---
+
+## Design Decisions
+
+### D1 — One Master Host (PA) pushes; all others pull
+There is exactly **one authoritative host** — PA (PythonAnywhere). It is the only
+host that ever pushes commits to the Business Repo (`LLC-WBGroup`).
+Local machines and any other hosts **pull only** and never push data files.
+
+This means `pw.json.gpg` committed by PA is always encrypted with PA's passphrase.
+As long as all platforms share the **same `LLC_GPG_PASSPHRASE`** (extracted from
+`keys.json.gpg`), every platform can decrypt PA's `pw.json.gpg`.
+
+### D2 — MASTER passphrase stored in `~/.llcRentalTracker/config.json`
+The MASTER passphrase lives in the existing per-host config file, not in an
+environment variable. This keeps the startup sequence self-contained — `wsCmd.py`
+and `wsgi.py` already read this file for LLC/year config.
+
+```json
+{
+  "master_passphrase": "<MASTER_PP>",
+  "default": ["WBGroupLLC", 2025],
+  "llcList": [...]
+}
 ```
-Business Repo push/pull  ──▶  overwrites pw.json.gpg on the other platform
-                               (file encrypted with different passphrase)
-                               ──▶ gpg: decryption failed: Bad session key
-                               ──▶ login broken
-```
 
-Every time local pushes changes to `LLC-WBGroup` that include a locally-encrypted
-`pw.json.gpg`, PA's login breaks (and vice versa). This is what happened in `680f1ac`.
+**Security note:** `~/.llcRentalTracker/config.json` is a file on the host filesystem,
+protected by host OS permissions (mode 600 recommended). It is never committed to any
+repo.
+
+### D3 — `pw.json.gpg` remains in the Business Repo
+Because D1 ensures only PA pushes it, and D2 ensures all platforms share the same
+`LLC_GPG_PASSPHRASE`, `pw.json.gpg` can safely live in the repo. Any host that
+pulls gets a file it can decrypt with the same passphrase from `keys.json.gpg`.
+
+No `.gitignore` entry needed.
 
 ---
 
 ## Requirements
 
-### R1 — Platform Independence
-The Business Repo (`LLC-WBGroup`) must be deployable to any platform (PA, local, new
-server) without breaking login on already-installed platforms.
+### R1 — Single source of truth for user accounts
+PA (master host) owns `pw.json.gpg`. User management (add/delete/change password)
+is done on PA. After any user-DB change PA pushes to GitHub. Other hosts pull to
+get the latest user list.
 
-### R2 — Single MASTER Passphrase
-The operator (`llcgroupmgr`) supplies one **MASTER passphrase** per installation.
-That passphrase unlocks all other per-instance secrets. It is never stored on disk
-or committed to any repo.
+### R2 — MASTER passphrase unlocks everything
+One passphrase per host, stored in `~/.llcRentalTracker/config.json`.
+It unlocks `keys.json.gpg` → which provides `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY`.
 
-### R3 — Per-Instance Secrets in `keys.json.gpg`
-All secrets needed to run the app on a specific platform are packaged in a single
-GPG-encrypted file `books/Accts/keys.json.gpg`, encrypted with the MASTER passphrase.
-
-Contents:
+### R3 — `keys.json.gpg` is the platform-portable secrets package
 ```json
 {
-  "LLC_GPG_PASSPHRASE": "<passphrase for pw.json.gpg on this platform>",
-  "LLC_SECRET_KEY":     "<Flask session secret for this platform>"
+  "LLC_GPG_PASSPHRASE": "<shared passphrase for pw.json.gpg>",
+  "LLC_SECRET_KEY":     "<Flask session signing secret>"
 }
 ```
 
-`keys.json.gpg` **IS committed to the Business Repo** — it is safe because it can
-only be decrypted with the MASTER passphrase, which is never in the repo.
+`keys.json.gpg` **IS in the Business Repo**, encrypted with the MASTER passphrase.
+Same content on all platforms — the MASTER passphrase is the only per-host secret.
 
-### R4 — `pw.json.gpg` is Instance-Local (NOT in repo)
-`pw.json.gpg` is a runtime artifact — users change passwords, accounts are created
-and deleted. It must **never** be committed to the Business Repo.
+### R4 — `wsCmd.py --setup` is the bootstrap tool on any platform
+On a new host:
+1. Clone both repos
+2. Set MASTER passphrase in `~/.llcRentalTracker/config.json`
+3. Run `wsCmd.py --setup` — decrypts `keys.json.gpg`, verifies/creates `pw.json.gpg`
+4. Start app
 
-Add `books/Accts/pw.json.gpg` to `.gitignore` in `LLC-WBGroup`.
-
-`pw.json.gpg` is encrypted with `LLC_GPG_PASSPHRASE` (from `keys.json.gpg`).
-On a fresh install, `wsCmd.py --setup` creates it with the seed user.
-
-### R5 — BUS Push/Pull Does Not Touch Login
-Syncing the Business Repo only carries:
-- Accounting data files (`*.json`)
-- `keys.json.gpg` (encrypted — safe to share)
-
-It never carries `pw.json.gpg`. Login state is isolated per-platform.
-
-### R6 — `wsCmd.py --setup` Is the Install/Recovery Tool
-`--setup` on any platform:
-1. Prompts for the MASTER passphrase
-2. Decrypts `keys.json.gpg` → extracts `LLC_GPG_PASSPHRASE` and `LLC_SECRET_KEY`
-3. Writes these to the profile (`llcProfile_*.json` → `MultiTaskWS_Config`)
-4. If `pw.json.gpg` absent → creates it with the seed user encrypted with `LLC_GPG_PASSPHRASE`
-5. If `pw.json.gpg` present → verifies it decrypts correctly; if not, prompts to reset
-
-### R7 — PA Environment Variable (Runtime Only)
-PA needs `LLC_MASTER_PASSPHRASE` set in its environment tab.
-At startup, `wsCmd.py` (or `wsgi.py`) reads it, decrypts `keys.json.gpg`, and
-injects `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY` into the process environment.
+### R5 — Startup injects secrets automatically
+`wsgi.py` (and `wsCmd.py --start`) reads `config.json`, decrypts `keys.json.gpg`,
+injects `LLC_GPG_PASSPHRASE` and `LLC_SECRET_KEY` into `os.environ` before the
+Flask app initialises. No platform-specific environment variables needed beyond
+what's already in `config.json`.
 
 ---
 
 ## Architecture
 
 ```
-Business Repo (LLC-WBGroup)          App Code Repo (llcRentalTracker)
-books/
-  Accts/
-    keys.json.gpg  ◀── IN REPO        ui/llcLogin_auth.py
-    pw.json.gpg    ◀── .gitignore      wsCmd.py (--setup, --start)
-    *.json (data)  ◀── IN REPO
-  2025/
-    Forms/         ◀── IN REPO
-    BankStmts/     ◀── IN REPO
+~/.llcRentalTracker/config.json     (host filesystem, never in repo)
+  └── master_passphrase  ──────────────┐
+                                       ▼
+Business Repo (LLC-WBGroup)     gpg --decrypt
+  books/Accts/
+    keys.json.gpg  (IN REPO)  ──▶  { LLC_GPG_PASSPHRASE, LLC_SECRET_KEY }
+    pw.json.gpg    (IN REPO)  ──▶  [users]  (decrypted with LLC_GPG_PASSPHRASE)
+    *.json (data)  (IN REPO)
 
 
-Two-layer decryption at startup:
-                                                        
-  MASTER passphrase (env var)                          
-       │                                               
-       ▼  gpg --decrypt                                
-  keys.json.gpg  ──▶  { LLC_GPG_PASSPHRASE,            
-                         LLC_SECRET_KEY }               
-                              │                        
-                              ▼  gpg --decrypt          
-                         pw.json.gpg  ──▶  [users]      
+Push/pull flow:
+
+  PA (master host)                   Local / other hosts
+  ──────────────────                 ───────────────────
+  owns pw.json.gpg        push ───▶  GitHub repo
+  manages users                      ◀─── pull
+  keys.json.gpg matches              keys.json.gpg matches
+  same LLC_GPG_PASSPHRASE            same LLC_GPG_PASSPHRASE
+  → can decrypt pw.json.gpg         → can decrypt pw.json.gpg
 ```
 
 ---
 
-## Secret Ownership per Platform
+## Startup Sequence (revised)
 
-| Secret | Where stored | Who sets it |
-|---|---|---|
-| `LLC_MASTER_PASSPHRASE` | Platform env var (PA tab / local `.env`) | Operator |
-| `LLC_GPG_PASSPHRASE` | Inside `keys.json.gpg` (repo) | `wsCmd.py --setup` |
-| `LLC_SECRET_KEY` | Inside `keys.json.gpg` (repo) | `wsCmd.py --setup` |
-| `pw.json.gpg` | `books/Accts/` (NOT in repo) | `wsCmd.py --setup` |
+```
+wsgi.py / wsCmd.py --start
+  │
+  ├── 1. read ~/.llcRentalTracker/config.json
+  │         → master_passphrase
+  │
+  ├── 2. gpg --decrypt books/Accts/keys.json.gpg  (using master_passphrase)
+  │         → { LLC_GPG_PASSPHRASE, LLC_SECRET_KEY }
+  │
+  ├── 3. os.environ["LLC_GPG_PASSPHRASE"] = ...  (if not already set)
+  │   os.environ["LLC_SECRET_KEY"]      = ...
+  │
+  └── 4. Flask app starts → llcLogin_auth reads LLC_GPG_PASSPHRASE → decrypts pw.json.gpg
+```
 
 ---
 
-## File Layout (revised)
+## `~/.llcRentalTracker/config.json` — revised schema
 
-```
-books/
-  Accts/
-    keys.json.gpg          ← IN REPO — encrypted with MASTER passphrase
-    pw.json.gpg            ← .gitignore — instance-local, encrypted with LLC_GPG_PASSPHRASE
-    ChartOfAccounts_*.json ← IN REPO
-    llcAssets_*.json       ← IN REPO
-    ...
-  2025/
-    Forms/                 ← IN REPO (year-specific filed docs)
-    BankStmts/             ← IN REPO
+```json
+{
+  "master_passphrase": "<MASTER_PP — never commit this file>",
+  "default": ["WBGroupLLC", 2025],
+  "llcList": [
+    {
+      "llcName":   "WBGroupLLC",
+      "dataName":  "WBGroupLLC",
+      "bus_repo":  "/path/to/LLC-WBGroup",
+      "books_dir": "books",
+      "year":      2025
+    }
+  ]
+}
 ```
 
-`llcLogin_auth.py` reads `ACCTS_DIR / "pw.json.gpg"` — unchanged.
+`setup_paths.py` already reads this file. Adding `master_passphrase` is a one-field
+addition with no impact on existing config readers (they ignore unknown keys).
 
 ---
 
 ## `wsCmd.py --setup` Flow (revised)
 
 ```
-1. Prompt:  Enter MASTER passphrase:  ___________
-2. Decrypt: books/Accts/keys.json.gpg  →  { LLC_GPG_PASSPHRASE, LLC_SECRET_KEY }
-3. Write:   llcProfile.json MultiTaskWS_Config → passphrase fields
-4. Check:   books/Accts/pw.json.gpg exists?
-     YES → test decrypt with LLC_GPG_PASSPHRASE
-             ✓ OK  →  print "✓ User DB verified"
-             ✗ BAD →  if --reset: delete + re-create with seed user
-                      else: print "⚠ Wrong passphrase — run with --reset to recreate"
-     NO  → create pw.json.gpg with seed user encrypted with LLC_GPG_PASSPHRASE
-5. Done.
+1. Read ~/.llcRentalTracker/config.json → master_passphrase
+   If absent → prompt: "Enter MASTER passphrase:" → write to config.json
+
+2. Decrypt books/Accts/keys.json.gpg using master_passphrase
+   If absent or decrypt fails:
+     → prompt to create keys.json.gpg (generate LLC_GPG_PASSPHRASE + LLC_SECRET_KEY,
+       encrypt with master_passphrase, write + commit to Business Repo from PA)
+
+3. Extract LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from decrypted keys
+
+4. Write LLC_GPG_PASSPHRASE + LLC_SECRET_KEY into llcProfile MultiTaskWS_Config
+
+5. Check books/Accts/pw.json.gpg:
+   ABSENT → create with seed user, encrypted with LLC_GPG_PASSPHRASE
+   PRESENT, decrypts OK → print "✓ User DB verified"
+   PRESENT, decrypts BAD → warn; if --reset: delete + recreate with seed user
+
+6. Done — start with:  python3 wsCmd.py --start --llcName WBGroupLLC
 ```
 
 ---
 
-## `wsgi.py` / Startup Flow (revised)
+## PA Fix Plan (immediate — restores login today)
 
-```python
-# On startup, inject secrets from keys.json.gpg into process env
-# so llcLogin_auth can find LLC_GPG_PASSPHRASE at request time.
+### Context
+- PA has `books/2025/Accts/pw.json.gpg` — encrypted with PA's `LLC_GPG_PASSPHRASE`
+- PA's `$LLC_GPG_PASSPHRASE` env var is set in PA environment tab
+- `books/Accts/pw.json.gpg` is missing (was not copied in migration `680f1ac`)
 
-import os, json
-from pathlib import Path
-
-def _inject_from_keys(accts_dir: Path, master_pp: str):
-    keys_file = accts_dir / "keys.json.gpg"
-    if not keys_file.exists():
-        return
-    from ui.llcLogin_auth import _gpg_decrypt
-    data = json.loads(_gpg_decrypt(keys_file, master_pp))
-    for k, v in data.items():
-        if k not in os.environ:          # don't override explicit env vars
-            os.environ[k] = v
-
-master = os.environ.get("LLC_MASTER_PASSPHRASE", "")
-if master:
-    _inject_from_keys(setup_paths.ACCTS_DIR, master)
-```
-
----
-
-## PA Fix Plan (immediate — no code changes needed yet)
-
-The current PA failure: `pw.json.gpg` in `books/Accts/` is missing (or encrypted with
-local passphrase). Fix on PA using existing tools:
-
-### Step 1 — Verify PA's working password file
+### Step 1 — Verify the working file on PA
 ```bash
-# On PA console:
+# PA console:
 gpg --batch --decrypt \
     --passphrase "$LLC_GPG_PASSPHRASE" \
     ~/LLC-WBGroup/books/2025/Accts/pw.json.gpg
-# Should print the JSON user array. If it does, this is the good file.
+# Should print the JSON user array — confirms the file and passphrase are correct.
 ```
 
-### Step 2 — Copy it to the new path
+### Step 2 — Copy to new path
 ```bash
 cp ~/LLC-WBGroup/books/2025/Accts/pw.json.gpg \
    ~/LLC-WBGroup/books/Accts/pw.json.gpg
-# Do NOT git add this file — it must stay out of the repo
 ```
 
-### Step 3 — Add .gitignore entry in LLC-WBGroup
+### Step 3 — Commit from PA (master host pushes)
 ```bash
 cd ~/LLC-WBGroup
-echo "books/Accts/pw.json.gpg" >> .gitignore
-git add .gitignore
-git commit -m "chore: gitignore pw.json.gpg — instance-local, not repo artifact"
+git add books/Accts/pw.json.gpg
+git commit -m "fix: add pw.json.gpg to books/Accts/ — master host copy"
 git push
 ```
 
-### Step 4 — Test login
-Reload the PA app and confirm login works.
+### Step 4 — Reload PA app → confirm login
+
+### Step 5 — Seed `~/.llcRentalTracker/config.json` with master_passphrase on PA
+```bash
+# PA console — add master_passphrase to config.json:
+python3 -c "
+import json
+from pathlib import Path
+cfg_file = Path.home() / '.llcRentalTracker/config.json'
+cfg = json.loads(cfg_file.read_text())
+if 'master_passphrase' not in cfg:
+    import getpass
+    cfg['master_passphrase'] = getpass.getpass('MASTER passphrase: ')
+    cfg_file.write_text(json.dumps(cfg, indent=2))
+    print('Written.')
+else:
+    print('Already present.')
+"
+chmod 600 ~/.llcRentalTracker/config.json
+```
 
 ---
 
-## Remaining Work (after PA login is restored)
+## Remaining Work (after login is restored)
 
 ### Phase A — Create `keys.json.gpg` on PA
+Generate and encrypt the keys file using PA's current secrets.
+Commit from PA → all hosts can pull it.
+
 ```bash
-# On PA, create the keys file with the current per-platform secrets:
-python3 -c "
+# PA console:
+python3 - << 'EOF'
 import json, os, subprocess, tempfile
-keys = {
+from pathlib import Path
+
+accts = Path('~/LLC-WBGroup/books/Accts').expanduser()
+keys  = {
     'LLC_GPG_PASSPHRASE': os.environ['LLC_GPG_PASSPHRASE'],
     'LLC_SECRET_KEY':     os.environ.get('LLC_SECRET_KEY', ''),
 }
-plaintext = json.dumps(keys).encode()
-# ... encrypt with LLC_MASTER_PASSPHRASE and write to books/Accts/keys.json.gpg
-"
+plaintext = json.dumps(keys, indent=2).encode()
+master_pp = json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())['master_passphrase']
+
+# Encrypt
+proc = subprocess.run(
+    ['gpg','--batch','--yes','--symmetric','--cipher-algo','AES256',
+     '--passphrase', master_pp, '--output', str(accts/'keys.json.gpg'), '-'],
+    input=plaintext, capture_output=True
+)
+print('keys.json.gpg written' if proc.returncode == 0 else proc.stderr.decode())
+EOF
+
+cd ~/LLC-WBGroup
 git add books/Accts/keys.json.gpg
 git commit -m "feat: add keys.json.gpg — per-instance secrets bootstrap"
 git push
 ```
 
-### Phase B — Update `wsCmd.py --setup`
-- Read `LLC_MASTER_PASSPHRASE` (prompt if not in env)
-- Decrypt `keys.json.gpg` → extract per-instance secrets
-- Check/create `pw.json.gpg`
+### Phase B — Update `setup_paths.py`
+Add `read_master_passphrase()` helper that returns `config.json["master_passphrase"]`.
 
 ### Phase C — Update `wsgi.py` startup
-- Inject `LLC_GPG_PASSPHRASE` and `LLC_SECRET_KEY` from `keys.json.gpg` at startup
-- PA only needs `LLC_MASTER_PASSPHRASE` in its environment tab (not all secrets)
+Add `_inject_from_keys()` call at module load time (before Flask init).
 
-### Phase D — Update this doc
-- Finalize after Phase A-C are implemented and tested
+### Phase D — Update `wsCmd.py --setup`
+Implement revised flow from the `--setup` section above.
 
----
-
-## Outstanding Questions
-
-| # | Question | Impact |
-|---|---|---|
-| 1 | Should `LLC_GPG_PASSPHRASE` be the same on PA and local, or platform-specific? | If same: one `keys.json.gpg` works everywhere. If different: each platform has its own `keys.json.gpg` (more isolated but more complex) |
-| 2 | Should `pw.json.gpg` be portable (same file, same passphrase on all platforms)? | Yes → simpler. Means `LLC_GPG_PASSPHRASE` is shared. Users/passwords sync via manual export |
-| 3 | Where is the MASTER passphrase documented for the operator? | PA: env tab. Local: `~/.llcRentalTracker/config.json` passphrase field or `.env` |
-| 4 | What happens if `keys.json.gpg` is not yet created (pre-Phase A)? | `wsgi.py` skips injection gracefully; `LLC_GPG_PASSPHRASE` must still be in env directly |
+### Phase E — Local setup
+```bash
+# Local: add master_passphrase to ~/.llcRentalTracker/config.json
+# Then pull LLC-WBGroup (gets keys.json.gpg + pw.json.gpg from PA)
+# wsCmd.py --setup will verify everything works
+```
 
 ---
 
-## Original Design (still valid — unchanged)
+## File Ownership Summary
+
+| File | In Repo? | Who writes it | Pushed from |
+|---|---|---|---|
+| `books/Accts/keys.json.gpg` | ✅ YES | `wsCmd.py --setup` (initial) | PA (master) |
+| `books/Accts/pw.json.gpg` | ✅ YES | `llcLogin_auth` (user mgmt) | PA (master) |
+| `books/Accts/*.json` (data) | ✅ YES | App save actions | PA (master) |
+| `~/.llcRentalTracker/config.json` | ❌ NO | Operator / `wsCmd.py` | Never pushed |
+
+---
+
+## Original Design (unchanged sections)
 
 ### User DB Schema
 ```json
@@ -291,11 +331,22 @@ git push
 
 ### GPG CLI Reference
 ```bash
-# Decrypt to stdout (inspect)
+# Decrypt to stdout
 gpg --batch --decrypt --passphrase "$LLC_GPG_PASSPHRASE" books/Accts/pw.json.gpg
 
-# Re-encrypt with new passphrase
+# Decrypt keys.json.gpg (uses MASTER passphrase)
+gpg --batch --decrypt --passphrase "<MASTER_PP>" books/Accts/keys.json.gpg
+
+# Re-encrypt pw.json.gpg with new passphrase
 gpg --batch --decrypt --passphrase "$OLD_PP" books/Accts/pw.json.gpg \
   | gpg --batch --symmetric --cipher-algo AES256 \
         --passphrase "$NEW_PP" --output books/Accts/pw.json.gpg
+```
+
+### Auth Flow (unchanged)
+```
+POST /login
+  → _load_users() → gpg --decrypt pw.json.gpg (using LLC_GPG_PASSPHRASE from env)
+  → json.loads() → find user → hash(password) compare
+  → session written → 302 home
 ```
