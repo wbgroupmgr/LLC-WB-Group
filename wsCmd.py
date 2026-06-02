@@ -38,9 +38,11 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from ledger import setup_paths as _sp
-from ledger.LLC import LLC
+# llcLogin_auth is safe to import (no deepdiff dependency).
 from ui.llcLogin_auth import (_db_path, _find_user, _hash, _load_users,
                                _save_users, _gpg_decrypt, _gpg_encrypt)
+# LLC is imported lazily inside WsCmd.__init__ — its dep chain pulls in deepdiff
+# which may not be installed yet when --newBus runs before --setup installs deps.
 
 
 def _latest_config_year(llc_name: str):
@@ -253,8 +255,10 @@ class WsCmd:
     def __init__(self, llc_name: str, year: int = None):
         self.llc_name = llc_name
         self.year     = year or _latest_config_year(llc_name)
-        # LLC object only needed for --start; skip silently if profile missing
+        # LLC object only needed for --start; lazy-import to avoid pulling deepdiff
+        # before --setup has installed it.
         try:
+            from ledger.LLC import LLC
             self.llc = LLC(llc_name, year=self.year)
         except Exception:
             self.llc = None
