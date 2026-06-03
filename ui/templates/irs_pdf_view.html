@@ -7,6 +7,12 @@
 
 {% block topbar %}{% endblock %}
 
+{# Global JS constant — SCRIPT_NAME prefix for all API fetches on this page.
+   Empty string locally; '/rentalTracker' on PythonAnywhere. #}
+<script>
+const _SCRIPT_ROOT = {{ request.script_root | tojson }};
+</script>
+
 {% block head_extra %}
 <style>
     /* ── Sticky title bar (matches other views) ───────────────────────── */
@@ -257,7 +263,11 @@
                 <button type="button" class="btn btn-sm btn-primary" onclick="agentRunStart()"
                         id="agentRunBtn">▶ Run Form Agent</button>
                 <a href="{{ url_for('agent_form1065_view') }}" class="btn btn-sm btn-outline-secondary"
-                   id="agentReviewBtn" style="display:none">📋 Open Guided Review</a>
+                   id="agentReviewBtn" style="display:none">📋 Open Guided Review →</a>
+                <span id="agentStaleWarn" style="display:none;font-size:11px;color:#92400e;
+                      background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 8px;">
+                    ⚠ Results may be outdated — click Run Form Agent to refresh
+                </span>
                 <span class="agent-strip-ts" id="agentLastRun"></span>
             </div>
         </div>
@@ -356,7 +366,7 @@ function cpaReviewOpen() {
         '<div class="text-center text-muted py-3">Loading…</div>';
     const modal = new bootstrap.Modal(document.getElementById("cpaReviewModal"));
     modal.show();
-    fetch("/api/aid/cpa_review?formNm=" + encodeURIComponent(formNm))
+    fetch(_SCRIPT_ROOT + "/api/aid/cpa_review?formNm=" + encodeURIComponent(formNm))
         .then(r => r.json())
         .then(data => {
             if (!data.ok) {
@@ -495,8 +505,7 @@ function cpaReviewOpen() {
 
 {% if meta.formId == 'Form1065' %}
 <script>
-// SCRIPT_NAME prefix: '/rentalTracker' on PA, '' locally.
-// url_for() includes it automatically — use these vars for all API calls.
+// url_for() includes SCRIPT_NAME prefix automatically
 const _AGENT_STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
 const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
 // ── Form 1065 Agent Status Strip ─────────────────────────────────────────
@@ -547,15 +556,23 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
         document.getElementById('agentStripRows').innerHTML =
             rowsHtml || '<tr><td colspan="3">No data</td></tr>';
 
-        // Last-run timestamp
+        // Last-run timestamp + stale warning
+        const staleEl   = document.getElementById('agentStaleWarn');
+        const reviewBtn = document.getElementById('agentReviewBtn');
         if (lastRun) {
+            const d       = new Date(lastRun);
+            const ageHrs  = (Date.now() - d.getTime()) / 3600000;
             document.getElementById('agentLastRun').textContent =
-                'Last run: ' + new Date(lastRun).toLocaleString();
+                'Last run: ' + d.toLocaleString();
+            // Warn if results are more than 1 hour old
+            if (staleEl) staleEl.style.display = ageHrs > 1 ? '' : 'none';
+        } else {
+            if (staleEl) staleEl.style.display = 'none';
         }
 
         // Show Guided Review button if any section has run
         const hasRun = sections.some(s => s.state !== 'NOT_STARTED');
-        document.getElementById('agentReviewBtn').style.display = hasRun ? '' : 'none';
+        reviewBtn.style.display = hasRun ? '' : 'none';
 
         // Restore collapsed preference
         if (localStorage.getItem('form1065_strip_collapsed') !== '1') agentStripOpen();

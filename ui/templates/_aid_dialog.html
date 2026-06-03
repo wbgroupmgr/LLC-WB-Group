@@ -233,8 +233,8 @@
     let LITERAL_PENDING_VAL = null; // the expected literal value for verify step
     let CHK_PENDING     = false;  // true when ☑ checkmark sentinel is selected
 
-    const AID_FORM   = ({{ (meta.formId or 'Form1065') | tojson }});
-    const _SCRIPT_ROOT = {{ request.script_root | tojson }};  // '' locally, '/rentalTracker' on PA
+    const AID_FORM = ({{ (meta.formId or 'Form1065') | tojson }});
+    // _SCRIPT_ROOT is defined globally in irs_pdf_view.html (includes the page)
 
     function aidUrl(path) {
         const sep = path.includes('?') ? '&' : '?';
