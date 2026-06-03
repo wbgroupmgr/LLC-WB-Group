@@ -595,6 +595,24 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
         agentStripOpen();
     }
 
+    // Auto-open Aid dialog if ?aid_fid=<logical_key> is in the URL
+    (function () {
+        const params = new URLSearchParams(window.location.search);
+        const aidFid = params.get('aid_fid');
+        if (aidFid && typeof window.aidOpen === 'function') {
+            // aidOpen may not be ready yet — defer until dialog script loads
+            setTimeout(() => window.aidOpen(aidFid), 300);
+        } else if (aidFid) {
+            // aidOpen not yet defined — wait for it
+            const iv = setInterval(() => {
+                if (typeof window.aidOpen === 'function') {
+                    clearInterval(iv); window.aidOpen(aidFid);
+                }
+            }, 100);
+            setTimeout(() => clearInterval(iv), 3000);
+        }
+    })();
+
     // Auto-load summary on page open
     fetch(_AGENT_STATUS_URL)
       .then(r => r.json())

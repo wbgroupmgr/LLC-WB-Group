@@ -260,36 +260,80 @@ class AgentF1065_Info(_SectionAgent):
         if not ein or len(ein) != 9 or not ein.isdigit():
             return self.format_issue(
                 'IF-R01', self.ERROR,
-                f"EIN missing or malformed (found: '{self._ev('ein')}')",
+                f"EIN missing or malformed (found: '{self._ev('ein')}'). "
+                f"Form field: P1_B (EIN box, Page 1 Item B)",
                 'Every Form 1065 requires a valid 9-digit EIN',
-                "Enter EIN in llcProfile under entity.ein")
+                "Set entity.ein in llcProfile",
+                fids=['P1_B'],
+                suggested_mapping={'fid': 'P1_B', 'src': 'Profile',
+                                   'path': 'Profile.entity.ein'})
 
     def _rule_entity_name(self):
         name = self._ev('entity_name', '').strip()
         if not name:
             return self.format_issue(
                 'IF-R02', self.ERROR,
-                "Entity name is blank",
+                "Entity name is blank — Form field P1_Hdr_4 (Page 1 Name line)",
                 'Form 1065 Page 1 header requires the legal partnership name',
-                "Set entity.entity_name in llcProfile")
+                "Set entity.entity_name in llcProfile",
+                fids=['P1_Hdr_4'],
+                suggested_mapping={'fid': 'P1_Hdr_4', 'src': 'Profile',
+                                   'path': 'Profile.entity.entity_name'})
 
     def _rule_acctg_method(self):
         method = self._fv('acctg_method', '').strip()
         if not method:
             return self.format_issue(
                 'IF-R03', self.WARN,
-                "Accounting method not set (Cash or Accrual)",
+                "Accounting method not set — Form checkboxes P1_F_cash / P1_F_accrual",
                 'Form 1065 Page 1 Item F requires one checkbox',
-                "Set F1065.acctg_method to 'Cash' or 'Accrual' in llcProfile")
+                "Set F1065.acctg_method to 'Cash' or 'Accrual' in llcProfile",
+                fids=['P1_F_cash', 'P1_F_accrual'])
 
     def _rule_partnership_rep(self):
-        pr = self._fv('partnership_rep', '').strip()
-        if not pr:
+        # Actual keys: F1065.B_PRDI_FirstNm + B_PRDI_Last → logical keys B_PR_1, B_PR_2
+        first = self._fv('B_PRDI_FirstNm', '').strip()
+        last  = self._fv('B_PRDI_Last', '').strip()
+        if not first and not last:
+            # Try to deduce from other profile fields
+            deduced = self._deduce_pr()
+            action_msg = (
+                f"Books have '{deduced['found']}' — "
+                f"map Profile.F1065.{deduced['src_key']} → Form field {deduced['fid']}"
+                if deduced else
+                "Set F1065.B_PRDI_FirstNm and B_PRDI_Last in llcProfile, "
+                "then map to B_PR_1 / B_PR_2 via the Aid dialog"
+            )
             return self.format_issue(
                 'IF-R04', self.ERROR,
-                "Partnership Representative (PR) not named",
-                'IRC §6223 — all BBA partnerships must designate a PR on Form 1065',
-                "Set F1065.partnership_rep in llcProfile")
+                "Partnership Representative (PR) first/last name is blank "
+                "(Form 1065 Schedule B, Partnership Representative section)",
+                'IRC §6223; Treas. Reg. §301.6223-1',
+                action_msg,
+                fids=['B_PR_1', 'B_PR_2'],
+                suggested_mapping=deduced.get('mapping') if deduced else None)
+
+    def _deduce_pr(self) -> Dict[str, Any]:
+        """Try to infer Partnership Representative from existing profile data."""
+        f1065 = getattr(self.llc, 'F1065', {}) or {}
+        entity = getattr(self.llc, 'entity', {}) or {}
+        # Check if there's name data in F1065 under any key
+        for key in ('B_PRDI_FirstNm', 'prdi_first', 'PR_first', 'pr_first_nm'):
+            v = str(f1065.get(key, '')).strip()
+            if v:
+                return {'found': v, 'src_key': key, 'fid': 'B_PR_1',
+                        'mapping': {'fid': 'B_PR_1', 'src': 'Profile', 'path': f'Profile.F1065.{key}'}}
+        # Fall back: check entity for owner names
+        owners = self._get_owners()
+        if owners:
+            nm = owners[0].get('nm', [])
+            name = ' '.join(nm) if isinstance(nm, list) else str(nm)
+            if name.strip():
+                return {'found': name,
+                        'src_key': 'owners[0].nm (deduced — confirm correct partner)',
+                        'fid': 'B_PR_1',
+                        'mapping': None}  # can't auto-map owners; needs manual Aid
+        return {}
 
     def _rule_initial_final(self):
         # If no checkbox is set for initial/final/amended, warn
@@ -408,13 +452,19 @@ class AgentF1065_Other(_SectionAgent):
                 auto_fix=True)
 
     def _rule_pr_named(self):
-        pr = self._fv('partnership_rep', '').strip()
-        if not pr:
+        first = self._fv('B_PRDI_FirstNm', '').strip()
+        last  = self._fv('B_PRDI_Last', '').strip()
+        if not first and not last:
             return self.format_issue(
                 'OT-R02', self.ERROR,
-                "Partnership Representative not named on Schedule B",
+                "Partnership Representative not named on Schedule B "
+                "(B_PR_1=First Name, B_PR_2=Last Name are blank in the fill dict)",
                 'IRC §6223; Treas. Reg. §301.6223-1',
-                "Set F1065.partnership_rep in llcProfile, then map to Schedule B fields via Aid")
+                "Set F1065.B_PRDI_FirstNm and B_PRDI_Last in llcProfile, "
+                "then use Aid to map Profile.F1065.B_PRDI_FirstNm → B_PR_1",
+                fids=['B_PR_1', 'B_PR_2', 'B_PR_7'],
+                suggested_mapping={'fid': 'B_PR_1', 'src': 'Profile',
+                                   'path': 'Profile.F1065.B_PRDI_FirstNm'})
 
     def _rule_ownership_questions(self):
         owners = self._get_owners()

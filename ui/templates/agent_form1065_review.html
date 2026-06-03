@@ -53,6 +53,18 @@
     .issue-msg { flex: 1; color: #374151; }
     .issue-cite { color: #9ca3af; font-style: italic; font-size: 11px; }
     .issue-action { color: #1d4ed8; font-size: 11px; }
+    .fid-chip {
+        display: inline-block; font-family: monospace; font-size: 11px;
+        background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;
+        border-radius: 4px; padding: 1px 6px; margin: 1px 2px 1px 0;
+    }
+    .aid-link {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11px; color: white; background: #1d4ed8;
+        border-radius: 4px; padding: 2px 8px; text-decoration: none;
+        margin-top: 4px; cursor: pointer; border: none;
+    }
+    .aid-link:hover { background: #1e40af; color: white; }
     .no-issues { color: #166534; font-size: 12px; padding: 6px 0; }
     .ext-advice { background: #fafaf5; border: 1px solid #e7e5e4;
                   border-radius: 6px; padding: 10px 14px; font-size: 13px;
@@ -115,8 +127,33 @@
                     </span>
                     <span class="issue-msg">
                         {{ issue.message }}
+                        {# Form field chips #}
+                        {% if issue.fids %}
+                        <div style="margin-top:3px">
+                            <span style="font-size:11px;color:#6b7280">Form field{{ 's' if issue.fids|length > 1 }}:</span>
+                            {% for fid in issue.fids %}
+                            <span class="fid-chip">{{ fid }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {# Deduction hint #}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.path %}
+                        <div style="font-size:11px;color:#166534;margin-top:2px">
+                            💡 Books have data at <code>{{ issue.suggested_mapping.path }}</code>
+                            — map it to <code>{{ issue.suggested_mapping.fid }}</code> via Aid
+                        </div>
+                        {% endif %}
                         <div class="issue-action">→ {{ issue.action }}</div>
                         <div class="issue-cite">{{ issue.irs_cite }}</div>
+                        {# Aid link — navigates back to Form 1065 view and auto-opens Aid for this fid #}
+                        {% if issue.fids %}
+                        <div style="margin-top:5px">
+                            <a class="aid-link"
+                               href="{{ url_for('view_object', obj_type='llcForm1065') }}?aid_fid={{ issue.fids[0] }}">
+                                🛠 Fix with Aid — open {{ issue.fids[0] }}
+                            </a>
+                        </div>
+                        {% endif %}
                     </span>
                 </div>
                 {% endfor %}

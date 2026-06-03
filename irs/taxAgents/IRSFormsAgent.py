@@ -55,14 +55,22 @@ class IRSFormsAgent:
 
     def format_issue(self, rule_id: str, severity: str, message: str,
                      irs_cite: str, action: str,
-                     auto_fix: bool = False) -> Dict[str, Any]:
+                     auto_fix: bool = False,
+                     fids: list = None,
+                     suggested_mapping: dict = None) -> Dict[str, Any]:
+        """
+        fids: logical key(s) in Form1065_namespace, e.g. ['B_PR_1', 'B_PR_2']
+        suggested_mapping: {fid, src, path} — pre-fill hint for the Aid dialog
+        """
         return {
-            'rule_id':  rule_id,
-            'severity': severity,
-            'message':  message,
-            'irs_cite': irs_cite,
-            'action':   action,
-            'auto_fix': auto_fix,
+            'rule_id':           rule_id,
+            'severity':          severity,
+            'message':           message,
+            'irs_cite':          irs_cite,
+            'action':            action,
+            'auto_fix':          auto_fix,
+            'fids':              fids or [],
+            'suggested_mapping': suggested_mapping or {},
         }
 
     # ── Session builder ──────────────────────────────────────────────────────
