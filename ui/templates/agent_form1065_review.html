@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{# Form 1065 Agent — Guided Tax Review page (/view/agent/form1065) #}
+
+{% block head_extra %}
+<style>
+    .review-panel {
+        background: white; border-radius: 10px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        margin-bottom: 16px; overflow: hidden;
+    }
+    .review-header {
+        background: #1e40af; color: white;
+        padding: 12px 18px; display: flex; align-items: center; gap: 12px;
+    }
+    .review-header h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; }
+    .review-header .back-link {
+        color: #bfdbfe; font-size: 13px; text-decoration: none;
+    }
+    .review-header .back-link:hover { color: white; }
+    .summary-bar {
+        background: #eef2ff; border-bottom: 1px solid #c7d2fe;
+        padding: 8px 18px; display: flex; gap: 12px; align-items: center;
+        font-size: 13px;
+    }
+    .badge { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .badge-go    { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+    .badge-fix   { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+    .badge-ns    { background:#f3f4f6; color:#6b7280; border:1px solid #d1d5db; }
+    .section-block { border-bottom: 1px solid #f3f4f6; }
+    .section-block:last-child { border-bottom: 0; }
+    .section-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 18px; cursor: pointer; user-select: none;
+        background: #fafafa;
+    }
+    .section-head:hover { background: #f3f4f6; }
+    .section-title { font-weight: 700; font-size: 13px; flex: 1; }
+    .state-go   { color: #166534; font-weight: 700; font-size: 12px; }
+    .state-fix  { color: #991b1b; font-weight: 700; font-size: 12px; }
+    .state-ns   { color: #9ca3af; font-size: 12px; }
+    .section-summary { font-size: 12px; color: #6b7280; max-width: 600px; }
+    .section-body { padding: 0 18px 12px 36px; display: none; }
+    .section-body.open { display: block; }
+    .issue-row {
+        display: flex; gap: 10px; padding: 6px 0;
+        border-bottom: 1px solid #f9fafb; font-size: 12px;
+    }
+    .issue-row:last-child { border-bottom: 0; }
+    .issue-sev { font-weight: 700; min-width: 50px; }
+    .sev-error { color: #991b1b; }
+    .sev-warn  { color: #92400e; }
+    .sev-info  { color: #1e3a8a; }
+    .issue-msg { flex: 1; color: #374151; }
+    .issue-cite { color: #9ca3af; font-style: italic; font-size: 11px; }
+    .issue-action { color: #1d4ed8; font-size: 11px; }
+    .no-issues { color: #166534; font-size: 12px; padding: 6px 0; }
+    .ext-advice { background: #fafaf5; border: 1px solid #e7e5e4;
+                  border-radius: 6px; padding: 10px 14px; font-size: 13px;
+                  color: #78716c; margin: 8px 18px; }
+    .run-bar { padding: 14px 18px; display: flex; gap: 10px; align-items: center; }
+    .ts-label { font-size: 11px; color: #9ca3af; margin-left: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="review-panel">
+    <div class="review-header">
+        <h2>📋 Form 1065 — Guided Tax Review</h2>
+        <a class="back-link" href="{{ url_for('view_object', obj_type='llcForm1065') }}">← Back to Form 1065</a>
+    </div>
+
+    {% set overall = summary.overall_state %}
+    <div class="summary-bar">
+        {% set go_count  = summary.sections | selectattr('state','eq','GO') | list | length %}
+        {% set fix_count = summary.sections | selectattr('state','eq','NEEDS_FIXING') | list | length %}
+        {% set ns_count  = summary.sections | selectattr('state','eq','NOT_STARTED') | list | length %}
+        <strong>Overall:</strong>
+        {% if fix_count %}
+            <span class="badge badge-fix">✗ {{ fix_count }} Needs Fixing</span>
+        {% endif %}
+        {% if go_count %}
+            <span class="badge badge-go">● {{ go_count }} GO</span>
+        {% endif %}
+        {% if ns_count %}
+            <span class="badge badge-ns">○ {{ ns_count }} Not Started</span>
+        {% endif %}
+        {% if summary.last_run %}
+            <span style="margin-left:auto;font-size:11px;color:#9ca3af">Last run: {{ summary.last_run }}</span>
+        {% endif %}
+    </div>
+
+    {# Per-section collapsible panels #}
+    {% for sec in summary.sections %}
+    {% if sec.agent != 'AgentForm_Ext' %}
+    <div class="section-block">
+        <div class="section-head" onclick="this.nextElementSibling.classList.toggle('open')">
+            {% if sec.state == 'GO' %}
+                <span class="state-go">● GO</span>
+            {% elif sec.state == 'NEEDS_FIXING' %}
+                <span class="state-fix">✗ Needs Fixing</span>
+            {% else %}
+                <span class="state-ns">○ Not Started</span>
+            {% endif %}
+            <span class="section-title">{{ sec.label }}</span>
+            <span class="section-summary">{{ sec.summary[:80] }}</span>
+            <span style="font-size:11px;color:#9ca3af">▼</span>
+        </div>
+        <div class="section-body {% if sec.halt_count %}open{% endif %}">
+            {% if sec.issues %}
+                {% for issue in sec.issues %}
+                <div class="issue-row">
+                    <span class="issue-sev {% if issue.severity == 'ERROR' %}sev-error{% elif issue.severity == 'WARN' %}sev-warn{% else %}sev-info{% endif %}">
+                        {% if issue.severity == 'ERROR' %}[!]{% elif issue.severity == 'WARN' %}[⚠]{% else %}[i]{% endif %}
+                        {{ issue.rule_id }}
+                    </span>
+                    <span class="issue-msg">
+                        {{ issue.message }}
+                        <div class="issue-action">→ {{ issue.action }}</div>
+                        <div class="issue-cite">{{ issue.irs_cite }}</div>
+                    </span>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-issues">✓ No issues — this section is ready</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {# Extension advice #}
+    {% if summary.ext_advice %}
+    <div class="ext-advice">
+        <strong>ℹ Next Steps (Extension Forms):</strong> {{ summary.ext_advice }}
+    </div>
+    {% endif %}
+
+    <div class="run-bar">
+        <button class="btn btn-primary btn-sm" onclick="runAgent(this)">▶ Re-run Form Agent</button>
+        <span id="runStatus"></span>
+        <span class="ts-label" id="runTs">{% if summary.last_run %}Last run: {{ summary.last_run }}{% endif %}</span>
+    </div>
+</div>
+
+<script>
+const _START_URL = {{ url_for('agent_form1065_start') | tojson }};
+const _STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
+
+function runAgent(btn) {
+    btn.disabled = true; btn.textContent = '⏳ Running…';
+    document.getElementById('runStatus').textContent = '';
+    fetch(_START_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+      .then(r => r.json())
+      .then(data => {
+          btn.disabled = false; btn.textContent = '▶ Re-run Form Agent';
+          if (data.ok) {
+              document.getElementById('runStatus').innerHTML =
+                  '<span style="color:#166534">✓ Done — reload page to see updated results</span>';
+              setTimeout(() => location.reload(), 1200);
+          } else {
+              document.getElementById('runStatus').innerHTML =
+                  `<span style="color:#991b1b">Error: ${data.error}</span>`;
+          }
+      })
+      .catch(err => {
+          btn.disabled = false; btn.textContent = '▶ Re-run Form Agent';
+          document.getElementById('runStatus').innerHTML =
+              `<span style="color:#991b1b">Fetch error: ${err}</span>`;
+      });
+}
+</script>
+{% endblock %}

@@ -256,7 +256,7 @@
             <div class="agent-strip-actions">
                 <button type="button" class="btn btn-sm btn-primary" onclick="agentRunStart()"
                         id="agentRunBtn">▶ Run Form Agent</button>
-                <a href="/view/agent/form1065" class="btn btn-sm btn-outline-secondary"
+                <a href="{{ url_for('agent_form1065_view') }}" class="btn btn-sm btn-outline-secondary"
                    id="agentReviewBtn" style="display:none">📋 Open Guided Review</a>
                 <span class="agent-strip-ts" id="agentLastRun"></span>
             </div>

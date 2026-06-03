@@ -1545,6 +1545,28 @@ class llcMgmt:
             _agent_import_err = str(_e)
             app.logger.error("Form1065Agent import FAILED: %s", _e)
 
+        @app.route("/view/agent/form1065")
+        def agent_form1065_view():
+            """Guided Tax Review page — full per-section issue list."""
+            if _Form1065Agent is None:
+                return render_template("construction.html",
+                                       obj_type="Form1065 Agent",
+                                       meta={"error": _agent_import_err})
+            try:
+                agent   = _Form1065Agent(self.eSession.llc)
+                summary = agent.getSummary()
+                return render_template(
+                    "agent_form1065_review.html",
+                    summary=summary,
+                    app_title=self.app.config.get("_llc_name", "LLC Editor"),
+                    view_title="Form 1065 — Guided Tax Review",
+                )
+            except Exception as err:
+                app.logger.exception("agent_form1065_view failed")
+                return render_template("construction.html",
+                                       obj_type="Form1065 Agent",
+                                       meta={"error": str(err)})
+
         @app.route("/api/agent/form1065/status")
         def agent_form1065_get_summary():
             """Return per-section SectionSummary for the Form 1065 status strip."""
