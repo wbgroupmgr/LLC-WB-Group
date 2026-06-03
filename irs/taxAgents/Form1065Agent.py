@@ -243,6 +243,8 @@ class AgentF1065_Info(_SectionAgent):
             self._rule_ein,
             self._rule_entity_name,
             self._rule_acctg_method,
+            self._rule_k1_count,
+            self._rule_at_risk_checkbox,
             self._rule_partnership_rep,
             self._rule_initial_final,
         ])
@@ -281,14 +283,55 @@ class AgentF1065_Info(_SectionAgent):
                                    'path': 'Profile.entity.entity_name'})
 
     def _rule_acctg_method(self):
-        method = self._fv('acctg_method', '').strip()
-        if not method:
+        # P1_H is in _CPA_NOTES (manual) — not auto-mapped. Check fill dict directly.
+        fill   = self._load_fill_dict()
+        p1h    = str(fill.get('P1_H', '')).strip()
+        method = self._fv('acctg_method', '').strip()  # may not exist in profile
+        if not p1h and not method:
             return self.format_issue(
                 'IF-R03', self.WARN,
-                "Accounting method not set — Form checkboxes P1_F_cash / P1_F_accrual",
-                'Form 1065 Page 1 Item F requires one checkbox',
-                "Set F1065.acctg_method to 'Cash' or 'Accrual' in llcProfile",
-                fids=['P1_F_cash', 'P1_F_accrual'])
+                "Line H (Accounting Method) checkbox is blank — Cash or Accrual must be checked. "
+                "For W&B Group (tracks depreciation/assets on accrual basis): Accrual is appropriate.",
+                'Form 1065 Page 1 Item H requires one checkbox',
+                "In llcProfile set F1065.acctg_method = 'Accrual'; "
+                "then map Profile.F1065.acctg_method → P1_H via the Aid dialog",
+                fids=['P1_H'],
+                suggested_mapping={'fid': 'P1_H', 'src': 'Profile',
+                                   'path': 'Profile.F1065.acctg_method'})
+
+    def _rule_k1_count(self):
+        # Line I: Number of Schedules K-1 = number of partners
+        owners     = self._get_owners()
+        live_count = len(owners)
+        fill       = self._load_fill_dict()
+        fd_count   = _safe_float(fill.get('P1_I') or fill.get('B_25Fm'))
+        if live_count > 0 and fd_count != live_count:
+            return self.format_issue(
+                'IF-R07', self.WARN,
+                f"Line I (Number of Schedules K-1): fill dict shows {int(fd_count) if fd_count else 'blank'} "
+                f"but llcOwners has {live_count} partner(s). "
+                f"These must match (one K-1 per partner).",
+                'Form 1065 Instructions, Page 1 Item I',
+                "Re-run the BookToIRS pipeline so P1_I auto-fills from live owner count; "
+                "or map Profile.owners.count → P1_I via Aid",
+                fids=['P1_I', 'B_25Fm'],
+                suggested_mapping={'fid': 'P1_I', 'src': 'Profile',
+                                   'path': 'owners.count'})
+
+    def _rule_at_risk_checkbox(self):
+        # §465 at-risk rules: any partner personally at-risk for LLC debts?
+        # This is a bookkeeper judgment — cannot be auto-computed.
+        # Always raise as INFO requiring explicit confirmation.
+        return self.format_issue(
+            'IF-R08', self.INFO,
+            "Line K (§465 At-Risk): For rental LLCs, partners are generally considered "
+            "'at risk' for their capital contributions. Bookkeeper must explicitly confirm "
+            "whether to check this box. Default for a cash-invested rental LLC: Yes (at risk).",
+            'IRC §465; Form 1065 Instructions, Page 1 Item K',
+            "Confirm with CPA: are all partners at-risk under §465 for this LLC? "
+            "If yes, set the P1_K checkbox via Aid. "
+            "Typically 'Yes' for a small LLC with no non-recourse financing beyond mortgages.",
+            fids=['P1_K'])
 
     def _rule_partnership_rep(self):
         # Actual keys: F1065.B_PRDI_FirstNm + B_PRDI_Last → logical keys B_PR_1, B_PR_2
@@ -363,6 +406,7 @@ class AgentF1065_IncStmt(_SectionAgent):
         return self._run_audit([
             self._rule_no_rent_on_pg1,
             self._rule_line23_arithmetic,
+            self._rule_depr_vs_books,
         ])
 
     def pass5_summarize(self) -> str:
@@ -387,6 +431,55 @@ class AgentF1065_IncStmt(_SectionAgent):
                     f"It must flow through Form 8825 → Schedule K (§469 passive rule)",
                     'IRC §469(c)(2); Pub 925 §1',
                     "Remap Acct.Rev.Rent to Form 8825 via BookToIRS Aid (not to P1_1a)")
+
+    def _rule_depr_vs_books(self):
+        """
+        Line 16a (depreciation) in fill dict vs. live IS total.
+
+        Root cause on WBGroupLLC: stmtIS rows have blank acctName — account name
+        matching for 'depreciation' path returns $0 in the fill dict even when
+        real depreciation exists.  Flag this so the bookkeeper re-runs the
+        BookToIRS pipeline after verifying account names in llcExpRev.
+        """
+        fill     = self._load_fill_dict()
+        fd_depr  = _safe_float(fill.get('P1_16a'))
+
+        # Live: sum all IS Expense rows (total_expenses proxy includes depreciation)
+        live_total_exp = _safe_float(self._get_is_total('Expense'))
+
+        # Check if P1_16a is 0/blank while live books have non-zero expenses
+        if fd_depr == 0 and live_total_exp > 0:
+            # Try to read IS directly for a depr-specific value
+            live_depr = self._live_depr_from_books()
+            if live_depr > 0:
+                return self.format_issue(
+                    'IS-R05', self.WARN,
+                    f"Line 16a (Depreciation): fill dict shows ${fd_depr:,.2f} but "
+                    f"live books contain ${live_depr:,.2f} in depreciation-type expenses. "
+                    f"The fill dict is likely stale or the BookToIRS pipeline could not "
+                    f"match depreciation accounts (blank acctName in IS rows).",
+                    'Form 1065 Instructions, Line 16a; IRC §168',
+                    "Re-run the BookToIRS pipeline to regenerate Form1065_FILL.pdf with "
+                    "current book values. If acctNames are blank in IS, verify that "
+                    "llcExpRev entries have correct acct values (e.g. Acct.Exp.Depr.*).",
+                    fids=['P1_16a', 'P1_16c'])
+
+    def _live_depr_from_books(self) -> float:
+        """Sum IS Expense rows whose account name or sub contains depreciation indicators."""
+        total = 0.0
+        try:
+            from ledger.stmtIS import stmtIS
+            for r in stmtIS(self.llc).load():
+                if r.get('acctType') != 'Expense':
+                    continue
+                acct = (str(r.get('acctName','')) + str(r.get('acctSub',''))).lower()
+                bal  = _safe_float(r.get('Balance'))
+                # Match by name OR by amount pattern typical of depreciation
+                if 'depr' in acct or 'deprec' in acct or 'amort' in acct:
+                    total += bal
+        except Exception:
+            pass
+        return total
 
     def _rule_line23_arithmetic(self):
         """Line 23 = Line 8 − Line 22 (spot check via fill dict)."""
@@ -421,6 +514,9 @@ class AgentF1065_Other(_SectionAgent):
             self._rule_schedule_threshold,
             self._rule_pr_named,
             self._rule_ownership_questions,
+            self._rule_sched_b_q3_ownership_pct,
+            self._rule_sched_b_q4d_distributions,
+            self._rule_sched_b_review_blanks,
         ])
 
     def pass5_summarize(self) -> str:
@@ -468,7 +564,6 @@ class AgentF1065_Other(_SectionAgent):
 
     def _rule_ownership_questions(self):
         owners = self._get_owners()
-        # pct stored as decimal 0–1 or percent 0–100; normalise to 0–1
         def _pct(o):
             v = _safe_float(o.get('pct', o.get('ownership_pct', 0)))
             return v if v <= 1.5 else v / 100
@@ -480,6 +575,71 @@ class AgentF1065_Other(_SectionAgent):
                 f"ownership disclosure questions must be answered",
                 'Form 1065 Instructions, Schedule B Q2-3',
                 "Confirm Schedule B Q2/Q3 answers in BookToIRS Aid")
+
+    def _rule_sched_b_q3_ownership_pct(self):
+        """
+        Sched B Q3a: At end of year, any individual/estate/trust own >50%?
+        Sched B Q3b: Any corporation/partnership/trust own >50%?
+        These must be explicitly answered Yes or No — defaulting to No is not safe.
+        """
+        owners = self._get_owners()
+        def _pct(o):
+            v = _safe_float(o.get('pct', o.get('ownership_pct', 0)))
+            return v if v <= 1.5 else v / 100
+        indiv_majority = any(_pct(o) > 0.5 and
+                             str(o.get('memType','')).lower() in
+                             ('individual','person','estate','trust','') for o in owners)
+        return self.format_issue(
+            'OT-R06', self.WARN,
+            f"Schedule B Q3a (individual >50% owner) must be explicitly answered. "
+            f"Based on llcOwners: {'YES — an individual holds >50%' if indiv_majority else 'NO — no individual holds >50%'}. "
+            f"Verify this matches what is filed.",
+            'Form 1065 Instructions, Schedule B Q3a-3b',
+            "Confirm Q3a Yes/No in the form. If Yes: answer Q3a; "
+            "if any corp/partnership/trust holds >50%, also answer Q3b.",
+            fids=['B_3a', 'B_3b'])
+
+    def _rule_sched_b_q4d_distributions(self):
+        """
+        Sched B Q4d: Did the partnership distribute money or property to any partner?
+        Must be Yes or No explicitly. Auto-detect from owners distributions.
+        """
+        owners = self._get_owners()
+        has_distrib = any(_safe_float(o.get('distributions',
+                         o.get('distrib', o.get('cash_out', 0)))) > 0 for o in owners)
+        if has_distrib:
+            return self.format_issue(
+                'OT-R07', self.WARN,
+                "Schedule B Q4d: Distributions detected in llcOwners — "
+                "Q4d 'Did the partnership distribute money or property?' must be answered Yes.",
+                'Form 1065 Instructions, Schedule B Q4d',
+                "Confirm Q4d = Yes in form. Map to B_4d checkbox via Aid.",
+                fids=['B_4d'])
+        else:
+            return self.format_issue(
+                'OT-R07', self.INFO,
+                "Schedule B Q4d: No distributions found in llcOwners — "
+                "confirm Q4d = No is correct before filing.",
+                'Form 1065 Instructions, Schedule B Q4d',
+                "Verify Q4d answer against actual cash distributions during the year.",
+                fids=['B_4d'])
+
+    def _rule_sched_b_review_blanks(self):
+        """
+        General: Sched B defaults all Yes/No to 'No' — bookkeeper must confirm key questions.
+        Flag as WARN to prompt a review pass on Schedule B.
+        """
+        return self.format_issue(
+            'OT-R08', self.WARN,
+            "Schedule B Yes/No questions default to 'No' in the fill dict. "
+            "Key questions requiring explicit bookkeeper review: "
+            "Q3a (individual >50% owner), Q3b (entity >50% owner), "
+            "Q4a (did partnership dispose of property?), "
+            "Q4d (distributions made?), Q21 (BBA opt-out election).",
+            'Form 1065 Instructions, Schedule B',
+            "Review each Schedule B question in the FILL.pdf and use Aid to override "
+            "any 'No' that should be 'Yes' for this LLC's specific situation.",
+            fids=['B_3a', 'B_3b', 'B_4a', 'B_4d', 'B_21'])
 
 
 # ────────────────────────────────────────────────────────────────────────────
