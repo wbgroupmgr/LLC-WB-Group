@@ -612,6 +612,16 @@ class Form1065Agent(IRSFormsAgent):
 
     def _build_summary_letter(self, summaries: dict) -> Path:
         """Assembles 6 summary paragraphs into a PDF letter."""
+
+    def getSummary(self) -> SectionSummary:
+        """
+        Reads persisted session state — does NOT re-run any passes.
+        Returns per-section state + one-line summary for the Form 1065 View status strip.
+        State values: GO | NEEDS_FIXING | NOT_STARTED | DRAFT
+        Called by GET /api/agent/form1065/getSummary on every page load.
+        Session state is stored in books/{year}/Forms/.agent_work/Form1065_session_state.json
+        and updated after every pass, every resolved issue, and every override.
+        """
 ```
 
 ### 5.1 Phase 1 — Prepare: Orchestration Sequence
@@ -777,23 +787,95 @@ AgentF1065_IncStmt.pass3_dialog()
 
 ## 9. Flask Entry Points and API Routes
 
+### 9.1 Form 1065 View: Section Status Strip
+
+The Form 1065 View (`/view/llcForm1065`) displays a **collapsible status strip** above the PDF iframe. It gives the bookkeeper an at-a-glance picture of every section agent's state without leaving the form view. Data comes from `Form1065Agent.getSummary()` — a read-only call against persisted session state; no passes are re-run.
+
+**Collapsed (default):**
+```
+┌ Form 1065 — Agent Status ─────────────────── ● 4 GO  ✗ 1 Needs Fixing  [▼] ┐
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Expanded:**
+```
+┌ Form 1065 — Section Status                              Last run: 2026-01-14  ▲ ┐
+│                                                                                  │
+│  Section                  State          Summary                                 │
+│  ──────────────────────── ─────────────  ────────────────────────────────────── │
+│  General Information      ● GO           W&B Group, LLC — EIN XX-XXXXXXX        │
+│  Income & Deductions      ● GO           No ordinary business income (§469)      │
+│  Schedule B               ✗ Needs Fixing Partnership Representative not named    │
+│  Schedule K               ● GO           Net rental income: $18,200 allocated    │
+│  Schedules L / M-1 / M-2  ● GO           Not required (below threshold)          │
+│  ───────────────────────────────────────────────────────────────────────────── │
+│  Next Steps (Extensions)  ℹ  Advice      Prepare Form 8825, Form 4562, 3 K-1s  │
+│                                                                                  │
+│                                      [Open Guided Review →]  [Run Form Agent →] │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**State values and display:**
+
+| State | Badge | When shown |
+|---|---|---|
+| `GO` | ● green | Section passed all audits (halt_count = 0) |
+| `NEEDS_FIXING` | ✗ red | Section has unresolved HALT issues |
+| `NOT_STARTED` | ○ grey | Section has never been run |
+| `DRAFT` | ◌ blue | Section was run in non-season draft mode (read-only) |
+
+**Summary text per state:**
+- **GO:** The section agent's `pass5_summarize()` IRS-facing paragraph (one line, truncated at 70 chars).
+- **NEEDS_FIXING:** First unresolved HALT issue's `message` field (most critical first).
+- **NOT_STARTED:** "Not yet run — click Run Form Agent to start."
+- **DRAFT:** "Draft mode — re-run in active mode to finalize."
+
+**`SectionSummary` schema** (returned by `getSummary()`):
+```python
+SectionSummary = {
+    'overall_state':  str,            # GO | NEEDS_FIXING | NOT_STARTED | DRAFT
+    'tax_year':       int,
+    'last_run':       str | None,     # ISO timestamp of last pass run
+    'sections': [
+        {
+            'agent':         str,     # e.g. 'AgentF1065_Info'
+            'label':         str,     # e.g. 'General Information'
+            'state':         str,     # GO | NEEDS_FIXING | NOT_STARTED | DRAFT
+            'summary':       str,     # one-line display text (see above)
+            'halt_count':    int,
+            'resolve_count': int,
+            'review_count':  int,
+        },
+        # ... one entry per section agent (5 + AgentForm_Ext)
+    ],
+    'ext_advice': str,                # AgentForm_Ext advisory one-liner
+}
+```
+
+**Persistence:** `getSummary()` reads from `books/{year}/Forms/.agent_work/Form1065_session_state.json`. This file is written after every pass run, every issue resolution, and every override. It is never re-computed from scratch on a page load — always a fast read.
+
+**Collapsed state is stored in the browser** (localStorage key `form1065_strip_collapsed`) so the bookkeeper's preference persists across page reloads.
+
+---
+
 ### UI Entry Points
 
 | URL | Purpose |
 |---|---|
-| `GET /view/llcForm1065` | Form 1065 view — existing; "Form Agent" button added to toolbar |
+| `GET /view/llcForm1065` | Form 1065 view — existing; status strip + "Form Agent" button in toolbar |
 | `GET /view/agent/form1065` | Pass 3 Guided Review page — new dedicated page |
 
 ### API Routes
 
 | Method | Route | Purpose |
 |---|---|---|
+| GET  | `/api/agent/form1065/getSummary` | Returns `SectionSummary` for the status strip; reads session state only — no passes run |
 | POST | `/api/agent/form1065/start` | Start Phase 1: run Passes 1+2 for all sections; returns aggregated `BookkeeperSession` |
 | GET  | `/api/agent/form1065/session` | Returns current session: all sections with their issue lists and ready states |
-| POST | `/api/agent/form1065/autofix` | Batch apply RESOLVE auto-fixes for selected rule IDs; body: `{section, rule_ids: []}` |
-| POST | `/api/agent/form1065/resolve/<rule_id>` | Mark one issue resolved or overridden (HALT override requires `override: true` in body) |
+| POST | `/api/agent/form1065/autofix` | Batch apply RESOLVE auto-fixes; body: `{section, rule_ids: []}` |
+| POST | `/api/agent/form1065/resolve/<rule_id>` | Mark one issue resolved or overridden (`override: true` for HALT) |
 | GET  | `/api/agent/form1065/status` | Returns per-section GO/NO-GO and overall Phase 1 status |
-| POST | `/api/agent/form1065/publish` | Trigger Phase 2 (all sections GO required, or `halt_override` flag); returns `CompletionReport` |
+| POST | `/api/agent/form1065/publish` | Trigger Phase 2; returns `CompletionReport` |
 | POST | `/api/agent/form1065/summary` | Trigger Phase 3; returns summary letter PDF path |
 | GET  | `/api/agent/form1065/report` | Returns the last `CompletionReport` JSON |
 
