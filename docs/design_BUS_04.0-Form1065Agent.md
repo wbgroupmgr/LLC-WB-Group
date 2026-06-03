@@ -1,6 +1,6 @@
 # Form1065Agent — Design Document
 
-**Status:** v0.7 — revised 2026-06-02 (Form1065Agent scope = Form 1065 only; AgentForm_Ext = advisory only)
+**Status:** v0.8 — revised 2026-06-03 (Books-First Rule added; cross-form references corrected throughout)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
 - `docs/design_BUS_04.0-LLCTaxAgent.md` -master compliance coordinator for **Tax Preparation** and submission to IRS
@@ -8,6 +8,71 @@
 - `docs/irs/irsForm1065_Book2IRSDesign.md` — current IRS view layer architecture
 - `docs/design_BUS_01-AccountingWorkflow.md` - **Tax Preparation** within the Levels of Accounting 
 - IRS Form 1065 Instructions (2024), Pub 541 (Partnerships), Pub 925 (Passive Activity)
+
+---
+
+## 0. Architectural Invariant — Books-First Data Rule
+
+> **This rule is non-negotiable. Any implementation that violates it is incorrect by design, regardless of whether the numbers happen to match.**
+
+### 0.1 The Rule
+
+**Every value placed on any IRS form field MUST be sourced exclusively from the Financial Books.**
+
+The Financial Books are the authoritative sources of truth:
+
+| Source | Object | Examples |
+|---|---|---|
+| Income Statement | `stmtIS` / `IS.*` | rental income, depreciation expense, total expenses, net income |
+| Balance Sheet | `stmtBS` / `BS.*` | total assets, liabilities, partner capital |
+| General Ledger | `stmtGL` / `GL.*` | account-level transaction detail |
+| Entity Profile | `stmtProfile` / `Profile.*` | EIN, entity name, partner roster, accounting method |
+| Owner records | `llcOwners` | partner %, distributions, capital contributions |
+| Asset records | `llcAssets` | property basis, in-service date, MACRS class |
+
+**No IRS form field may be derived from, copied from, or linked to another IRS form's values.**
+
+### 0.2 What Cross-Form Validation Is (and Is Not)
+
+Cross-form validation is a **final audit step** performed by the LLCTaxAgent after all forms are independently completed. It checks that values which should mathematically agree across independently-produced forms actually do agree.
+
+| | Books-First Fill | Cross-Form Audit |
+|---|---|---|
+| **When** | During Pass 1–4 (form preparation) | After all forms are finalized (LLCTaxAgent Phase 2) |
+| **Direction** | Books → Form | Completed Form A vs. Completed Form B |
+| **Purpose** | Populate the form field with the correct book value | Detect inconsistencies that indicate a problem in one or both forms |
+| **If values disagree** | Not possible by construction | Flags an error — root cause is always a books error, not a wiring error |
+| **Example** | Form 8825 Line 14 = `IS.depreciation` ($1,903.13 from books) | Audit: Does Form 4562 Line 22 equal Form 8825 Line 14? Both should equal `IS.depreciation`. |
+
+**Why this matters:** If Form 8825 Line 14 were populated by copying Form 4562 Line 22, a wrong value on Form 4562 would silently propagate to Form 8825 and appear consistent — but both forms would be wrong. The Books-First Rule makes errors detectable: a discrepancy in cross-form audit always means one or both forms have a bad books mapping, not a cross-form wiring problem.
+
+### 0.3 Mapping Each IRS Value Back to Books
+
+Every field on every form has a canonical path to its book source. If you cannot trace a value to a Financial Books entry, the value does not belong on the form. Examples for this LLC:
+
+| IRS Form Field | Book Source | `stmtIS.taxAggregates()` key or equivalent |
+|---|---|---|
+| Form 1065 Line 16a (Depreciation) | `Acct.Exp.Depreciation` in GL | `IS.depreciation` |
+| Form 8825 Line 2 (Gross rents) | `Acct.Rev.Rent.*` in IS | `IS.rent_income` |
+| Form 8825 Line 14 (Depreciation) | `Acct.Exp.Depreciation` in GL | `IS.depreciation` |
+| Form 4562 Line 22 (Total depreciation) | `Acct.Exp.Depreciation` in GL | `IS.depreciation` |
+| Schedule K Line 2 (Net rental income) | IS income − IS expenses | `IS.net_rental` |
+| Schedule K-1 Box 2 | IS net rental × partner % | `IS.net_rental × owners.pct` |
+| Schedule L Line 14 (Total assets) | BS total assets | `BS.total_assets` |
+
+When all four forms above are filled correctly from books, the cross-form audit will confirm:  
+- Form 4562 Line 22 == Form 8825 Line 14 (both = `IS.depreciation`)  
+- Form 8825 Line 23 == Schedule K Line 2 (both = `IS.net_rental`)  
+- Schedule K Line 2 × partner % == K-1 Box 2 (both = `IS.net_rental × pct`)
+
+These equalities are **expected outcomes of correct books sourcing**, not constraints that require inter-form wiring.
+
+### 0.4 Rule Enforcement in Code
+
+- Each section agent's `pass1_auto_fill()` reads **only** from `bookNS_{Profile,BS,IS,GL}.json` or the direct ledger DB files.
+- No section agent imports from `irs.Form4562`, `irs.Form8825`, or any other `irs.*` form module.
+- No `fillDict` from one form is consumed as input by another form's fill pipeline.
+- Cross-form equality checks live exclusively in `irs.LLCTaxAgent.phase2_xf_audit()` and are read-only comparisons of already-completed fill dicts.
 
 ---
 
@@ -114,10 +179,10 @@ A set of Yes/No compliance questions about the LLC's legal structure and regulat
 
 The central collection point for all pass-through items. Because the partnership itself pays no federal income tax, Schedule K totals are what flow to each partner's K-1.
 
-- **Income / Loss (Lines 1–11):** Separates passive rental income (from Form 8825), portfolio interest, dividends, and capital gains by category.
+- **Income / Loss (Lines 1–11):** Separates passive rental income, portfolio interest, dividends, and capital gains by category.
 - **Deductions / Credits (Lines 12–20):** Section 179, charitable contributions, investment interest, and eligible business credits.
-- **Data source:** Aggregated from Form 8825 net income, IS interest income, BS capital data, and `llcOwners` distributions.
-- **Expert knowledge:** Line 2 (net rental real estate income) must equal Form 8825 Line 23. This is a cross-section dependency — `AgentF1065_Distr` cannot be GO until `AgentForm_Ext` (which drives Form 8825) is also GO.
+- **Data source:** `IS.net_rental` for Line 2, `IS.interest_income` for Line 5, `BS.*` for capital data, `llcOwners` for distributions. **No data comes from Form 8825 or any other IRS form** (Books-First Rule §0).
+- **Expert knowledge:** Schedule K Line 2 = `IS.net_rental` sourced from the books. After all forms are finalized, cross-form audit (LLCTaxAgent Phase 2) will confirm that Form 8825 Line 23 independently derived from books equals Schedule K Line 2. A discrepancy there means a books-mapping error in one or both forms.
 
 ---
 
@@ -128,7 +193,7 @@ The financial reconciliation section — an audit trail ensuring the books tie e
 - **Schedule L (Balance Sheet):** Beginning and end-of-year asset, liability, and partner capital balances directly from the LLC books.
 - **Schedule M-1 (Book-to-Tax Reconciliation):** Explains every difference between book net income and taxable income (depreciation timing, non-deductible items, etc.).
 - **Schedule M-2 (Partners' Capital Analysis):** Tracks each partner's capital account from January 1 to December 31.
-- **Data source:** `BS.*` from `bookNS_BS.json`, depreciation delta from Form 4562, `llcOwners` contributions/distributions.
+- **Data source:** `BS.*` from `bookNS_BS.json`, `IS.depreciation` from books for M-1 Line 4a delta, `llcOwners` contributions/distributions. **No data comes from Form 4562 or any other IRS form** (Books-First Rule §0).
 - **Expert knowledge:** This section is only required if the Schedule B threshold is crossed. The agent first checks whether these schedules are required, then fills or skips accordingly. Schedule M-2 must use the **tax basis method** (required post-2020).
 
 ---
@@ -163,13 +228,13 @@ def inventory(self) -> FormInventory:
 - **Form 4562** — MACRS depreciation schedule; feeds Form 8825 Line 14 and Form 1065 Line 16a.
 - **Schedule K-1** — one PDF per partner; isolates each partner's share of Schedule K totals.
 
-| K-1 Box | Content | Source |
+| K-1 Box | Content | Book Source |
 |---|---|---|
-| Box 2 | Net rental real estate income/loss | Form 8825 net × partner % |
-| Box 5 | Interest income × partner % | IS `interest_income` |
-| Box 14 | Self-employment income — $0 for passive rental LLC | IRC §1402(a)(13) |
-| Box 19 | Cash distributions | `llcOwners` |
-| Box L | Partner's capital account (tax basis method) | Matches M-2 per partner |
+| Box 2 | Net rental real estate income/loss | `IS.net_rental × llcOwners.pct` |
+| Box 5 | Interest income × partner % | `IS.interest_income × llcOwners.pct` |
+| Box 14 | Self-employment income — $0 for passive rental LLC | IRC §1402(a)(13); verified from books |
+| Box 19 | Cash distributions | `llcOwners.distributions` |
+| Box L | Partner's capital account (tax basis method) | `BS.partner_capital` per partner |
 
 - **No K-2 / K-3:** No foreign partners or international assets — K-2/K-3 not required.
 - **Output:** `Form8825_FILL.pdf`, `Form4562_FILL.pdf`, `Sch_K1_o{oID}_FILL.pdf` × N partners.
@@ -325,7 +390,7 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 | IS-R02 | Lines 1–8 should be $0 for a pure rental LLC | Form 1065 Instructions, Line 1a |
 | IS-R03 | Line 23 (Ordinary Business Income) = Line 8 − Line 22 | Arithmetic check |
 | IS-R04 | Guaranteed payments to partners (Line 10) must match `llcOwners` guaranteed payment field | IRC §707(c) |
-| IS-R05 | Depreciation on Line 16a populated from `GL.Acct.Depr.*` books total; consistency with Form 4562 is a future cross-form check (issue #15) | Form 4562 Instructions |
+| IS-R05 | Line 16a depreciation = `IS.depreciation` from books (`Acct.Exp.Depreciation`). After all forms are finalized, LLCTaxAgent cross-form audit confirms Form 4562 Line 22 equals this value — both independently sourced from the same book account. | Form 4562 Instructions; §0 Books-First Rule |
 
 ---
 
@@ -345,13 +410,13 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 
 | Rule ID | Rule | IRS Cite |
 |---|---|---|
-| KD-R01 | Schedule K Line 2 = `IS.rent_income − IS.rent_expenses` (computed from books); consistency with Form 8825 Line 23 is a future cross-form check (issue #15) | Form 1065 Instructions, Sched K |
+| KD-R01 | Schedule K Line 2 = `IS.net_rental` sourced directly from books. After all forms are finalized, LLCTaxAgent cross-form audit (XF-R02) checks that Form 8825 Line 23 — also books-derived — equals this value. | Form 1065 Instructions, Sched K |
 | KD-R02 | Schedule K Line 5 (interest income) must match IS `interest_income` | Sched K Instructions |
 | KD-R03 | Sum of all K-1 Box 2 allocations must equal Schedule K Line 2 | IRC §704(b) |
 | KD-R04 | Schedule K Line 19a (distributions) must match sum of `llcOwners` distributions | IRC §731 |
 | KD-R05 | No self-employment income on Line 14 for a passive rental LLC | IRC §1402(a)(13); Pub 541 |
 
-**No external dependency:** `AgentF1065_Distr` reads Schedule K Line 2 directly from the books (`IS.*`). It does not depend on Form 8825 being generated — Form 8825 is a future separate agent whose consistency with Schedule K Line 2 is validated by LLCTaxAgent issue #15.
+**Books-First (§0):** `AgentF1065_Distr` reads all Schedule K values directly from the books (`IS.*`, `BS.*`, `llcOwners`). It never reads from Form 8825 or any other IRS form. After all forms are independently finalized, LLCTaxAgent cross-form audit (XF-R02) confirms that Form 8825 Line 23 and Schedule K Line 2 agree — because both were correctly derived from the same book source.
 
 ---
 
@@ -364,7 +429,7 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 | RC-R03 | Sched L total liabilities + capital (Line 22) = BS `total_liab_capital` | Sched L arithmetic |
 | RC-R04 | Sched L Line 14 (end) = Form 1065 Page 1 Item F | Form 1065 Instructions |
 | RC-R05 | M-1 Line 1 = IS `net_income` (book basis) | Sched M-1 Instructions |
-| RC-R06 | M-1 Line 4a = book depreciation − MACRS depreciation (auto-fixable) | Pub 946; Sched M-1 |
+| RC-R06 | M-1 Line 4a = `IS.depreciation` (book basis) − MACRS amount computed from asset records (`llcAssets` basis, class, convention). Both values from books — no dependency on Form 4562. | Pub 946; Sched M-1 |
 | RC-R07 | M-1 Line 9 (taxable income) must equal Schedule K Line 1 | Sched M-1 arithmetic |
 | RC-R08 | M-2 uses tax basis method (not §704(b) or GAAP basis) | Post-2020 IRS requirement |
 | RC-R09 | Each partner's M-2 ending capital = beg + contributions + net income − distributions (±$1.00 tolerance) | Sched M-2 Instructions |
@@ -749,6 +814,8 @@ Section agents read only from the existing UAS namespace. No new schemas are int
 | Total assets, liabilities, capital | `BS.*` | `bookNS_BS.json` | `AgentF1065_Reconcile` |
 | Depreciation transactions | `GL.*` / `Acct.Depr.*` | `bookNS_GL.json` | `AgentF1065_IncStmt`, `AgentForm_Ext` |
 | Partner list, TINs, ownership %, distributions | `llcOwners_WBGroupLLC.json` | direct read | `AgentF1065_Distr`, `AgentForm_Ext` |
+| Net rental income (Sched K Line 2) | `IS.net_rental` via `stmtIS.taxAggregates()` | `bookNS_IS.json` | `AgentF1065_Distr` — **not** sourced from Form 8825 |
+| MACRS depreciation (M-1 Line 4a delta) | `llcAssets` basis + MACRS table (Pub 946) | `llcAssets_WBGroupLLC.json` | `AgentF1065_Reconcile` — **not** sourced from Form 4562 |
 | Property list, basis, in-service date, status | `llcAssets_WBGroupLLC.json` | direct read | `AgentForm_Ext` |
 | fid metadata (type, page, location, tblID) | `Form1065_namespace.json` | read-only | all section agents (for fid slice routing) |
 | Current fill values cache | `Form1065_fillDict.json` | re-generated each pass | all section agents |
@@ -903,7 +970,7 @@ Rules are grouped by owning section agent. The orchestrator aggregates all rules
 | IS-R02 | WARN | Lines 1–8 non-zero for rental-only LLC — confirm active income source | No |
 | IS-R03 | ERROR | Line 23 arithmetic error (Line 8 − Line 22 ≠ Line 23) | Yes — recalculate |
 | IS-R04 | WARN | Guaranteed payments (Line 10) ≠ llcOwners guaranteed payments | No |
-| IS-R05 | WARN | Line 16a depreciation ≠ Form 4562 total (cross-agent dependency) | No |
+| IS-R05 | WARN | Line 16a depreciation blank or zero while `IS.depreciation` shows non-zero value in books | No |
 
 ### `AgentF1065_Other` Rules
 
@@ -919,7 +986,7 @@ Rules are grouped by owning section agent. The orchestrator aggregates all rules
 
 | Rule ID | Severity | Description | Auto-fix? |
 |---|---|---|---|
-| KD-R01 | ERROR | Sched K Line 2 ≠ Form 8825 Line 23 (dependency on AgentForm_Ext) | No |
+| KD-R01 | WARN | Sched K Line 2 (`IS.net_rental`) is blank or zero while IS shows non-zero rental income | No |
 | KD-R02 | WARN | Sched K Line 5 ≠ IS interest income | Yes — sync from IS |
 | KD-R03 | ERROR | Sum of K-1 Box 2 ≠ Schedule K Line 2 | No |
 | KD-R04 | WARN | Sched K Line 19a ≠ sum of llcOwners distributions | No |
@@ -961,11 +1028,11 @@ All EX rules are **INFO or ADVISORY** — they surface bookkeeper to-do items, n
 These principles govern every section agent's decisions. They are not preferences — they are statutory requirements or IRS audit triggers.
 
 1. **Passive-first for rental income (§469)** — assume rental income is passive unless services evidence shows otherwise. For W&B Group, all income is passive → Form 8825, not Page 1.
-2. **Form 8825 drives Schedule K** — Schedule K Line 2 is a derived value, not a manual entry. It comes from Form 8825 Line 23. This dependency is enforced by the orchestrator's Phase 2 order.
+2. **Books drive every form independently (§0 Books-First Rule)** — Schedule K Line 2, Form 8825 Line 23, and Form 4562 Line 22 each derive their value from the same Financial Books source (`IS.net_rental`, `IS.depreciation`, etc.). These forms do not feed each other. After all forms are independently completed, cross-form audit (LLCTaxAgent Phase 2) confirms they agree. If they do not, the root cause is a bad books mapping in one or both forms — never a missing cross-form link.
 3. **Tax basis capital accounts (post-2020)** — Schedule K-1 Box L and Schedule M-2 must use the tax basis method. GAAP or §704(b) book basis is no longer acceptable for IRS reporting.
 4. **M-1 discipline** — every dollar of difference between book income and taxable income must appear on Schedule M-1. Missing M-1 entries are a common automated IRS matching trigger.
 5. **K-1 completeness** — every partner receives a K-1, even if their share is $0. Missing K-1s generate automatic §6698 penalties.
-6. **MACRS only** — residential rental property uses MACRS 27.5-year straight-line with mid-month convention. No straight-line book depreciation on the tax return.
+6. **MACRS only** — residential rental property uses MACRS 27.5-year straight-line with mid-month convention. MACRS amount is computed from `llcAssets` (basis, in-service date, class) — not read from Form 4562.
 7. **Audit trail** — the `CompletionReport` and the IRS Summary Letter are the agent's audit trail. Both are stored alongside the PDFs in `books/{year}/Forms/`.
 8. **Minimum disclosure, maximum correctness** — only file what the IRS requires for this entity size and activity type. Do not add schedules that are not required. (Decision 4: Sched L/M-1/M-2 skipped when below threshold.)
 
@@ -1106,4 +1173,4 @@ All five open questions from v0.2 review are **locked**.
 
 ---
 
-*End of Design Document — v0.4, 2026-06-02*
+*End of Design Document — v0.8, 2026-06-03*

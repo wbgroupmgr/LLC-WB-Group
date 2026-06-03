@@ -1,6 +1,6 @@
 # LLCTaxAgent — Design Document
 
-**Status:** v0.3 — revised 2026-06-02 (Pass 0 inventory; Phase 2 simplified to form-level completeness; quarterly monitoring)
+**Status:** v0.4 — revised 2026-06-03 (Books-First Rule; cross-form audit semantics clarified; graph edges reframed as expected-equality assertions, not data-flow wiring)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
 - `docs/design_BUS_04.0-Form1065Agent.md` — Form 1065 orchestration agent and section agents
@@ -28,11 +28,14 @@ This boundary is precise and must not drift:
 | Year-round tax health monitoring | ✓ | — |
 | Drive section agents through 5-pass workflow | — | ✓ |
 | Fill individual form fields (fids) | — | ✓ (section agents) |
+| Source all form values from Financial Books | — | ✓ (Books-First Rule — see Form1065Agent §0) |
 | Validate a single form's internal consistency | — | ✓ (section agent rules) |
-| Validate **across forms** (e.g. Form 4562 → Form 8825) | ✓ | — |
+| Validate **across completed forms** — check that independently books-derived values agree | ✓ | — |
 | Assemble combined IRS Submission Package | ✓ | — |
 | IRS submission HOWTO, tracking, communication | ✓ | — |
 | MeF / e-file XML generation (future) | ✓ | — |
+
+> **Cross-form validation is not data wiring.** When LLCTaxAgent compares Form 4562 Line 22 against Form 8825 Line 14, it is checking that two forms filled independently from the books agree — not that one form is the data source for the other. A mismatch always indicates a books-mapping error in one or both forms.
 
 ### 1.2 Position in the Levels of Accounting
 
@@ -242,9 +245,11 @@ LLCTaxAgent does not proceed to Phase 2 until `form_ready == True` (or bookkeepe
 
 ---
 
-### Phase 2 — Package Completeness Audit
+### Phase 2 — Cross-Form Audit and Package Completeness
 
-> **Scope note:** Field-level cross-form validation (e.g. verifying Form 4562 totals match Form 8825 Line 14 at the value level) is deferred to a future release via the Relational Graph Services architecture (GitHub issue #15). In v1.0, Phase 2 validates **form-level completeness only** — does the package contain every form the compliance checklist requires?
+> **Books-First invariant:** All IRS form values are sourced from the Financial Books, never from another IRS form (see Form1065Agent §0). Phase 2 cross-form audit checks that independently books-derived values agree across completed forms. A mismatch is always a books-mapping error — the fix is to correct the books mapping, not to wire one form's output into another form's input.
+
+> **Scope note (v1.0):** Field-level cross-form equality checks (XF-R01 through XF-R03) are implemented as comparisons of completed fill-dict values against the canonical book source. Full Relational Graph Services automation (GitHub issue #15) is a future enhancement.
 
 #### 4.1 Completeness Check
 
@@ -273,26 +278,57 @@ Mode B advisories are surfaced on the `/view/tax_prep` dashboard as **NEXT STEPS
 
 #### 4.2 Knowledge Seeding: `graphRelational.json`
 
-As a **side effect** of Phase 2, LLCTaxAgent seeds `books/Accts/graphRelational.json` with the known cross-form relationships discovered during this pipeline run. This builds the knowledge base that will power future field-level validation (issue #15).
+As a **side effect** of Phase 2, LLCTaxAgent seeds `books/Accts/graphRelational.json` with the known cross-form **expected-equality assertions** discovered during this pipeline run. These are not data-flow wiring edges — they are audit assertions: "these two independently books-derived values must be equal." This builds the knowledge base that will power future automated cross-form validation.
 
 ```python
-# Each confirmed form→form dependency discovered during this run
+# Each cross-form equality assertion (NOT a data-flow edge — both sides are books-derived)
 graph_edges = [
-    {'src': 'Acct.Depr.MACRS.*',  'via': 'Form4562.Part-II', 'dst': 'Form8825.Line14'},
-    {'src': 'Form8825.Line23',     'via': 'SchedK.Line2',     'dst': 'SchedK1.Box2'},
-    {'src': 'llcOwners.oID',       'via': 'SchedK.All',       'dst': 'SchedK1.All'},
+    {
+        # Form 4562 Line 22 and Form 8825 Line 14 should both equal IS.depreciation
+        'book_src':    'IS.depreciation',
+        'assert_eq': ['Form4562.Line22', 'Form8825.Line14'],
+        'rule':      'XF-R01',
+    },
+    {
+        # Form 8825 Line 23 and Schedule K Line 2 should both equal IS.net_rental
+        'book_src':    'IS.net_rental',
+        'assert_eq': ['Form8825.Line23', 'SchedK.Line2'],
+        'rule':      'XF-R02',
+    },
+    {
+        # Each K-1 Box 2 should equal IS.net_rental × that partner's llcOwners.pct
+        'book_src':    'IS.net_rental × llcOwners.pct',
+        'assert_eq': ['SchedK.Line2', 'SchedK1.Box2'],
+        'rule':      'XF-R03',
+    },
 ]
-# Appended to graphRelational.json; no validation performed yet
+# Appended to graphRelational.json; equality checked by phase2_xf_audit() at this run
 ```
 
-`graphRelational.json` is append-only in v1.0. It accumulates over tax years and becomes the raw material for the Relational Graph Services re-engineering.
+`graphRelational.json` is append-only in v1.0. It accumulates over tax years and becomes the raw material for the Relational Graph Services re-engineering. **The `book_src` field is the canonical reference — if `assert_eq` members disagree, the fix is always to correct the books mapping of the outlier, never to copy a value between forms.**
 
-#### 4.3 Dependency Order (Informational)
+#### 4.3 Cross-Form Audit Rules
 
-The form dependency order is enforced by Form1065Agent's Phase 2 (PDF generation order). LLCTaxAgent records it in the manifest for reference:
+Each XF rule compares two independently books-derived form values. All rules read from completed fill dicts — they do not modify any form. If a rule fails, the bookkeeper must correct the books mapping of the outlier value (not copy one form into the other).
+
+| Rule | Forms Compared | Canonical Book Source | Description |
+|---|---|---|---|
+| **XF-R01** | Form 4562 Line 22 vs Form 8825 Line 14 | `IS.depreciation` (`Acct.Exp.Depreciation`) | Both must equal the depreciation expense booked in the IS. |
+| **XF-R02** | Form 8825 Line 23 vs Schedule K Line 2 | `IS.net_rental` | Net rental income after all rental expenses must agree across both forms. |
+| **XF-R03** | Schedule K Line 2 × partner % vs K-1 Box 2 (each partner) | `IS.net_rental × llcOwners.pct` | Each K-1 Box 2 must equal the partnership-level Schedule K Line 2 scaled by that partner's ownership %. |
+| **XF-R04** | Form 1065 Line 16a vs Form 4562 Line 22 | `IS.depreciation` | Depreciation claimed on Form 1065 must equal Form 4562 total — both sourced from books. |
+| **XF-R05** | Schedule L Line 14 (end) vs BS `total_assets` | `BS.total_assets` | Schedule L must tie to the Balance Sheet — both from books. |
+
+**Failure action for all XF rules:** Find which form has the incorrect books mapping via BookToIRS Aid (`/api/aid/*`) and correct the mapping so that form independently produces the correct books value.
+
+#### 4.4 Dependency Order (Generation Order Only — Not Data Flow)
+
+Forms must be fully generated before cross-form audit can compare them. This is a **sequencing requirement for audit readiness**, not a data-flow dependency (all values come from books, not from prior forms in this list).
 
 ```
-Form 4562 → Form 8825 → Form 1065 (all pages) → Schedule K-1 × N
+Form 4562 generated → Form 8825 generated → Form 1065 generated → Schedule K-1 × N generated
+                                    ↓
+                    LLCTaxAgent phase2_xf_audit() — compare all completed fill dicts
 ```
 
 ---
@@ -459,7 +495,7 @@ LLCTaxAgent reads from sources already established by Form1065Agent. No new data
 |---|---|---|
 | Tax year, filing deadlines | `Profile.entity.*`, `Profile.F1065.*` | `llcProfile_WBGroupLLC.json` |
 | Submission history, filed_date | `Profile.F1065.*` (written by Phase 4) | `llcProfile_WBGroupLLC.json` |
-| Cross-form values (Form 4562 → Form 8825) | `fillDict` from FormPackage | `Form4562_fillDict.json`, `Form8825_fillDict.json` |
+| Cross-form audit values — read from completed fill dicts for equality comparison only; LLCTaxAgent does NOT use one form's fill dict as input to another | `Form4562_fillDict.json`, `Form8825_fillDict.json` (read-only, post-completion) | `books/{year}/Forms/` |
 | Partner delivery addresses | `llcOwners_WBGroupLLC.json` | direct read |
 | YE Financial Report | `stmtFinancialReport` | `books/{year}/Forms/` |
 
@@ -491,4 +527,4 @@ LLCTaxAgent reads from sources already established by Form1065Agent. No new data
 
 ---
 
-*End of Design Document — v0.2, 2026-06-02*
+*End of Design Document — v0.4, 2026-06-03*
