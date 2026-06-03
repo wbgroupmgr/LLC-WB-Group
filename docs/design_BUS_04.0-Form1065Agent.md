@@ -3,8 +3,10 @@
 **Status:** v0.4 — revised 2026-06-02 (3-tier architecture; multi-year adaptation added)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
+- `docs/design_BUS_04.0-LLCTaxAgent.md` -master compliance coordinator for **Tax Preparation** and submission to IRS
 - `design_BUS_04.1-Tax_BookToIRS.md` — BookToIRS Aid tool (existing implementation)
-- `docs/irs/irsForm1065_book2irsDeisng.md` — current IRS view layer architecture
+- `docs/irs/irsForm1065_Book2IRSDesign.md` — current IRS view layer architecture
+- `docs/design_BUS_01-AccountingWorkflow.md` - **Tax Preparation** within the Levels of Accounting 
 - IRS Form 1065 Instructions (2024), Pub 541 (Partnerships), Pub 925 (Passive Activity)
 
 ---
@@ -13,13 +15,31 @@
 
 The **Form1065Agent** is an orchestration agent that coordinates a set of expert, autonomous **Section Agents** to guide a bookkeeper through every section of IRS Form 1065 (U.S. Return of Partnership Income). Rather than one monolithic agent that knows everything about every form field, the design decomposes Form 1065 into its natural IRS sections — each section handled by a specialist agent that owns that section's fields, rules, and expert knowledge.
 
-The **Form1065Agent** is invoked from the **Form 1065 View** via an **Action Button** ("Form Agent") and orchestrates the section agents through a 3-phase pipeline:
+The **Form1065Agent** is invoked from the **Form 1065 View** via an **Action Button** ("Form Agent"), or by the **LLCTaxAgent** (Tier 0) during tax season. It orchestrates the section agents through a 3-phase pipeline and delivers a complete `FormPackage` to the LLCTaxAgent. Cross-form validation and IRS submission are the LLCTaxAgent's responsibility — not this agent's.
 
 | Phase | Name | Goal |
 |---|---|---|
 | 1 | **Prepare** | Drive each section agent through Passes 1–3; arrive at IRS Ready State: GO / NO-GO per section |
 | 2 | **Publish** | Drive each section agent through Pass 4 to produce one final, publishable PDF |
 | 3 | **IRS Summary** | Drive each section agent through Pass 5; assemble a concise IRS Filing Summary letter |
+
+On completion, Form1065Agent returns a `FormPackage` to the caller (LLCTaxAgent or bookkeeper directly):
+
+```python
+FormPackage = {
+    'tax_year':       int,
+    'form_ready':     bool,          # True when all sections GO
+    'pdf_artifacts':  {
+        'Form4562':   Path,
+        'Form8825':   Path,
+        'Form1065':   Path,
+        'Sch_K1':     {oID: Path},   # per partner
+    },
+    'summary_letter':     Path,      # IRS_Form1065_{year}_Summary.pdf
+    'completion_report':  Path,      # Agent_1065_Report_{ts}.json
+    'halt_overrides':     list,
+}
+```
 
 Each section agent implements a standard **5-pass workflow**:
 
@@ -145,9 +165,12 @@ While not physically part of the Form 1065 pages, the Schedule K-1 is mandatory 
 
 ## 2. Architectural Layer Design
 
-The system is organized into three tiers. Each tier has a single responsibility and calls only downward.
+The system is organized into **four tiers**. The **LLCTaxAgent (Tier 0)** sits above this agent and owns cross-form validation and IRS submission — see `design_BUS_04.0-LLCTaxAgent.md`. Each tier has a single responsibility and calls only downward.
 
 ```
+[ LLCTaxAgent — Tier 0 ]  ←  master coordinator; calls Form1065Agent.run()
+        │ delegates to
+        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           Flask UI Layer                            │
 │         Form 1065 View  →  [Form Agent] Action Button               │
