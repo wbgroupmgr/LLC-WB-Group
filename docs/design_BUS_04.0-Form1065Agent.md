@@ -1,6 +1,6 @@
 # Form1065Agent — Design Document
 
-**Status:** v0.2 — revised 2026-06-02  
+**Status:** v0.3 — revised 2026-06-02 (design decisions recorded)  
 **Owner:** Francisco Rojas (W&B Group, LLC)  
 **Baseline docs:**
 - `design_BUS_04.1-Tax_BookToIRS.md` — BookToIRS Aid tool (existing implementation)
@@ -284,13 +284,14 @@ IssueList = [
 
 ### Pass 3 — Bookkeeper Dialog
 
-**Trigger:** After Pass 2, the agent surfaces a **Guided Session Panel** in the Form 1065 View. This is a structured, issue-by-issue workflow — not a raw list of errors.
+**Trigger:** After Pass 2, the agent navigates to a **dedicated page** `/view/agent/form1065` (separate from the Form 1065 view). This gives the bookkeeper full screen real estate for the guided issue workflow. A "← Back to Form 1065" link is always visible.
 
-**UI layout (inline panel, not modal):**
+**UI layout (`/view/agent/form1065` — separate page):**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Form1065Agent — Guided Tax Review                      Pass 3 of 4 │
+│  ← Back to Form 1065          Form1065Agent — Guided Tax Review     │
+│                                                          Pass 3 of 4 │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Summary:  ✗ 2 HALT   ⚠ 3 RESOLVE   ℹ 4 REVIEW                     │
 │                                                                     │
@@ -299,43 +300,52 @@ IssueList = [
 │  [!] F1065-R05  Partnership Representative not named                │
 │      IRS: BBA audit rules require a PR (26 U.S.C. §6223)           │
 │      Fields: f1_48, f1_49 (PR Name / TIN)                           │
-│      ▶  [Open Aid Dialog for F016 / F017]   [Enter PR Name inline]  │
+│      ▶  [Open Aid Dialog for f1_48 / f1_49]                         │
 │                                                                     │
 │  [!] F1065-R03  Partner allocations sum to 98.0% (not 100%)         │
 │      IRS: IRC §704(b) — all items must be allocated 100%            │
 │      Partners: Rojas 50%, Smith 48%, Jones 0%  (total 98%)          │
 │      ▶  [Open llcOwners Editor]                                     │
 │                                                                     │
-│  ── RESOLVE: Agent recommends, bookkeeper confirms ───────────────  │
+│  ── RESOLVE: Agent recommends — [Apply All Auto-fixes]  ──────────  │
 │                                                                     │
-│  [⚠] F1065-R07  Book depreciation ($4,200) ≠ MACRS ($3,850)         │
+│  [⚠] F1065-R07  Book depreciation ($4,200) ≠ MACRS ($3,850)  [✓]   │
 │      M-1 Line 4a adjustment: $350 difference                        │
 │      IRS: Pub 946, MACRS half-year convention                       │
-│      ▶  [Auto-apply M-1 adjustment]   [Review Form 4562]            │
 │                                                                     │
-│  ── REVIEW: Informational, no action required ────────────────────  │
-│  ℹ  8 blank fids (no mapping) — click [View Blanks] to inspect     │
+│  [⚠] F1065-R06  Schedule L/M-1/M-2 not required (below threshold)  │
+│      IS.total_income=$18,000, BS.total_assets=$320,000              │
+│      Schedule B Q4 → "Yes" (skip schedules)                   [✓]   │
+│                                                                     │
+│  ── REVIEW: Informational ─────────────────────────────────────────  │
+│  ℹ  8 blank fids — [View Blanks in Aid]                             │
 │  ℹ  3 Complex stubs pending implementation                          │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [← Back to Pass 2 Report]          [Proceed to Pass 4 Finalize →]  │
-│  (Pass 4 available only when HALT count = 0)                        │
+│  HALT issues outstanding: 2                                         │
+│  [Apply All Auto-fixes (2 RESOLVE)]    [Proceed to Finalize →]      │
+│  Proceed available with HALT issues present — override acknowledged  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+**Auto-fix batch:** A single **"Apply All Auto-fixes"** button applies every RESOLVE-severity auto-fixable issue in one operation. Individual RESOLVE issues also display a `[✓]` checkbox for selective inclusion before batching. Each applied fix is logged in the `CompletionReport` with the rule ID, what was changed, and timestamp.
+
+**HALT override:** HALT-level issues display a **strong warning banner** but do not hard-block "Proceed to Finalize." The bookkeeper may override and proceed — the `CompletionReport` records `halt_issues_overridden: [rule_id_list]` so the decision is auditable. Rationale: the bookkeeper may know of an external correction (e.g. PR is named in a separate filing amendment) that the agent cannot see.
 
 **Resolution paths per issue type:**
 
 | Issue Category | Resolution UI |
 |---|---|
-| Blank fid | Opens BookToIRS Aid dialog (per-fid, §4.4 in `design_BUS_04.1`) |
-| Complex stub | Opens bookkeeper code editor hint for `_Cplx_<fid>()` stub |
-| Income misrouted | Shows the offending account, the correct destination, and lets bookkeeper confirm reroute |
-| Partner alloc ≠ 100% | Link to `llcOwners` editor; recalculates on save |
-| PR missing | Inline text input → writes to `Profile.F1065.partnership_representative` |
-| M-1 auto-adjustable | "Auto-apply" button → agent writes the M-1 adjustment to the bookNS mapping and updates fillDict |
-| Schedule threshold | Displays calculation: `IS.total_income = $X, BS.total_assets = $Y → Schedules L/M-1/M-2 required/not required` |
+| Blank fid | Opens BookToIRS Aid dialog (per-fid, §4.4 in `design_BUS_04.1`) in a new tab |
+| Complex stub | Links to BookToIRS Aid "Add custom map" flow for that fid |
+| Income misrouted | Shows offending account, correct destination; bookkeeper confirms reroute via Aid |
+| Partner alloc ≠ 100% | Link opens `llcOwners` editor; agent re-checks on return |
+| PR missing | Link opens Aid dialog for PR fids (f1_48, f1_49) |
+| M-1 auto-adjustable | Included in "Apply All Auto-fixes" batch; checked `[✓]` by default |
+| Schedule threshold | Auto-fix fills Schedule B Q4; included in batch |
+| Under-construction asset | INFO only — explains RV_RV1 is excluded from Form 8825 per IRS rules (§168); no action required |
 
-**No issue blocks the bookkeeper from proceeding** except HALT-level issues. RESOLVE and REVIEW items may be dismissed.
+REVIEW items may be dismissed with a single click. Dismissed items are still logged in `CompletionReport`.
 
 ---
 
@@ -496,18 +506,21 @@ Form1065Agent.pass3_dialog()
 └──────────────────────────────────────────────────────┘
 ```
 
+**Pass 3 page:** `GET /view/agent/form1065` — dedicated Guided Tax Review page (separate from the Form 1065 view, navigated to after Pass 2 completes).
+
 **New API routes:**
 
 | Method | Route | Purpose |
 |---|---|---|
 | POST | `/api/agent/form1065/pass1` | Trigger Pass 1 (auto-fill); returns `Pass1Result` |
 | POST | `/api/agent/form1065/pass2` | Trigger Pass 2 (audit); returns `Pass2Result` |
-| GET  | `/api/agent/form1065/session` | Returns current `BookkeeperSession` (issue list) |
-| POST | `/api/agent/form1065/resolve/<rule_id>` | Mark an issue resolved (or auto-fix if flagged) |
-| POST | `/api/agent/form1065/pass4` | Trigger Pass 4 (finalize); returns `CompletionReport` |
+| GET  | `/api/agent/form1065/session` | Returns current `BookkeeperSession` (issue list grouped by severity) |
+| POST | `/api/agent/form1065/autofix` | Apply all batch-eligible RESOLVE auto-fixes; returns updated `IssueList` |
+| POST | `/api/agent/form1065/resolve/<rule_id>` | Mark a single issue resolved or dismissed |
+| POST | `/api/agent/form1065/pass4` | Trigger Pass 4 (finalize); `halt_override=true` flag allowed in body |
 | GET  | `/api/agent/form1065/report` | Returns the last `CompletionReport` JSON |
 
-Pass 3 does not have its own API route — it is the UI session between Pass 2 and Pass 4. Issues are resolved one-at-a-time via the existing Aid APIs and the new `/resolve/<rule_id>` endpoint.
+The `/api/agent/form1065/autofix` endpoint replaces per-issue auto-fix calls — it applies all RESOLVE-severity auto-fixable rules in one transaction and returns the refreshed session. Individual issue checkboxes on the UI send their selected state in the request body so the bookkeeper can deselect specific fixes before batching.
 
 ---
 
@@ -554,7 +567,7 @@ These principles govern every agent decision:
 | M1 | `IRSFormsAgent` base class: `audit_fill_completeness`, `run_validation_matrix`, `generate_pdf`, `store_form_artifact`, `build_bookkeeper_session` | 1 day |
 | M2 | `Form1065Agent` shell: 4-pass entry points, pass1 auto-fill wired to existing `BookToIRS()` | 0.5 day |
 | M3 | Pass 2 audit — implement all 15 rules in §9 with IRS cites; emit `Pass2Result` | 1.5 days |
-| M4 | Pass 3 UI — "Guided Session Panel" in Form 1065 view; per-issue resolution wiring to BookToIRS Aid | 1.5 days |
+| M4 | Pass 3 UI — `/view/agent/form1065` separate page; issue list with batch auto-fix, HALT override flag, Aid dialog deep-links | 1.5 days |
 | M5 | Pass 4 — PDF generation order (8825 → 4562 → 1065 → K-1s), artifact storage, `CompletionReport` | 1 day |
 | M6 | Flask routes (`/api/agent/form1065/*`), "Run Agent" toolbar button, progress indicators | 0.5 day |
 | M7 | Smoke pass: run full 4-pass pipeline on W&B Group 2025 data, verify all PDFs and CompletionReport | 0.5 day |
@@ -562,28 +575,42 @@ These principles govern every agent decision:
 
 ---
 
-## 12. Out of Scope (v1.0)
+## 13. Design Decisions — Recorded 2026-06-02
+
+All five open questions from v0.2 review have been decided by the owner. These are **locked** — not re-opened without explicit change request.
+
+| # | Question | Decision | Impact |
+|---|---|---|---|
+| 1 | Pass 3 UI placement | **Separate page** `/view/agent/form1065` | M4 builds a dedicated Flask view/template; not an inline panel |
+| 2 | Auto-fix authorization | **Batch** — single "Apply All Auto-fixes" button; individual `[✓]` checkboxes for selective deselection before applying | `POST /api/agent/form1065/autofix` takes a list of selected rule IDs |
+| 3 | HALT gate | **Allow override** — strong warning banner, bookkeeper may proceed; `halt_issues_overridden` logged in `CompletionReport` for auditability | No hard-block; Pass 4 `/pass4` accepts `halt_override=true` in body |
+| 4 | RV_RV1 under-construction | **Follow IRS minimum** — INFO-level note only; Form 8825 excludes the asset until `status: active`; no Form 4562 depreciation entry until placed in service (IRS §168) | R-INFO rule added: "RV_RV1 under construction — excluded from Form 8825 per §168" |
+| 5 | Schedule K-3 (foreign partners) | **Not applicable** — W&B Group has no foreign partners; K-3 check is out of scope | Remove K-3 check from rule matrix; add to Out of Scope §12 |
+
+### Accounting rationale for Decision 4 (IRS minimum on RV_RV1)
+
+IRS §168(a) allows MACRS depreciation only in the taxable year the property is **placed in service** (ready and available for its intended use). Before that date:
+- No Form 8825 entry (no rental income or expenses to report)
+- No Form 4562 depreciation line
+- All costs remain capitalized to the asset's cost basis
+
+The IRS does not penalize a taxpayer for *not* reporting a not-yet-active asset. Reporting it incorrectly (premature depreciation) is the violation. **Do minimum = do correct.**
+
+### Accounting rationale for Decision 3 (HALT override)
+
+The bookkeeper has professional responsibility and may possess information the agent cannot access (e.g. an amended filing that resolves the PR issue, or a CPA letter addressing the partner allocation). Hard-blocking the agent from finalizing removes the bookkeeper's professional judgment from the workflow. The audit trail (`CompletionReport`) preserves accountability without removing authority.
+
+---
+
+## 14. Out of Scope (v1.0)
 
 - **AI-assisted classification** — the LLM-powered `llcIRS_AIAgent` concept (§15 in `design_BUS_04.1`) is a future capability. This v1.0 agent uses deterministic rules only.
 - **Multi-LLC** — single LLC (`WBGroupLLC`) scope.
-- **E-file / MeF submission** — agent produces the filled PDFs for human filing. No IRS electronic submission in this scope.
+- **E-file / MeF submission** — agent produces filled PDFs for human filing. No IRS electronic submission.
 - **Prior-year comparison** — no "compare 2024 vs 2025" diff view.
 - **Form 1120-S or 1040** — `IRSFormsAgent` base is designed to support these; the subclasses are not built in this milestone.
+- **Schedule K-3** — no foreign partners in W&B Group; K-3 is not applicable.
 
 ---
 
-## 13. Open Questions for Review
-
-1. **Pass 3 UI placement:** Should the Guided Session Panel open as an inline panel within the Form 1065 view, or as a separate `/view/agent/form1065` page? Inline keeps context; separate page gives more room for the issue list.
-
-2. **Auto-fix authorization:** When the agent can auto-fix an issue (e.g. M-1 Line 4a), should it require a single "Auto-apply" click per issue, or a single "Apply all auto-fixes" batch button? Recommend: per-issue click for auditability.
-
-3. **HALT gate:** Should HALT-level issues hard-block the "Run Agent" button from proceeding to Pass 4, or display a strong warning and allow override? Recommend: hard-block — ERRORs that reach the IRS are penalties/rejections.
-
-4. **RV_RV1 in-progress:** How does the agent handle an asset with `status: under_construction`? Recommend: INFO-level note that Form 8825 will not include RV_RV1 until status changes to `active`. No ERROR.
-
-5. **Schedule K-3:** For tax year 2022+, partners may request Schedule K-3 for international tax purposes. Should the agent check if any partner has foreign tax exposure? Recommend: flag as CPA:unknown if any `Profile.entity.country` ≠ "US".
-
----
-
-*End of Design Document — v0.2, 2026-06-02*
+*End of Design Document — v0.3, 2026-06-02*
