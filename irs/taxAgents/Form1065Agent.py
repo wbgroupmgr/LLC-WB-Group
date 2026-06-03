@@ -117,7 +117,8 @@ class _SectionAgent(IRSFormsAgent):
         if self._owners is not None:
             return self._owners
         try:
-            self._owners = list(getattr(self.llc, 'owners', []) or [])
+            raw = self.llc.owners  # may be a method or a list
+            self._owners = raw() if callable(raw) else list(raw or [])
         except Exception:
             self._owners = []
         return self._owners
@@ -417,7 +418,11 @@ class AgentF1065_Other(_SectionAgent):
 
     def _rule_ownership_questions(self):
         owners = self._get_owners()
-        majority = [o for o in owners if _safe_float(o.get('ownership_pct', 0)) > 50]
+        # pct stored as decimal 0–1 or percent 0–100; normalise to 0–1
+        def _pct(o):
+            v = _safe_float(o.get('pct', o.get('ownership_pct', 0)))
+            return v if v <= 1.5 else v / 100
+        majority = [o for o in owners if _pct(o) > 0.5]
         if majority:
             return self.format_issue(
                 'OT-R05', self.INFO,
@@ -466,13 +471,16 @@ class AgentF1065_Distr(_SectionAgent):
         owners = self._get_owners()
         if not owners:
             return None
-        total = sum(_safe_float(o.get('ownership_pct', 0)) for o in owners)
-        if abs(total - 100.0) > 0.01:
+        # pct stored as decimal 0.0–1.0; try both 'pct' and 'ownership_pct'
+        total = sum(_safe_float(o.get('pct', o.get('ownership_pct', 0))) for o in owners)
+        expected = 1.0 if total <= 1.5 else 100.0  # handle both decimal and percent formats
+        if abs(total - expected) > 0.01:
+            pct_str = f"{total*100:.2f}%" if expected == 1.0 else f"{total:.2f}%"
             return self.format_issue(
                 'KD-R03', self.ERROR,
-                f"Partner ownership percentages sum to {total:.2f}% (must be exactly 100%)",
+                f"Partner ownership percentages sum to {pct_str} (must be exactly 100%)",
                 'IRC §704(b) — all items must be allocated 100%',
-                "Correct ownership_pct values in llcOwners DB")
+                "Correct pct values in llcOwners DB")
 
     def _rule_no_se_income(self):
         fill = self._load_fill_dict()
@@ -752,12 +760,39 @@ class Form1065Agent(IRSFormsAgent):
     def getSummary(self) -> Dict[str, Any]:
         """
         Read persisted session state — never re-runs passes.
-        Returns SectionSummary for the Form 1065 View status strip.
+        Always returns sections as an ordered list (safe for JS forEach).
         """
         state = self._load_session_state()
         if state is None:
             return self._empty_summary()
-        return state
+        return self._normalize_summary(state)
+
+    def _normalize_summary(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert sections dict (from session JSON) to ordered list for the UI."""
+        raw = state.get('sections', {})
+        if isinstance(raw, list):
+            sections_list = raw
+        else:
+            sections_list = []
+            for cls in self._SECTION_ORDER:
+                key = cls.AGENT_KEY
+                s   = raw.get(key, {})
+                sections_list.append({
+                    'agent':         key,
+                    'label':         s.get('label', cls.LABEL),
+                    'state':         s.get('state', self.NOT_STARTED),
+                    'summary':       s.get('summary', 'Not yet run'),
+                    'halt_count':    s.get('halt_count', 0),
+                    'resolve_count': s.get('resolve_count', 0),
+                    'review_count':  s.get('review_count', 0),
+                })
+        return {
+            'tax_year':      state.get('tax_year', self.tax_year),
+            'last_run':      state.get('last_run'),
+            'overall_state': state.get('overall_state', self.NOT_STARTED),
+            'sections':      sections_list,
+            'ext_advice':    state.get('ext_advice', ''),
+        }
 
     def run_phases_1_2(self) -> Dict[str, Any]:
         """

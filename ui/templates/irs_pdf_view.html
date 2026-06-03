@@ -583,11 +583,22 @@ function cpaReviewOpen() {
           .catch(err => { btn.disabled = false; btn.textContent = '▶ Run Form Agent'; alert('Error: ' + err); });
     };
 
+    function stripError(msg) {
+        document.getElementById('agentBadgeBar').innerHTML =
+            '<span class="agent-badge badge-fix">⚠ Error</span>';
+        document.getElementById('agentStripRows').innerHTML =
+            `<tr><td colspan="3" style="color:#991b1b;font-size:12px">Agent error: ${msg}</td></tr>`;
+        agentStripOpen();
+    }
+
     // Auto-load summary on page open
     fetch('/api/agent/form1065/getSummary')
       .then(r => r.json())
-      .then(data => { if (data.ok && data.summary) renderStrip(data.summary); })
-      .catch(() => {});
+      .then(data => {
+          if (data.ok && data.summary) renderStrip(data.summary);
+          else stripError(data.error || 'getSummary returned ok=false');
+      })
+      .catch(err => stripError('fetch failed — ' + err));
 })();
 </script>
 {% endif %}

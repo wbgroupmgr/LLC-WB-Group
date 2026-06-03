@@ -1539,9 +1539,13 @@ class llcMgmt:
             """Return per-section SectionSummary for the Form 1065 status strip."""
             try:
                 from irs.taxAgents.Form1065Agent import Form1065Agent
-                agent = Form1065Agent(self.eSession.llc)
-                return jsonify({'ok': True, 'summary': agent.getSummary()})
+                llc   = self.eSession.llc
+                agent = Form1065Agent(llc)
+                data  = agent.getSummary()
+                app.logger.debug("agent/getSummary ok — state=%s", data.get('overall_state'))
+                return jsonify({'ok': True, 'summary': data})
             except Exception as err:
+                app.logger.exception("agent/getSummary failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
         @app.route("/api/agent/form1065/start", methods=["POST"])
@@ -1549,10 +1553,16 @@ class llcMgmt:
             """Run Pass 1 + Pass 2 for all section agents; write session state."""
             try:
                 from irs.taxAgents.Form1065Agent import Form1065Agent
-                agent  = Form1065Agent(self.eSession.llc)
+                llc    = self.eSession.llc
+                agent  = Form1065Agent(llc)
+                app.logger.info("agent/start — running Passes 1+2")
                 result = agent.run_phases_1_2()
-                return jsonify({'ok': True, 'summary': result})
+                # Return normalized list form same as getSummary
+                summary = agent._normalize_summary(result)
+                app.logger.info("agent/start done — state=%s", summary.get('overall_state'))
+                return jsonify({'ok': True, 'summary': summary})
             except Exception as err:
+                app.logger.exception("agent/start failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
         # ── GL Audit routes ────────────────────────────────────────────────────
