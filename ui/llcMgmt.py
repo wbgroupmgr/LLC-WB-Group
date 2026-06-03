@@ -1495,9 +1495,15 @@ class llcMgmt:
                 try:
                     mod = importlib.import_module(f"irs.{form_nm}")
                     form_cls = getattr(mod, form_nm, None)
-                    cpa_notes  = getattr(form_cls, "_CPA_NOTES",          {}) if form_cls else {}
-                    part_notes = getattr(form_cls, "_PART_NOTES",          []) if form_cls else []
-                    depr_notes = getattr(form_cls, "_DEPR_RECONCILIATION", {}) if form_cls else {}
+                    _llc = getattr(self.eSession, "llc", None)
+                    form_inst = form_cls(_llc) if (form_cls and _llc) else None
+                    cpa_notes  = getattr(form_inst or form_cls, "_CPA_NOTES", {}) if (form_inst or form_cls) else {}
+                    part_notes = (form_inst.part_notes()
+                                  if form_inst and callable(getattr(form_inst, 'part_notes', None))
+                                  else getattr(form_cls, "_PART_NOTES", []) if form_cls else [])
+                    depr_notes = (form_inst.depr_reconciliation()
+                                  if form_inst and callable(getattr(form_inst, 'depr_reconciliation', None))
+                                  else getattr(form_cls, "_DEPR_RECONCILIATION", {}) if form_cls else {})
                 except Exception:
                     cpa_notes  = {}
                     part_notes = []
