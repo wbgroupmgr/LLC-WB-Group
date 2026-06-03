@@ -1,6 +1,6 @@
 # LLCTaxAgent — Design Document
 
-**Status:** v0.2 — revised 2026-06-02 (aligned with Form1065Agent v0.4; 4-tier architecture)
+**Status:** v0.3 — revised 2026-06-02 (Pass 0 inventory; Phase 2 simplified to form-level completeness; quarterly monitoring)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
 - `docs/design_BUS_04.0-Form1065Agent.md` — Form 1065 orchestration agent and section agents
@@ -123,57 +123,116 @@ Jan 1 ──────────────── Tax Season ────�
   │    → guide bookkeeper through submission checklist        │                       │
 ```
 
-### 3.1 Non-Tax Season: Draft Mode Monitoring
+### 3.1 Non-Tax Season: Quarterly Draft Monitoring
 
-Between Sep 15 and Dec 31, the LLCTaxAgent runs a **draft pipeline** monthly:
+Outside of tax season, the LLCTaxAgent runs a **draft pipeline quarterly** (see GitHub issue #14). Draft mode is read-only — no PDFs are written, no `bookNS_*.json` is modified.
 
-1. Execute Form1065Agent Phase 1 (Passes 1–2 only — auto-fill + audit, no bookkeeper dialog).
+Each quarterly run:
+1. Execute Form1065Agent Phase 1, Passes 1–2 only (auto-fill + audit; no bookkeeper dialog).
 2. Collect the `IssueList` from every section agent.
-3. Surface a **Tax Health Dashboard** on the `/view/tax_prep` page:
-   - Fields that will need bookkeeper attention come tax season
-   - IRS rule changes published for the upcoming tax year
-   - Missing data that should be collected before Dec 31 (e.g. PR TIN, partner capital contributions)
-4. Do **not** write any PDFs or modify `bookNS_*.json` in draft mode — read-only.
+3. Update the **Tax Health Dashboard** on `/view/tax_prep`:
+   - Fields that will need bookkeeper attention at tax season
+   - Missing data to collect before YE close (PR TIN, partner contributions, property in-service dates)
+   - IRS rule or form changes for the upcoming tax year
+4. Alert (in-app) if any ERROR-severity issues appear — these need attention before they become tax-season blockers.
 
 ### 3.2 Key Tax Dates (W&B Group, Calendar Year LLC)
 
 | Date | Event | LLCTaxAgent action |
 |---|---|---|
-| Jan 1 | Tax season begins | Switch from draft to active mode |
-| Jan 31 | K-1 mail deadline (if desired early) | Alert: K-1 PDFs due; trigger Form1065Agent if not started |
-| Mar 15 | Form 1065 filing deadline | Alert: package must be assembled; file or file extension |
+| **Apr 1** | Q1 quarterly draft run | Draft pipeline; update Tax Health Dashboard |
+| **Jul 1** | Q2 quarterly draft run | Draft pipeline; flag YE-prep issues |
+| **Oct 1** | Q3 quarterly draft run | Most important non-season run — 5 months before deadline |
+| Jan 1 | Tax season begins; Q4 run | Switch from draft to active mode |
+| Jan 31 | K-1 mail deadline (if early desired) | Alert: K-1 PDFs due; trigger Form1065Agent if not started |
+| Mar 15 | Form 1065 filing deadline | Alert: package must be assembled; file or extend |
 | Mar 15 | Schedule K-1 delivery deadline to partners | Alert: K-1 PDFs must be mailed/delivered |
 | Apr 15 | Partners' individual return deadline | INFO: downstream dependency on K-1 delivery |
 | Sep 15 | Extended Form 1065 deadline | Final filing if extension filed Mar 15 |
-| Oct 1 | Non-season draft mode resumes | Begin monthly monitoring for next tax year |
 
 ---
 
 ## 4. LLCTaxAgent — The Four Phases
 
-### Phase 1 — Prepare
+### Phase 1 — Prepare (with Pass 0: Form Inventory)
 
-**Delegates entirely to Form1065Agent.** The LLCTaxAgent invokes:
+Phase 1 begins with **Pass 0** — a lightweight inventory exchange that establishes the compliance checklist before any form work begins. This keeps the form list dynamic (driven by both IRS rules and the actual books) rather than hardcoded.
+
+#### Pass 0: Form Inventory Protocol
+
+```
+LLCTaxAgent
+    │
+    │── Pass 0 ──► Form1065Agent.inventory()
+    │                     │
+    │                     │── AgentForm_Ext.inventory()
+    │                     │     ├── Top-down  (IRS rules):
+    │                     │     │   Form 1065 always required
+    │                     │     │   Form 8825 if any active rental property
+    │                     │     │   Form 4562 if any depreciation claimed
+    │                     │     │   Schedule K-1 × partner count
+    │                     │     │
+    │                     │     └── Bottom-up (books scan):
+    │                     │         llcAssets → active property count → 8825 columns
+    │                     │         llcAssets → depreciation exists? → 4562 required
+    │                     │         llcOwners → partner count → N × K-1
+    │                     │         llcAssets → under-construction? → INFO note only
+    │                     │
+    │                     └── returns FormInventory
+    │
+    └── LLCTaxAgent.compliance_checklist ← FormInventory
+```
+
+`FormInventory` (returned by `AgentForm_Ext.inventory()`):
+```python
+FormInventory = {
+    'required_forms':     ['Form1065', 'Form8825', 'Form4562'],
+    'required_k1_count':  int,           # = len(llcOwners)
+    'active_properties':  ['H_805HighMesa'],
+    'under_construction': ['RV_RV1'],    # INFO only — excluded from forms
+    'schedules_required': {
+        'L': bool, 'M1': bool, 'M2': bool   # from Sched B Q4 threshold
+    },
+    'notes':              [str, ...],    # bookkeeper advisories
+}
+```
+
+The `compliance_checklist` derived from `FormInventory` becomes the **master completeness gate** for Phase 2.
+
+#### Pass 0 Rationale: Why Top-Down + Bottom-Up?
+
+The form list is not constant. IRS rules define the baseline ("always file Form 1065") but the LLC's own books alter scope:
+- A property placed in service adds a Form 8825 column and triggers Form 4562.
+- A new partner adds a K-1.
+- An under-construction asset (RV_RV1) is explicitly excluded until `status: active`.
+
+Without Pass 0, the system would either hardcode the form list (fragile) or discover missing forms only after the package is assembled (too late). Pass 0 costs one lightweight scan of `llcAssets` and `llcOwners` — it pays for itself immediately.
+
+#### Phase 1 Continuation (after Pass 0)
+
+Once the compliance checklist is established, LLCTaxAgent invokes Form1065Agent's full pipeline:
 
 ```python
 form1065_agent = Form1065Agent(llc, tax_year=self.tax_year)
-result = form1065_agent.run()   # executes Form1065Agent Phases 1→2→3
+form_inventory  = form1065_agent.inventory()      # Pass 0
+self.compliance_checklist = form_inventory
+result = form1065_agent.run()                     # Form1065Agent Phases 1→2→3
 ```
 
 `Form1065Agent.run()` returns a `FormPackage`:
 ```python
 FormPackage = {
-    'tax_year':     int,
-    'form_ready':   bool,         # True if all section agents reached GO
+    'tax_year':          int,
+    'form_ready':        bool,       # True when all section agents GO
     'pdf_artifacts': {
-        'Form4562':    Path,
-        'Form8825':    Path,
-        'Form1065':    Path,
-        'Sch_K1':      {oID: Path, ...},    # per partner
+        'Form4562':      Path,
+        'Form8825':      Path,
+        'Form1065':      Path,
+        'Sch_K1':        {oID: Path, ...},
     },
-    'summary_letter': Path,       # IRS_Form1065_{year}_Summary.pdf
-    'completion_report': Path,    # Agent_1065_Report_{ts}.json
-    'halt_overrides': list,       # any overridden HALT issues
+    'summary_letter':    Path,       # IRS_Form1065_{year}_Summary.pdf
+    'completion_report': Path,       # Agent_1065_Report_{ts}.json
+    'halt_overrides':    list,
 }
 ```
 
@@ -181,40 +240,49 @@ LLCTaxAgent does not proceed to Phase 2 until `form_ready == True` (or bookkeepe
 
 ---
 
-### Phase 2 — Cross-Form Audit
+### Phase 2 — Package Completeness Audit
 
-After Form1065Agent delivers its package, LLCTaxAgent runs its own **cross-form validation** — rules that span multiple forms and cannot be enforced by any single section agent.
+> **Scope note:** Field-level cross-form validation (e.g. verifying Form 4562 totals match Form 8825 Line 14 at the value level) is deferred to a future release via the Relational Graph Services architecture (GitHub issue #15). In v1.0, Phase 2 validates **form-level completeness only** — does the package contain every form the compliance checklist requires?
 
-#### 4.1 Cross-Form Dependency Graph (DAG)
+#### 4.1 Completeness Check
 
-The forms have a strict data dependency order. The LLCTaxAgent enforces this as a Directed Acyclic Graph:
+LLCTaxAgent compares the `FormPackage.pdf_artifacts` against `compliance_checklist.required_forms`:
 
-```
-[llcAssets — property basis, in-service date, MACRS class]
-        │
-        ▼
-[Form 4562]  ─── depreciation total ──────────────────────────────┐
-        │                                                          │
-        ▼                                                          ▼
-[Form 8825]  ─── net rental income (Line 23) ──► [Form 1065 Sched K Line 2]
-                                                          │
-                                                          ▼
-                                              [Schedule K-1 per partner]
+```python
+for form in compliance_checklist['required_forms']:
+    assert form in FormPackage['pdf_artifacts'], f"Missing: {form}"
+    assert FormPackage['pdf_artifacts'][form].exists(), f"Empty: {form}"
+
+k1_count = len(FormPackage['pdf_artifacts']['Sch_K1'])
+assert k1_count == compliance_checklist['required_k1_count'], \
+    f"K-1 count mismatch: expected {compliance_checklist['required_k1_count']}, got {k1_count}"
 ```
 
-Execution order: Form 4562 → Form 8825 → Form 1065 → Schedule K-1 (× N partners)
+Any missing form is a **HALT** — the submission package is not complete by IRS definition.
 
-#### 4.2 Cross-Form Validation Rules
+#### 4.2 Knowledge Seeding: `graphRelational.json`
 
-| Rule ID | Source | Target | Check | Failure |
-|---|---|---|---|---|
-| XF-R01 | Form 4562 total depreciation | Form 8825 Line 14 (each property) | Sum of 4562 MACRS lines for each property = 8825 Line 14 | HALT |
-| XF-R02 | Form 8825 Line 23 (net rental) | Form 1065 Sched K Line 2 | Must match exactly | HALT |
-| XF-R03 | Form 1065 Sched K (all lines) | Sum of K-1 Box values (all partners) | Each K-1 box sum = corresponding Sched K line | HALT |
-| XF-R04 | Form 1065 Sched L Line 14 end | Form 1065 Page 1 Item F | Must match exactly | HALT (auto-fixable) |
-| XF-R05 | IS `total_income` + BS `total_assets` | Schedule B Q4 threshold decision | Consistent with Sched L/M-1/M-2 filing decision | WARN |
+As a **side effect** of Phase 2, LLCTaxAgent seeds `books/Accts/graphRelational.json` with the known cross-form relationships discovered during this pipeline run. This builds the knowledge base that will power future field-level validation (issue #15).
 
-Cross-form rules are HALT-severity unless noted. The bookkeeper may override any HALT (same pattern as Form1065Agent section agents).
+```python
+# Each confirmed form→form dependency discovered during this run
+graph_edges = [
+    {'src': 'Acct.Depr.MACRS.*',  'via': 'Form4562.Part-II', 'dst': 'Form8825.Line14'},
+    {'src': 'Form8825.Line23',     'via': 'SchedK.Line2',     'dst': 'SchedK1.Box2'},
+    {'src': 'llcOwners.oID',       'via': 'SchedK.All',       'dst': 'SchedK1.All'},
+]
+# Appended to graphRelational.json; no validation performed yet
+```
+
+`graphRelational.json` is append-only in v1.0. It accumulates over tax years and becomes the raw material for the Relational Graph Services re-engineering.
+
+#### 4.3 Dependency Order (Informational)
+
+The form dependency order is enforced by Form1065Agent's Phase 2 (PDF generation order). LLCTaxAgent records it in the manifest for reference:
+
+```
+Form 4562 → Form 8825 → Form 1065 (all pages) → Schedule K-1 × N
+```
 
 ---
 

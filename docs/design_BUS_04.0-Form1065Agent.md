@@ -131,19 +131,48 @@ The financial reconciliation section — an audit trail ensuring the books tie e
 
 ---
 
-### 1.1.6 `AgentForm_Ext` — Schedule K-1 (Per-Partner, Separate PDFs)
+### 1.1.6 `AgentForm_Ext` — Package Scope + Extension Forms (K-1, Form 8825, Form 4562)
 
-While not physically part of the Form 1065 pages, the Schedule K-1 is mandatory for every partner. It isolates each partner's share of the Schedule K totals for use on their personal returns.
+`AgentForm_Ext` is the **dual-role scope agent**. It has two distinct responsibilities:
 
-- **K-1 Box 2:** Net rental real estate income/loss (from Form 8825 net × partner %).
-- **K-1 Box 5:** Interest income × partner %.
-- **K-1 Box 14:** Self-employment income — $0 for a passive rental LLC.
-- **K-1 Box 19:** Cash distributions from `llcOwners`.
-- **K-1 Box L:** Partner's capital account analysis (tax basis method, matching M-2).
-- **No K-2 / K-3:** The LLC has no foreign partners or international assets — K-2/K-3 disclosures are not required.
-- **Output:** One `Sch_K1_o{oID}_FILL.pdf` per partner stored in `books/{year}/Forms/`.
+**Role A — Pass 0: Form Inventory (top-down + bottom-up)**
 
-`AgentForm_Ext` also drives the **Form 8825** and **Form 4562** subsidiary forms, since their outputs feed directly into Schedule K Line 2 and Schedule K-1. These are dependencies for `AgentF1065_Distr`.
+Before any form filling begins, `AgentForm_Ext` is asked: *"What does this LLC actually need to file?"* It answers from two directions simultaneously:
+
+- **Top-down (IRS rules):** What the IRS always requires — Form 1065 (always), Form 8825 (any active rental property), Form 4562 (any depreciation), Schedule K-1 × partner count.
+- **Bottom-up (books scan):** What the LLC's actual financial activity requires — scans `llcAssets` for active vs. under-construction properties, counts partners in `llcOwners`, checks whether depreciation transactions exist in `llcExpRev`.
+
+The intersection produces a `FormInventory` (see LLCTaxAgent §4, Pass 0). This becomes the LLCTaxAgent's compliance checklist and defines exactly what must be in the submission package.
+
+```python
+def inventory(self) -> FormInventory:
+    """
+    Top-down:  load IRS base requirements for a rental LLC partnership return.
+    Bottom-up: scan llcAssets, llcOwners to determine actual scope.
+    Returns FormInventory consumed by LLCTaxAgent.compliance_checklist.
+    """
+```
+
+**Role B — Passes 1–5: Generate Extension Forms**
+
+`AgentForm_Ext` owns and generates the forms that are extensions of (but separate from) the main Form 1065 pages:
+
+- **Form 8825** — one column per active property; feeds Schedule K Line 2.
+- **Form 4562** — MACRS depreciation schedule; feeds Form 8825 Line 14 and Form 1065 Line 16a.
+- **Schedule K-1** — one PDF per partner; isolates each partner's share of Schedule K totals.
+
+| K-1 Box | Content | Source |
+|---|---|---|
+| Box 2 | Net rental real estate income/loss | Form 8825 net × partner % |
+| Box 5 | Interest income × partner % | IS `interest_income` |
+| Box 14 | Self-employment income — $0 for passive rental LLC | IRC §1402(a)(13) |
+| Box 19 | Cash distributions | `llcOwners` |
+| Box L | Partner's capital account (tax basis method) | Matches M-2 per partner |
+
+- **No K-2 / K-3:** No foreign partners or international assets — K-2/K-3 not required.
+- **Output:** `Form8825_FILL.pdf`, `Form4562_FILL.pdf`, `Sch_K1_o{oID}_FILL.pdf` × N partners.
+
+`AgentForm_Ext` is also the downstream advisor: its `pass5_summarize()` output informs the bookkeeper of everything downstream of the main form (partner K-1 delivery, extension form filing requirements, IRS deadlines for extension forms).
 
 ---
 
@@ -517,6 +546,17 @@ class Form1065Agent(IRSFormsAgent):
         AgentF1065_Reconcile,
         AgentForm_Ext,
     ]
+
+    def inventory(self) -> FormInventory:
+        """
+        Pass 0 — called by LLCTaxAgent before phase1_prepare().
+        Delegates to AgentForm_Ext.inventory():
+          top-down IRS rules + bottom-up books scan → FormInventory.
+        Returns the compliance checklist used by LLCTaxAgent.
+        """
+
+    def run(self) -> FormPackage:
+        """Executes phase1→phase2→phase3 in sequence; returns FormPackage."""
 
     def phase1_prepare(self) -> PhaseResult:
         """
