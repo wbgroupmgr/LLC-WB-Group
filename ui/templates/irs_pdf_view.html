@@ -111,6 +111,45 @@
         background: #fef3c7; border: 1px solid #f59e0b;
         color: #78350f; padding: 16px; border-radius: 8px; font-size: 14px;
     }
+    /* ── Agent status strip (Form 1065 only) ──────────────────────────── */
+    .agent-strip {
+        background: #f8fafc; border: 1px solid #e2e8f0;
+        border-radius: 8px; margin-bottom: 14px; overflow: hidden;
+    }
+    .agent-strip-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 14px; cursor: pointer; user-select: none;
+        background: #eef2ff; border-bottom: 1px solid #e2e8f0;
+    }
+    .agent-strip-header:hover { background: #e0e7ff; }
+    .agent-strip-title { font-weight: 700; font-size: 13px; color: #1e3a8a; flex: 1; }
+    .agent-badge-bar { display: flex; gap: 6px; align-items: center; }
+    .agent-badge {
+        font-size: 11px; font-weight: 600; padding: 2px 8px;
+        border-radius: 12px; white-space: nowrap;
+    }
+    .badge-go    { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .badge-fix   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .badge-ns    { background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; }
+    .badge-draft { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+    .agent-strip-toggle { font-size: 12px; color: #6b7280; }
+    .agent-strip-body { padding: 0 14px 10px; display: none; }
+    .agent-strip-body.open { display: block; }
+    .agent-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .agent-table th {
+        text-align: left; padding: 4px 8px;
+        color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb;
+    }
+    .agent-table td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #f3f4f6; }
+    .agent-table tr:last-child td { border-bottom: 0; }
+    .agent-state-go   { color: #166534; font-weight: 600; }
+    .agent-state-fix  { color: #991b1b; font-weight: 600; }
+    .agent-state-ns   { color: #9ca3af; }
+    .agent-state-draft{ color: #1d4ed8; }
+    .agent-summary-text { color: #374151; }
+    .agent-ext-row td { background: #fafaf5; font-style: italic; color: #78716c; }
+    .agent-strip-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .agent-strip-ts { font-size: 11px; color: #9ca3af; margin-left: auto; }
     /* ── K-1 member selector ───────────────────────────────────────────── */
     .member-bar {
         display: flex; align-items: center; gap: 10px;
@@ -191,6 +230,40 @@
 
 {# ── Page body ──────────────────────────────────────────────────────────── #}
 <div class="panel">
+    {# ── Form 1065 Agent Status Strip ──────────────────────────────────── #}
+    {% if meta.formId == 'Form1065' %}
+    <div class="agent-strip" id="agentStrip">
+        <div class="agent-strip-header" onclick="agentStripToggle()">
+            <span class="agent-strip-title">📋 Form 1065 — Section Status</span>
+            <span class="agent-badge-bar" id="agentBadgeBar">
+                <span class="agent-badge badge-ns">Loading…</span>
+            </span>
+            <span class="agent-strip-toggle" id="agentStripToggle">▼</span>
+        </div>
+        <div class="agent-strip-body" id="agentStripBody">
+            <table class="agent-table">
+                <thead>
+                    <tr>
+                        <th style="width:28%">Section</th>
+                        <th style="width:14%">State</th>
+                        <th>Summary</th>
+                    </tr>
+                </thead>
+                <tbody id="agentStripRows">
+                    <tr><td colspan="3" style="color:#9ca3af;padding:10px 8px">Loading agent status…</td></tr>
+                </tbody>
+            </table>
+            <div class="agent-strip-actions">
+                <button type="button" class="btn btn-sm btn-primary" onclick="agentRunStart()"
+                        id="agentRunBtn">▶ Run Form Agent</button>
+                <a href="/view/agent/form1065" class="btn btn-sm btn-outline-secondary"
+                   id="agentReviewBtn" style="display:none">📋 Open Guided Review</a>
+                <span class="agent-strip-ts" id="agentLastRun"></span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {# K-1 member selector ─────────────────────────────────────────────── #}
     {% if meta.owners %}
     <div class="member-bar">
@@ -416,6 +489,105 @@ function cpaReviewOpen() {
             }
         };
     }
+})();
+</script>
+{% endif %}
+
+{% if meta.formId == 'Form1065' %}
+<script>
+// ── Form 1065 Agent Status Strip ─────────────────────────────────────────
+(function () {
+    const STATE_LABEL = {
+        'GO':           ['● GO',          'agent-state-go'],
+        'NEEDS_FIXING': ['✗ Needs Fixing', 'agent-state-fix'],
+        'NOT_STARTED':  ['○ Not Started',  'agent-state-ns'],
+        'DRAFT':        ['◌ Draft',        'agent-state-draft'],
+    };
+
+    function renderStrip(summary) {
+        const sections  = summary.sections || [];
+        const extAdvice = summary.ext_advice || '';
+        const lastRun   = summary.last_run;
+
+        // Badge bar summary
+        const goCount  = sections.filter(s => s.state === 'GO').length;
+        const fixCount = sections.filter(s => s.state === 'NEEDS_FIXING').length;
+        const nsCount  = sections.filter(s => s.state === 'NOT_STARTED').length;
+        let badgeHtml  = '';
+        if (nsCount === sections.length) {
+            badgeHtml = '<span class="agent-badge badge-ns">Not Started</span>';
+        } else {
+            if (goCount)  badgeHtml += `<span class="agent-badge badge-go">● ${goCount} GO</span>`;
+            if (fixCount) badgeHtml += `<span class="agent-badge badge-fix">✗ ${fixCount} Needs Fixing</span>`;
+        }
+        document.getElementById('agentBadgeBar').innerHTML = badgeHtml;
+
+        // Section rows
+        let rowsHtml = '';
+        sections.forEach(s => {
+            const [stateText, stateCls] = STATE_LABEL[s.state] || ['?', ''];
+            const sumText = (s.summary || '').substring(0, 90);
+            rowsHtml += `<tr>
+                <td>${s.label || s.agent}</td>
+                <td class="${stateCls}">${stateText}</td>
+                <td class="agent-summary-text">${sumText}</td>
+            </tr>`;
+        });
+        if (extAdvice) {
+            rowsHtml += `<tr class="agent-ext-row">
+                <td>Next Steps</td>
+                <td class="agent-state-ns">ℹ Advice</td>
+                <td class="agent-summary-text">${extAdvice}</td>
+            </tr>`;
+        }
+        document.getElementById('agentStripRows').innerHTML =
+            rowsHtml || '<tr><td colspan="3">No data</td></tr>';
+
+        // Last-run timestamp
+        if (lastRun) {
+            document.getElementById('agentLastRun').textContent =
+                'Last run: ' + new Date(lastRun).toLocaleString();
+        }
+
+        // Show Guided Review button if any section has run
+        const hasRun = sections.some(s => s.state !== 'NOT_STARTED');
+        document.getElementById('agentReviewBtn').style.display = hasRun ? '' : 'none';
+
+        // Restore collapsed preference
+        if (localStorage.getItem('form1065_strip_collapsed') !== '1') agentStripOpen();
+    }
+
+    function agentStripOpen() {
+        document.getElementById('agentStripBody').classList.add('open');
+        document.getElementById('agentStripToggle').textContent = '▲';
+    }
+
+    window.agentStripToggle = function () {
+        const body = document.getElementById('agentStripBody');
+        const open = body.classList.toggle('open');
+        document.getElementById('agentStripToggle').textContent = open ? '▲' : '▼';
+        localStorage.setItem('form1065_strip_collapsed', open ? '0' : '1');
+    };
+
+    window.agentRunStart = function () {
+        const btn = document.getElementById('agentRunBtn');
+        btn.disabled = true; btn.textContent = '⏳ Running…';
+        fetch('/api/agent/form1065/start', {method: 'POST',
+              headers: {'Content-Type': 'application/json'}, body: '{}'})
+          .then(r => r.json())
+          .then(data => {
+              btn.disabled = false; btn.textContent = '▶ Run Form Agent';
+              if (data.ok && data.summary) { renderStrip(data.summary); agentStripOpen(); }
+              else alert('Agent error: ' + (data.error || 'unknown'));
+          })
+          .catch(err => { btn.disabled = false; btn.textContent = '▶ Run Form Agent'; alert('Error: ' + err); });
+    };
+
+    // Auto-load summary on page open
+    fetch('/api/agent/form1065/getSummary')
+      .then(r => r.json())
+      .then(data => { if (data.ok && data.summary) renderStrip(data.summary); })
+      .catch(() => {});
 })();
 </script>
 {% endif %}

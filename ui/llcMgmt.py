@@ -1532,6 +1532,29 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        # ── Form 1065 Agent routes ─────────────────────────────────────────────
+
+        @app.route("/api/agent/form1065/getSummary")
+        def agent_form1065_get_summary():
+            """Return per-section SectionSummary for the Form 1065 status strip."""
+            try:
+                from irs.taxAgents.Form1065Agent import Form1065Agent
+                agent = Form1065Agent(self.eSession.llc)
+                return jsonify({'ok': True, 'summary': agent.getSummary()})
+            except Exception as err:
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/agent/form1065/start", methods=["POST"])
+        def agent_form1065_start():
+            """Run Pass 1 + Pass 2 for all section agents; write session state."""
+            try:
+                from irs.taxAgents.Form1065Agent import Form1065Agent
+                agent  = Form1065Agent(self.eSession.llc)
+                result = agent.run_phases_1_2()
+                return jsonify({'ok': True, 'summary': result})
+            except Exception as err:
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         # ── GL Audit routes ────────────────────────────────────────────────────
 
         @app.route("/api/debug/sources")
