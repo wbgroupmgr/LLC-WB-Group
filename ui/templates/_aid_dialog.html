@@ -233,11 +233,12 @@
     let LITERAL_PENDING_VAL = null; // the expected literal value for verify step
     let CHK_PENDING     = false;  // true when ☑ checkmark sentinel is selected
 
-    const AID_FORM = ({{ (meta.formId or 'Form1065') | tojson }});
+    const AID_FORM   = ({{ (meta.formId or 'Form1065') | tojson }});
+    const _SCRIPT_ROOT = {{ request.script_root | tojson }};  // '' locally, '/rentalTracker' on PA
 
     function aidUrl(path) {
         const sep = path.includes('?') ? '&' : '?';
-        return `${path}${sep}formNm=${encodeURIComponent(AID_FORM)}`;
+        return `${_SCRIPT_ROOT}${path}${sep}formNm=${encodeURIComponent(AID_FORM)}`;
     }
 
     async function aidJSON(method, url, body) {

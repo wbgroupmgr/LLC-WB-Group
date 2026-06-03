@@ -495,6 +495,10 @@ function cpaReviewOpen() {
 
 {% if meta.formId == 'Form1065' %}
 <script>
+// SCRIPT_NAME prefix: '/rentalTracker' on PA, '' locally.
+// url_for() includes it automatically — use these vars for all API calls.
+const _AGENT_STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
+const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
 // ── Form 1065 Agent Status Strip ─────────────────────────────────────────
 (function () {
     const STATE_LABEL = {
@@ -572,7 +576,7 @@ function cpaReviewOpen() {
     window.agentRunStart = function () {
         const btn = document.getElementById('agentRunBtn');
         btn.disabled = true; btn.textContent = '⏳ Running…';
-        fetch('/api/agent/form1065/start', {method: 'POST',
+        fetch(_AGENT_START_URL, {method: 'POST',
               headers: {'Content-Type': 'application/json'}, body: '{}'})
           .then(r => r.json())
           .then(data => {
@@ -592,7 +596,7 @@ function cpaReviewOpen() {
     }
 
     // Auto-load summary on page open
-    fetch('/api/agent/form1065/status')
+    fetch(_AGENT_STATUS_URL)
       .then(r => r.json())
       .then(data => {
           if (data.ok && data.summary) renderStrip(data.summary);
