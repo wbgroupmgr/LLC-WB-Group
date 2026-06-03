@@ -1,6 +1,6 @@
 # Form1065Agent — Design Document
 
-**Status:** v0.4 — revised 2026-06-02 (3-tier architecture; multi-year adaptation added)
+**Status:** v0.7 — revised 2026-06-02 (Form1065Agent scope = Form 1065 only; AgentForm_Ext = advisory only)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
 - `docs/design_BUS_04.0-LLCTaxAgent.md` -master compliance coordinator for **Tax Preparation** and submission to IRS
@@ -30,14 +30,16 @@ FormPackage = {
     'tax_year':       int,
     'form_ready':     bool,          # True when all sections GO
     'pdf_artifacts':  {
-        'Form4562':   Path,
-        'Form8825':   Path,
         'Form1065':   Path,
-        'Sch_K1':     {oID: Path},   # per partner
     },
     'summary_letter':     Path,      # IRS_Form1065_{year}_Summary.pdf
     'completion_report':  Path,      # Agent_1065_Report_{ts}.json
     'halt_overrides':     list,
+    'ext_artifacts':  {
+        'Form4562':   "...interdependency, why..., use Form4562Agent",
+        'Form8825':   "...interdependency, why..., use Form8825Agent",
+        'Sch_K1':     "...interdependency per {oID: Path}, why..., use FormSchK1Agent",   # per partner
+    },
 }
 ```
 
@@ -153,7 +155,7 @@ def inventory(self) -> FormInventory:
     """
 ```
 
-**Role B — Passes 1–5: Generate Extension Forms**
+**Role B — Passes 1–5: Identify Extension Advice**
 
 `AgentForm_Ext` owns and generates the forms that are extensions of (but separate from) the main Form 1065 pages:
 
@@ -228,14 +230,14 @@ The system is organized into **four tiers**. The **LLCTaxAgent (Tier 0)** sits a
       └─────────────────────┘  └──────────────────┘  └──────────────────────┘
       ┌─────────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
       │  AgentF1065_IncStmt │  │ AgentF1065_Distr  │  │ AgentForm_Ext        │
-      │  (Page 1, Lines 1-23│  │ (Schedule K)      │  │ (K-1s, 8825, 4562)  │
+      │  (Page 1, Lines 1-23│  │ (Schedule K)      │  │ (inventory + advice) │
       └─────────────────────┘  └──────────────────┘  └──────────────────────┘
 
       Each section agent implements the same 5-pass interface:
         pass1_auto_fill() → Pass1Result
         pass2_audit()     → Pass2Result (IssueList)
         pass3_dialog()    → IRSReadyState {GO | NO-GO}
-        pass4_finalize()  → fills fids, stores PDF artifacts
+        pass4_finalize()  → fills fids (AgentForm_Ext: no fids — returns ExtAdvice)
         pass5_summarize() → str  (IRS-facing summary paragraph)
 
                                         │ all section agents inherit from
@@ -271,7 +273,8 @@ The system is organized into **four tiers**. The **LLCTaxAgent (Tier 0)** sits a
 | Tier | Class | Responsibility | Reusable across forms? |
 |---|---|---|---|
 | **1** | `Form1065Agent` | Sequence 6 section agents through 3 phases; gate on GO; assemble final PDF + summary | No — specific to Form 1065 structure |
-| **2** | `AgentF1065_*` / `AgentForm_Ext` | Own a specific section's fid slice, rules, and expert IRS knowledge | No — specific to each section's content |
+| **2** | `AgentF1065_*` | Own a specific Form 1065 fid slice, rules, and expert IRS knowledge | No — specific to each section |
+| **2** | `AgentForm_Ext` | No fid ownership; provides Pass 0 `inventory()` + extension form advice to bookkeeper | No — specific to Form 1065 extension set |
 | **3** | `IRSFormsAgent` | Generic PDF fill, completeness audit, validation matrix runner, artifact storage | **Yes** — any IRS form agent inherits this |
 
 The critical insight: a future `Form8825Agent` or `Form4562Agent` would be Tier 1 orchestrators with their own Tier 2 section agents — all sharing the same Tier 3 common services. No code changes needed in Tier 3 to add a new form.
@@ -289,7 +292,7 @@ Each section agent owns a non-overlapping slice of `Form1065_namespace.json`. Th
 | `AgentF1065_Other` | `SchedB` | ~60 fids (Yes/No questions) |
 | `AgentF1065_Distr` | `SchedK` | ~80 fids (Lines 1–23 of Sched K) |
 | `AgentF1065_Reconcile` | `SchedL`, `SchedM1`, `SchedM2` | ~100 fids |
-| `AgentForm_Ext` | `SchedK1`, `Form8825`, `Form4562` | ~120 fids (per-partner × N) |
+| `AgentForm_Ext` | N/A — no fid ownership in Form 1065 namespace | — (reads books for inventory; advises bookkeeper) |
 
 ---
 
@@ -322,7 +325,7 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 | IS-R02 | Lines 1–8 should be $0 for a pure rental LLC | Form 1065 Instructions, Line 1a |
 | IS-R03 | Line 23 (Ordinary Business Income) = Line 8 − Line 22 | Arithmetic check |
 | IS-R04 | Guaranteed payments to partners (Line 10) must match `llcOwners` guaranteed payment field | IRC §707(c) |
-| IS-R05 | Depreciation on Line 16a must match Form 4562 total (dependency on `AgentForm_Ext`) | Form 4562 Instructions |
+| IS-R05 | Depreciation on Line 16a populated from `GL.Acct.Depr.*` books total; consistency with Form 4562 is a future cross-form check (issue #15) | Form 4562 Instructions |
 
 ---
 
@@ -342,13 +345,13 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 
 | Rule ID | Rule | IRS Cite |
 |---|---|---|
-| KD-R01 | Schedule K Line 2 must equal Form 8825 Line 23 (net rental income) — cross-agent dependency | Form 8825 Instructions |
+| KD-R01 | Schedule K Line 2 = `IS.rent_income − IS.rent_expenses` (computed from books); consistency with Form 8825 Line 23 is a future cross-form check (issue #15) | Form 1065 Instructions, Sched K |
 | KD-R02 | Schedule K Line 5 (interest income) must match IS `interest_income` | Sched K Instructions |
 | KD-R03 | Sum of all K-1 Box 2 allocations must equal Schedule K Line 2 | IRC §704(b) |
 | KD-R04 | Schedule K Line 19a (distributions) must match sum of `llcOwners` distributions | IRC §731 |
 | KD-R05 | No self-employment income on Line 14 for a passive rental LLC | IRC §1402(a)(13); Pub 541 |
 
-**Dependency:** `AgentF1065_Distr` cannot reach GO until `AgentForm_Ext` is GO (Form 8825 Line 23 is needed for KD-R01).
+**No external dependency:** `AgentF1065_Distr` reads Schedule K Line 2 directly from the books (`IS.*`). It does not depend on Form 8825 being generated — Form 8825 is a future separate agent whose consistency with Schedule K Line 2 is validated by LLCTaxAgent issue #15.
 
 ---
 
@@ -370,16 +373,18 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 
 ### 3.6 `AgentForm_Ext` Expert Rules
 
-| Rule ID | Rule | IRS Cite |
-|---|---|---|
-| EX-R01 | One K-1 PDF generated per partner in `llcOwners` | Form 1065 Instructions, §563 |
-| EX-R02 | K-1 Box 2 = Form 8825 net × partner ownership % | IRC §704(b) |
-| EX-R03 | K-1 Box 14 (SE income) = $0 for passive rental LLC | IRC §1402(a)(13) |
-| EX-R04 | K-1 Box L capital (end) matches M-2 per-partner ending capital | Sched K-1, Box L |
-| EX-R05 | Form 8825: one column per active property; under-construction properties excluded (§168) | Form 8825 Instructions |
-| EX-R06 | Form 4562 required if any depreciation is claimed; Part II MACRS for residential property | Form 4562 Instructions |
-| EX-R07 | MACRS 27.5-year straight-line for residential rental; mid-month convention in year placed in service | IRC §168; Pub 946 Table A-7a |
-| EX-R08 | No K-2/K-3: no foreign partners or international assets | Confirmed out of scope |
+`AgentForm_Ext` does not fill form fields. Its rules are **scope-assessment checks** — they determine what the bookkeeper must still do after Form 1065 is complete. All rules emit advisory messages surfaced in the bookkeeper dialog and the `ext_artifacts` advice block.
+
+| Rule ID | Advisory Check | IRS Cite | Advice to Bookkeeper |
+|---|---|---|---|
+| EX-R01 | Count partners in `llcOwners` | Form 1065 Instructions, §563 | "You need {N} Schedule K-1s — use SchK1Agent (future) or prepare manually" |
+| EX-R02 | K-1 Box 2 allocation formula | IRC §704(b) | "K-1 Box 2 = IS.net_rental × partner %; verify after Form 8825 is generated" |
+| EX-R03 | Passive rental LLC → K-1 Box 14 = $0 | IRC §1402(a)(13) | "Confirm no SE income on K-1 Box 14 — rental income is passive" |
+| EX-R04 | M-2 per-partner capital → K-1 Box L | Sched K-1, Box L | "K-1 Box L must match M-2 ending capital; verify when K-1s are generated" |
+| EX-R05 | Active properties → Form 8825 columns needed | Form 8825 Instructions | "{N} active properties require Form 8825; use Form8825Agent (future) or prepare manually" |
+| EX-R06 | Depreciation exists → Form 4562 required | Form 4562 Instructions | "Depreciation found in GL — Form 4562 required; use Form4562Agent (future) or prepare manually" |
+| EX-R07 | MACRS class and convention | IRC §168; Pub 946 Table A-7a | "Residential rental: 27.5-yr MACRS, mid-month convention; verify on Form 4562" |
+| EX-R08 | Under-construction assets excluded from Form 8825 | IRC §168 | "{asset} is under construction — exclude from Form 8825 until placed in service" |
 
 ---
 
@@ -497,14 +502,27 @@ Pass2Result = {
 **Orchestrator assembly (Form1065Agent.phase2_publish):**
 
 ```
-PDF generation order (dependency chain):
-  1. Form4562_FILL.pdf         ← depreciation totals needed by Form 8825 and Form 1065
-  2. Form8825_FILL.pdf         ← net rental income needed by Sched K Line 2
-  3. Form1065_FILL.pdf         ← all 5 pages (all section fillDicts merged)
-  4. Sch_K1_o{oID}_FILL.pdf   ← one per partner (N iterations)
+PDF output — Form1065Agent scope only:
+  Form1065_FILL.pdf     ← all 5 pages; merge of all Form 1065 section fillDicts
+                           stored via IRSFormsAgent.store_form_artifact()
+
+Extension forms (NOT generated here — separate future agents):
+  Form4562_FILL.pdf     ← Form4562Agent (future)
+  Form8825_FILL.pdf     ← Form8825Agent (future)
+  Sch_K1_o{oID}.pdf    ← SchK1Agent (future)
+  → Advice in FormPackage.ext_artifacts; bookkeeper prepares manually until agents exist
 ```
 
-All PDFs stored via `IRSFormsAgent.store_form_artifact()` → `books/{year}/Forms/`.
+`AgentForm_Ext.pass4()` returns `ExtAdvice` (no PDF produced):
+```python
+ExtAdvice = {
+    'Form8825': {'count': int, 'properties': list, 'advice': str},
+    'Form4562': {'required': bool, 'advice': str},
+    'Sch_K1':   {'count': int, 'partners': list, 'advice': str},
+}
+```
+
+This `ExtAdvice` populates `FormPackage.ext_artifacts` for display to the bookkeeper.
 
 ---
 
@@ -568,14 +586,11 @@ class Form1065Agent(IRSFormsAgent):
     def phase2_publish(self) -> PhaseResult:
         """
         Only called when _check_all_go() is True.
-        Drives Pass 4 in dependency order:
-          1. AgentForm_Ext.pass4()     (Form4562 + Form8825 + K-1s)
-          2. AgentF1065_IncStmt.pass4()
-          3. AgentF1065_Other.pass4()
-          4. AgentF1065_Distr.pass4()  (after AgentForm_Ext — needs Form 8825 Line 23)
-          5. AgentF1065_Info.pass4()
-          6. AgentF1065_Reconcile.pass4()
-        Merges all section fillDicts → generate_pdf(Form1065_FILL.pdf)
+        Drives Pass 4 for the 5 Form 1065 section agents (any order — no inter-section deps):
+          AgentF1065_Info / IncStmt / Other / Distr / Reconcile
+        Then calls AgentForm_Ext.pass4() → ExtAdvice (no PDF).
+        Merges 5 fillDict slices → generate_pdf(Form1065_FILL.pdf).
+        Stores ExtAdvice in FormPackage.ext_artifacts.
         """
 
     def phase3_summary(self) -> PhaseResult:
@@ -590,8 +605,9 @@ class Form1065Agent(IRSFormsAgent):
 
     def _resolve_dependencies(self) -> list:
         """
-        Returns section agents in Pass 4 execution order,
-        respecting: AgentForm_Ext before AgentF1065_Distr.
+        Returns the 5 Form 1065 section agents in Pass 4 execution order.
+        AgentForm_Ext is called last and separately (returns ExtAdvice, not fillDict).
+        No inter-section dependencies within Form 1065 — all read from books directly.
         """
 
     def _build_summary_letter(self, summaries: dict) -> Path:
@@ -625,21 +641,20 @@ Form1065Agent.phase1_prepare()
 ```
 Form1065Agent.phase2_publish()
     │
-    ├── AgentForm_Ext.pass4()
-    │     ├── generate Form4562_FILL.pdf
-    │     ├── generate Form8825_FILL.pdf
-    │     └── generate Sch_K1_o{oID}_FILL.pdf (×N partners)
-    │
-    ├── AgentF1065_IncStmt.pass4()   ─┐
-    ├── AgentF1065_Other.pass4()      │ fill their fid slices
-    ├── AgentF1065_Distr.pass4()      │ (uses Form8825 Line 23 output)
-    ├── AgentF1065_Info.pass4()       │
-    └── AgentF1065_Reconcile.pass4() ─┘
+    ├── AgentF1065_Info.pass4()        ─┐
+    ├── AgentF1065_IncStmt.pass4()      │ each returns its fillDict slice
+    ├── AgentF1065_Other.pass4()        │ (all read from books via bookNS)
+    ├── AgentF1065_Distr.pass4()        │
+    └── AgentF1065_Reconcile.pass4()   ─┘
           │
-          └── merge all fillDicts
+          └── merge all 5 fillDict slices
                 → generate_pdf(Form1065_IRS.pdf → Form1065_FILL.pdf)
-                → store_form_artifact()
+                → store_form_artifact() → books/{year}/Forms/Form1065_FILL.pdf
                 → write CompletionReport JSON
+    │
+    └── AgentForm_Ext.pass4()
+          └── returns ExtAdvice (no PDF)
+                → stored in FormPackage.ext_artifacts
 ```
 
 ### 5.3 Phase 3 — IRS Summary Letter
@@ -650,12 +665,17 @@ Form1065Agent.phase3_summary()
     ├── for each section_agent: section_agent.pass5_summarize() → paragraph str
     │
     └── _build_summary_letter({
-            'info':      "W&B Group, LLC (EIN ...) ...",
-            'income':    "No ordinary business income ...",
-            'other':     "Schedule B completed. Schedules L/M-1/M-2 not required ...",
-            'distr':     "Net rental income: $X allocated per §704(b) ...",
-            'reconcile': "Not required per Schedule B Q4 ...",
-            'ext':       "3 Schedule K-1s generated. Form 8825: 1 property. Form 4562: ...",
+            'info':      "W&B Group, LLC (EIN XX-XXXXXXX) files Form 1065 for TY 2025 ...",
+            'income':    "No ordinary business income on Pg 1. All rental activity passive (§469) ...",
+            'other':     "Schedule B complete. Schedules L/M-1/M-2 not required (below threshold) ...",
+            'distr':     "Net rental income: $X per books; allocated per §704(b) ...",
+            'reconcile': "Schedules L/M-1/M-2 skipped (Schedule B Q4 = Yes) ...",
+            'ext':       "NEXT STEPS REQUIRED: (1) Prepare Form 8825 (1 active property: H_805HighMesa) "
+                         "— use Form8825Agent when available or manual preparation. "
+                         "(2) Prepare Form 4562 (MACRS depreciation claimed) "
+                         "— use Form4562Agent when available or manual preparation. "
+                         "(3) Prepare 3 Schedule K-1s (partners: oID_1, oID_2, oID_3) "
+                         "— use SchK1Agent when available or manual preparation.",
         })
         → IRS_Form1065_2025_Summary.pdf
 ```
@@ -837,17 +857,20 @@ Rules are grouped by owning section agent. The orchestrator aggregates all rules
 | RC-R08 | WARN | M-2 capital basis method not confirmed as tax basis | No |
 | RC-R09 | WARN | Partner ending capital out of tolerance (±$1.00) | No |
 
-### `AgentForm_Ext` Rules
+### `AgentForm_Ext` Rules (Advisory Only — no fids filled)
 
-| Rule ID | Severity | Description | Auto-fix? |
+All EX rules are **INFO or ADVISORY** — they surface bookkeeper to-do items, not Form 1065 errors. No EX rule blocks the Form 1065 from reaching GO.
+
+| Rule ID | Severity | Advisory to Bookkeeper | Action |
 |---|---|---|---|
-| EX-R01 | ERROR | K-1 count ≠ partner count in llcOwners | No |
-| EX-R02 | ERROR | K-1 Box 2 allocation × partners ≠ Sched K Line 2 | No |
-| EX-R03 | WARN | K-1 Box 14 non-zero for passive rental LLC | No |
-| EX-R04 | WARN | K-1 Box L ending capital ≠ M-2 per-partner ending | No |
-| EX-R05 | INFO | Under-construction asset excluded from Form 8825 (§168 compliant) | — |
-| EX-R06 | WARN | Depreciation claimed but Form 4562 not generated | Yes — trigger 4562 gen |
-| EX-R07 | ERROR | MACRS rate applied incorrectly (check mid-month convention) | No |
+| EX-R01 | INFO | "{N} Schedule K-1s required (1 per partner in llcOwners)" | Prepare via SchK1Agent (future) or manually |
+| EX-R02 | INFO | "K-1 Box 2 = IS.net_rental × partner %; verify after Form 8825 is ready" | No action on Form 1065 |
+| EX-R03 | INFO | "Confirm K-1 Box 14 = $0 — passive rental LLC, no SE income" | Bookkeeper confirms |
+| EX-R04 | INFO | "K-1 Box L must match M-2 ending capital per partner" | Verify when K-1s are generated |
+| EX-R05 | INFO | "Form 8825 required: {N} active properties ({list})" | Prepare via Form8825Agent (future) or manually |
+| EX-R06 | INFO | "Under-construction asset {name} excluded from Form 8825 (§168 — not placed in service)" | No action required |
+| EX-R07 | INFO | "Form 4562 required: depreciation found in GL" | Prepare via Form4562Agent (future) or manually |
+| EX-R08 | INFO | "MACRS: residential rental = 27.5-yr SL, mid-month convention" | Verify on Form 4562 |
 
 ---
 
