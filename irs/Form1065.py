@@ -92,37 +92,24 @@ _FILL_MAP: Dict[str, Dict] = {
     "P1_I":  {"source": "owners", "path": "count",
               "note": "Number of Schedule K-1s = number of partners"},
 
-    # ── Page 1 Income ──────────────────────────────────────────────────────
-    "P1_1a": {"source": "IS", "path": "rent_income",
-              "note": "Gross rental receipts  (Acct.Rev.Rent.*)"},
-    "P1_1c": {"source": "IS", "path": "rent_income",
-              "note": "Line 1c = 1a − 1b  (1b blank/zero for rental)"},
-    "P1_3":  {"source": "IS", "path": "rent_income",
-              "note": "Gross profit = 1c − 2  (Line 2 COGS=0 for rental)"},
-    "P1_7":  {"source": "IS", "path": "other_income",
-              "note": "Other income  (Acct.Rev.* excl. Rent)"},
-    "P1_8":  {"source": "IS", "path": "total_income",
-              "note": "Total income = sum of lines 3–7"},
+    # ── Page 1 Income (Lines 1–8) ─────────────────────────────────────────
+    # For a rental LLC partnership, ALL rental income flows through Form 8825
+    # (IRC §469(c)(2)) and reaches Form 1065 ONLY via Schedule K Line 2.
+    # Page 1 Lines 1–8 must be BLANK/$0 — they report ORDINARY business income
+    # only (trade or business activity, not passive rental activity).
+    # DO NOT map rent_income, total_income, or any rental-related path here.
 
-    # ── Page 1 Deductions ─────────────────────────────────────────────────
-    "P1_9":   {"source": "IS", "path": "salaries",
-               "note": "Salaries and wages  (Acct.Exp.Salary.*)"},
-    "P1_11":  {"source": "IS", "path": "repairs",
-               "note": "Repairs and maintenance  (Acct.Exp.Repair.*)"},
-    "P1_14":  {"source": "IS", "path": "taxes_licenses",
-               "note": "Taxes and licenses  (Acct.Exp.Tax.*)"},
-    "P1_15":  {"source": "IS", "path": "interest_expense",
-               "note": "Interest expense  (Acct.Exp.Interest.*)"},
-    "P1_16a": {"source": "IS", "path": "depreciation",
-               "note": "Depreciation expense  (Acct.Exp.Depr.*)"},
-    "P1_16c": {"source": "IS", "path": "depreciation",
-               "note": "Net depreciation = 16a − 16b  (16b blank here)"},
-    "P1_21":  {"source": "IS", "path": "other_deductions",
-               "note": "Other deductions not listed above"},
-    "P1_22":  {"source": "IS", "path": "total_expenses",
-               "note": "Total deductions = sum of lines 9–21"},
-    "P1_23":  {"source": "IS", "path": "net_income",
-               "note": "Ordinary business income (loss) = Line 8 − Line 22"},
+    # ── Page 1 Deductions (Lines 9–22) ───────────────────────────────────
+    # For a pure rental LLC, ALL expenses (repairs, depreciation, taxes,
+    # interest) are rental expenses and belong on Form 8825, not here.
+    # Form 1065 Page 1 deductions are for ORDINARY business activities only.
+    # Lines 9–22 must be BLANK/$0.  Depreciation goes on Form 8825 Line 14
+    # (and Form 4562 Part III) — it does NOT appear on Page 1 Line 16a.
+    # Line 23 (Ordinary business income/loss) = $0 for a pure rental LLC.
+
+    # ── Schedule K (Page 4) ───────────────────────────────────────────────
+    # K_1 (ordinary business income) = $0 — left blank (do not map)
+    # K_2 (net rental real estate income/loss) = IS.net_rental (Books-First)
 
     # ── Page 1 Paid Preparer ──────────────────────────────────────────────
     "P1_PP_0": {"source": "F1065", "path": "preparer_name",
@@ -172,11 +159,10 @@ _FILL_MAP: Dict[str, Dict] = {
     "B_25Fm":  {"source": "owners", "path": "count",
                 "note": "Number of Schedule K-1s attached"},
 
-    # ── Schedule K (Page 5) ───────────────────────────────────────────────
-    "K_1":    {"source": "IS", "path": "net_income",
-               "note": "Ordinary business income (loss) — same as Pg1 Line 23"},
-    "K_2":    {"source": "IS", "path": "rent_income",
-               "note": "Net rental real estate income (loss)"},
+    # ── Schedule K (Page 4) ───────────────────────────────────────────────
+    # K_1 (ordinary business income) = $0 for rental LLC — NOT mapped here.
+    "K_2":    {"source": "IS", "path": "net_rental",
+               "note": "Net rental real estate income/loss (IS.net_rental = total_income − total_expenses); flows from Form 8825 Line 21 per §469"},
     "K_5":    {"source": "IS", "path": "interest_income",
                "note": "Interest income  (Acct.Rev.Interest.*)"},
     "K_19a":  {"source": "IS", "path": "distributions_cash",
@@ -213,12 +199,13 @@ _FILL_MAP: Dict[str, Dict] = {
                 "note": "Total liabilities and capital — end of year"},
 
     # ── Schedule M-1 ──────────────────────────────────────────────────────
+    # M-1 is only required if Schedule B Q4 threshold is crossed (gross receipts
+    # ≥ $250K AND total assets ≥ $1M).  For below-threshold LLCs leave blank.
+    # M-1 Line 1 = net income per books (correct regardless of threshold).
+    # M-1 Line 9 = income per return = Schedule K Line 1 = $0 for rental LLC
+    # (NOT IS.net_income). M1_9 is intentionally left unmapped (blank = $0).
     "M1_1":    {"source": "IS", "path": "net_income",
-                "note": "Net income (loss) per books"},
-    "M1_5":    {"source": "IS", "path": "net_income",
-                "note": "M-1 Line 5 subtotal (simplified = net_income)"},
-    "M1_9":    {"source": "IS", "path": "net_income",
-                "note": "Income per return (simplified when no M-1 adjustments)"},
+                "note": "Net income (loss) per books — M-1 Line 1"},
 
     # ── Schedule M-2 ──────────────────────────────────────────────────────
     "M2_2a":   {"source": "owners", "path": "cash_contributions",
@@ -236,8 +223,22 @@ _FILL_MAP: Dict[str, Dict] = {
 # Fields that need CPA / manual entry
 _CPA_NOTES: Dict[str, str] = {
     "P1_Hdr_6": "Suite / Room / Apt — blank for this LLC",
-    "P1_1b":    "Returns and allowances — enter 0 or blank for rental LLC",
-    "P1_2":     "Cost of goods sold — enter 0 for rental LLC",
+    "P1_1a":    "Gross receipts — BLANK for rental LLC. Rental income flows Form 8825 → Sched K Line 2 (IRC §469). Do not enter rental income here.",
+    "P1_1b":    "Returns and allowances — blank for rental LLC",
+    "P1_1c":    "Line 1c (1a − 1b) — BLANK for rental LLC (see P1_1a note)",
+    "P1_2":     "Cost of goods sold — blank for rental LLC",
+    "P1_3":     "Gross profit (Line 1c − 2) — BLANK for rental LLC (all income via Form 8825)",
+    "P1_7":     "Other income — BLANK for rental LLC (non-rental ordinary income only; rental activity is on Form 8825)",
+    "P1_8":     "Total income (Lines 3–7) — BLANK for rental LLC. Total ordinary income = $0.",
+    "P1_9":     "Salaries — BLANK. Rental expenses belong on Form 8825, not Page 1.",
+    "P1_11":    "Repairs — BLANK. Rental repairs on Form 8825 (IRC §469).",
+    "P1_14":    "Taxes and licenses — BLANK. Rental taxes on Form 8825.",
+    "P1_15":    "Interest expense — BLANK. Mortgage interest on Form 8825 Line 13.",
+    "P1_16a":   "Depreciation — BLANK on Page 1. Rental depreciation on Form 8825 Line 14 and Form 4562 Part III. IRC §168 deduction flows to Sched K Line 2 via Form 8825.",
+    "P1_16c":   "Net depreciation (16a − 16b) — BLANK. See P1_16a note.",
+    "P1_21":    "Other deductions — BLANK for rental LLC (rental other expenses on Form 8825).",
+    "P1_22":    "Total deductions (Lines 9–21) — BLANK for rental LLC ($0 ordinary business deductions).",
+    "P1_23":    "Ordinary business income/loss — BLANK for rental LLC. Rental income/loss reported on Schedule K Line 2 (net rental real estate income), NOT here.",
     "P1_4":     "Ordinary income from OTHER partnerships — CPA review",
     "P1_5":     "Net farm profit — not applicable",
     "P1_6":     "Net gain (loss) from Form 4797 — CPA review if property disposed",
@@ -250,8 +251,11 @@ _CPA_NOTES: Dict[str, str] = {
     "P1_19":    "Employee benefit programs — CPA review",
     "P1_20":    "Energy efficient commercial building deduction — CPA review",
     "P1_H":     "Accounting method (Cash / Accrual / Other) — CPA review",
+    "K_1":      "Ordinary business income (loss) — BLANK for rental LLC ($0). All rental activity on Schedule K Line 2.",
     "M1_2":     "Income on return not in books — CPA review",
     "M1_3":     "Guaranteed payments — CPA review",
+    "M1_5":     "M-1 subtotal (Lines 1–4) — CPA review; equals M-1 Line 1 when Lines 2–4 are $0",
+    "M1_9":     "Income per return (= Schedule K Line 1) — $0 for rental LLC; all rental income flows to Sched K Line 2, not Line 1",
     "M1_4a":    "Depreciation excess of tax over book — CPA review",
     "M1_4b":    "Travel & entertainment disallowed — CPA review",
     "M1_4c":    "Other book-not-return items — CPA review",
@@ -781,50 +785,47 @@ class Form1065(irsForm):
 
     def _resolveTaxData(self) -> Dict:
         """
-        Return IS/BS/owners data from the **official** stmtFinancialReport DB.
-
-        Always uses ``stmtFinancialReport(self.llc).taxData()``.
-        Working EditSessions are intentionally excluded.
-
-        Falls back to empty dicts (with warning) only if ``self.llc`` is None
-        or the import fails.
+        Return IS/BS/owners data sourced directly from stmtIS and stmtBS
+        (Books-First Rule — no cross-form data).
         """
-        if self.llc is not None:
-            try:
-                try:
-                    from ledger.stmtFinancialReport import stmtFinancialReport
-                except ImportError:
-                    from stmtFinancialReport import stmtFinancialReport
+        if self.llc is None:
+            if self.verbose:
+                print("  ⚠️  _resolveTaxData: self.llc is None")
+            return {"is_data": {}, "bs_data": {}, "owners": {}}
 
-                fr = stmtFinancialReport(self.llc)
-                td = self._getFRData(fr)
-
-                if self.verbose:
-                    ni = td.get("is_data", {}).get("net_income", "?")
-                    ta = td.get("bs_data", {}).get("total_assets", "?")
-                    print(f"  ℹ️  stmtFinancialReport loaded  "
-                          f"(net_income={ni}, total_assets={ta})")
-                return td
-
-            except Exception as exc:
-                if self.verbose:
-                    print(f"  ⚠️  _resolveTaxData: stmtFinancialReport failed: {exc}")
-
-        if self.verbose:
-            print("  ⚠️  _resolveTaxData: self.llc is None — "
-                  "pass llc to Form1065() or supply is_data/bs_data kwargs")
-        return {"is_data": {}, "bs_data": {}, "owners": {}}
-
-    def _getFRData(self, fr) -> Dict:
-        """
-        Call ``fr.taxData()`` and return the parsed dict
-        ``{ is_data, bs_data, owners, meta }``.
-        """
         try:
-            return json.loads(fr.taxData())
+            from ledger.stmtIS import stmtIS
+            from ledger.stmtBS import stmtBS
+            from ledger.llcOwners import llcOwners
+
+            is_agg = stmtIS(self.llc).taxAggregates()
+            bs_agg = stmtBS(self.llc).taxAggregates()
+
+            # Owner aggregates for partner count, contributions, distributions
+            try:
+                owners_obj = llcOwners(self.llc)
+                owners_list = owners_obj.load() if hasattr(owners_obj, 'load') else []
+                cash_contrib = sum(float(o.get('contributions', 0) or 0) for o in owners_list)
+                distrib      = sum(float(o.get('distributions', 0) or 0) for o in owners_list)
+                owners_agg = {
+                    "count":              str(len(owners_list)),
+                    "cash_contributions": cash_contrib,
+                    "distributions_cash": distrib,
+                }
+            except Exception:
+                owners_agg = {"count": "0", "cash_contributions": 0.0, "distributions_cash": 0.0}
+
+            if self.verbose:
+                print(f"  ✅ IS/BS loaded from stmtIS/stmtBS  "
+                      f"(net_rental={is_agg.get('net_rental')}, "
+                      f"depreciation={is_agg.get('depreciation')}, "
+                      f"total_assets={bs_agg.get('total_assets')})")
+
+            return {"is_data": is_agg, "bs_data": bs_agg, "owners": owners_agg}
+
         except Exception as exc:
             if self.verbose:
-                print(f"  ⚠️  _getFRData: taxData() failed: {exc}")
+                print(f"  ⚠️  _resolveTaxData: failed: {exc}")
             return {"is_data": {}, "bs_data": {}, "owners": {}}
 
 

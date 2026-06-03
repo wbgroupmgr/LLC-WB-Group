@@ -502,8 +502,13 @@ class stmtIS_Tax(stmtIS):
             acct = getattr(self.llc, 'dirAccounting', '') or ''
             yr   = getattr(self.llc, 'YEAR', None) or getattr(self.llc, 'yr', None)
             yr   = str(int(yr)) if yr else ''
-            return _os.path.join(top, acct, yr, self.BKNS_FN) if yr \
-                   else _os.path.join(top, acct, self.BKNS_FN)
+            # bookNS files live in books/{year}/Forms/ (IRS forms directory)
+            if yr:
+                p = _os.path.join(top, acct, yr, 'Forms', self.BKNS_FN)
+                if _os.path.exists(p):
+                    return p
+                return _os.path.join(top, acct, yr, self.BKNS_FN)
+            return _os.path.join(top, acct, self.BKNS_FN)
         except Exception:
             return ''
 
