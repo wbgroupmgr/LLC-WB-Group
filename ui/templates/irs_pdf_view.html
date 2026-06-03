@@ -592,7 +592,7 @@ function cpaReviewOpen() {
     }
 
     // Auto-load summary on page open
-    fetch('/api/agent/form1065/getSummary')
+    fetch('/api/agent/form1065/status')
       .then(r => r.json())
       .then(data => {
           if (data.ok && data.summary) renderStrip(data.summary);

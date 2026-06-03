@@ -1533,31 +1533,43 @@ class llcMgmt:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
         # ── Form 1065 Agent routes ─────────────────────────────────────────────
+        # Pre-import at bind time so a missing file surfaces as a startup error,
+        # not a silent 404.  Guarded so a missing taxAgents package degrades
+        # gracefully (returns 503) rather than crashing the whole _bind_routes.
+        try:
+            from irs.taxAgents.Form1065Agent import Form1065Agent as _Form1065Agent
+            app.logger.info("Form1065Agent loaded OK")
+            _agent_import_err = None
+        except Exception as _e:
+            _Form1065Agent    = None
+            _agent_import_err = str(_e)
+            app.logger.error("Form1065Agent import FAILED: %s", _e)
 
-        @app.route("/api/agent/form1065/getSummary")
+        @app.route("/api/agent/form1065/status")
         def agent_form1065_get_summary():
             """Return per-section SectionSummary for the Form 1065 status strip."""
+            if _Form1065Agent is None:
+                return jsonify({'ok': False,
+                                'error': f'Form1065Agent unavailable: {_agent_import_err}'}), 503
             try:
-                from irs.taxAgents.Form1065Agent import Form1065Agent
-                llc   = self.eSession.llc
-                agent = Form1065Agent(llc)
+                agent = _Form1065Agent(self.eSession.llc)
                 data  = agent.getSummary()
-                app.logger.debug("agent/getSummary ok — state=%s", data.get('overall_state'))
+                app.logger.debug("agent/status ok — state=%s", data.get('overall_state'))
                 return jsonify({'ok': True, 'summary': data})
             except Exception as err:
-                app.logger.exception("agent/getSummary failed")
+                app.logger.exception("agent/status failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
         @app.route("/api/agent/form1065/start", methods=["POST"])
         def agent_form1065_start():
             """Run Pass 1 + Pass 2 for all section agents; write session state."""
+            if _Form1065Agent is None:
+                return jsonify({'ok': False,
+                                'error': f'Form1065Agent unavailable: {_agent_import_err}'}), 503
             try:
-                from irs.taxAgents.Form1065Agent import Form1065Agent
-                llc    = self.eSession.llc
-                agent  = Form1065Agent(llc)
+                agent  = _Form1065Agent(self.eSession.llc)
                 app.logger.info("agent/start — running Passes 1+2")
                 result = agent.run_phases_1_2()
-                # Return normalized list form same as getSummary
                 summary = agent._normalize_summary(result)
                 app.logger.info("agent/start done — state=%s", summary.get('overall_state'))
                 return jsonify({'ok': True, 'summary': summary})
