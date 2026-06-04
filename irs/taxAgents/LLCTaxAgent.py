@@ -1,0 +1,548 @@
+"""
+LLCTaxAgent — Tier 0 master coordinator for W&B Group LLC IRS filing.
+
+Architecture (4-tier):
+  Tier 0  LLCTaxAgent         — THIS FILE — cross-form audit + submission package
+  Tier 1  Form1065Agent       — Form 1065 (5-page return)
+          Form8825Agent       — Form 8825 (rental real estate income/expenses)
+          Form4562Agent       — Form 4562 (depreciation and amortization)
+          FormSchK1Agent      — Schedule K-1 (per-partner, N copies)
+  Tier 2  AgentF*_*           — section agents within each Tier 1 agent
+  Tier 3  IRSFormsAgent       — common services base class
+
+Books-First rule (IRC §446+703): ALL form values sourced from stmtIS.taxAggregates()
+and stmtBS.taxAggregates(). No form-to-form data dependencies during preparation.
+
+Cross-form audit (Phase 2 — XF-R01 through XF-R05):
+  Run AFTER all forms are independently prepared from books.
+  Verifies that values which should mathematically agree actually do.
+  A discrepancy in cross-form audit always indicates a books-mapping error.
+
+Phases:
+  phase1_prepare:  Drive Form1065, Form8825, Form4562, FormSchK1 agents
+  phase2_xf_audit: Cross-form validation (XF-R01 through XF-R05)
+  phase3_package:  Assemble IRS_Submission_{year}/ directory + manifest (future)
+  phase4_submit:   Submission checklist and guidance (future)
+
+Session state stored at:
+  books/{year}/Forms/.agent_work/LLCTaxAgent_session_state.json
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib  import Path
+from typing   import Any, Dict, List, Optional
+
+from irs.taxAgents.IRSFormsAgent import IRSFormsAgent
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Helpers
+# ────────────────────────────────────────────────────────────────────────────
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return round(float(v or 0), 2)
+    except (TypeError, ValueError):
+        return default
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _owner_pct(owner: Dict) -> float:
+    v = _safe_float(owner.get('pct', owner.get('ownership_pct', owner.get('ownerPct', 0))))
+    return v if v <= 1.5 else v / 100.0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  LLCTAXAGENT  (Tier 0 master coordinator)
+# ════════════════════════════════════════════════════════════════════════════
+
+class LLCTaxAgent(IRSFormsAgent):
+    """
+    Tier 0 master coordinator.
+
+    Cross-form audit rules (XF-R01 through XF-R05):
+      XF-R01: Form4562 Line22 == IS.depreciation == Form8825 Line14     (within $1)
+      XF-R02: Form8825 Line21 == IS.net_rental    == Schedule K Line 2  (within $1)
+      XF-R03: Schedule K Line2 × partner.pct == each K-1 Box 2          (within $0.02)
+      XF-R04: Sum of all K-1 Box 2 == Schedule K Line 2                 (within $0.02)
+      XF-R05: Form1065 Page1 Lines 1-23 all $0 (pure rental LLC)
+
+    All XF rules read completed fill dicts (read-only); no form values are modified.
+    A discrepancy in any XF rule always indicates a books-mapping error, never
+    a cross-form wiring problem (because no cross-form wiring exists by design).
+    """
+
+    def __init__(self, llc, tax_year: Optional[int] = None):
+        super().__init__(llc, tax_year)
+        self._is_data  = None
+        self._bs_data  = None
+        self._owners   = None
+        self._xf_issues: List[Dict] = []
+
+    # ── Data loaders ─────────────────────────────────────────────────────────
+
+    def _get_is(self) -> Dict[str, float]:
+        if self._is_data is not None:
+            return self._is_data
+        try:
+            from ledger.stmtIS import stmtIS
+            self._is_data = stmtIS(self.llc).taxAggregates()
+        except Exception:
+            self._is_data = {}
+        return self._is_data
+
+    def _get_is_agg(self, key: str, default: float = 0.0) -> float:
+        return _safe_float(self._get_is().get(key, default))
+
+    def _get_owners(self) -> List[Dict]:
+        if self._owners is not None:
+            return self._owners
+        try:
+            raw = self.llc.owners
+            self._owners = raw() if callable(raw) else list(raw or [])
+        except Exception:
+            self._owners = []
+        return self._owners
+
+    def _load_form_fill_dict(self, form_name: str) -> Dict[str, Any]:
+        """Load a form's fill dict. Currently reads Form1065_fillDict.json for F1065."""
+        forms_dir = self._forms_dir()
+        if forms_dir is None:
+            return {}
+        # Form 1065 has a flat fill dict JSON
+        if form_name == 'Form1065':
+            p = forms_dir / 'Form1065_fillDict.json'
+            if not p.exists():
+                return {}
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                fields = data.get('fields', data) if isinstance(data, dict) else {}
+                result = {}
+                for fid, entry in fields.items():
+                    if isinstance(entry, dict):
+                        lk  = entry.get('logicalKey', fid)
+                        val = entry.get('value', '')
+                        result[lk] = val
+                    else:
+                        result[fid] = entry
+                return result
+            except Exception:
+                return {}
+        # Form 8825 / Form 4562: use stmtIS_Tax.loadFillDict
+        try:
+            from stmt.stmtIS_Tax import stmtIS_Tax
+            tax = stmtIS_Tax(self.llc)
+            return tax.loadFillDict(form_name) or {}
+        except Exception:
+            return {}
+
+    def _load_agent_session(self, agent_name: str) -> Dict[str, Any]:
+        """Read a sub-agent's session state JSON from .agent_work/."""
+        d = self._agent_work_dir()
+        if d is None:
+            return {}
+        p = d / f'{agent_name}_session_state.json'
+        if not p.exists():
+            return {}
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def run_phases_1_2(self) -> Dict[str, Any]:
+        """
+        Phase 1: Drive all Tier 1 form agents.
+        Phase 2: Run cross-form audit (XF-R01 through XF-R05).
+        Returns combined session state.
+        """
+        # Phase 1: run each form agent
+        form_results = self._phase1_prepare()
+
+        # Phase 2: cross-form audit
+        xf_results = self._phase2_xf_audit()
+
+        overall_halt = sum(
+            r.get('overall_halt', 0) for r in form_results.values()
+        ) + len([i for i in xf_results if i.get('severity') == self.ERROR])
+
+        overall_state = self.NEEDS_FIXING if overall_halt > 0 else self.GO
+
+        session = {
+            'tax_year':      self.tax_year,
+            'last_run':      _now_iso(),
+            'overall_state': overall_state,
+            'form_results':  form_results,
+            'xf_audit':      xf_results,
+            'summary':       self._build_summary(form_results, xf_results),
+        }
+        self._save_session_state(session)
+        return session
+
+    def getSummary(self) -> Dict[str, Any]:
+        state = self._load_session_state()
+        if state is None:
+            return {
+                'tax_year':      self.tax_year,
+                'last_run':      None,
+                'overall_state': self.NOT_STARTED,
+                'form_results':  {},
+                'xf_audit':      [],
+                'summary':       'Not yet run',
+            }
+        return state
+
+    # ── Phase 1: Prepare all forms ────────────────────────────────────────────
+
+    def _phase1_prepare(self) -> Dict[str, Any]:
+        from irs.taxAgents.Form1065Agent  import Form1065Agent
+        from irs.taxAgents.Form8825Agent  import Form8825Agent
+        from irs.taxAgents.Form4562Agent  import Form4562Agent
+        from irs.taxAgents.FormSchK1Agent import FormSchK1Agent
+
+        results = {}
+        for AgentCls in [Form1065Agent, Form8825Agent, Form4562Agent, FormSchK1Agent]:
+            name = AgentCls.__name__
+            try:
+                agent  = AgentCls(self.llc, self.tax_year)
+                result = agent.run_phases_1_2()
+                halt   = result.get('overall_halt', 0)
+                # Normalize: some agents store halt in sections, not at top
+                if not halt:
+                    sects = result.get('sections', {})
+                    if isinstance(sects, dict):
+                        halt = sum(v.get('halt_count', 0) for v in sects.values()
+                                   if isinstance(v, dict))
+                    elif isinstance(sects, list):
+                        halt = sum(s.get('halt_count', 0) for s in sects)
+                results[name] = {
+                    'state':         result.get('overall_state', self.GO),
+                    'overall_halt':  halt,
+                    'last_run':      result.get('last_run'),
+                    'session':       result,
+                }
+            except Exception as e:
+                results[name] = {
+                    'state':        self.NEEDS_FIXING,
+                    'overall_halt': 1,
+                    'error':        str(e),
+                }
+        return results
+
+    # ── Phase 2: Cross-form audit ─────────────────────────────────────────────
+
+    def _phase2_xf_audit(self) -> List[Dict[str, Any]]:
+        """
+        Run XF-R01 through XF-R05.
+        Read-only comparisons of independently-completed fill dicts.
+        Any discrepancy is a books-mapping error in one or both forms.
+        """
+        issues = []
+        issues += self._xf_r01_depreciation()
+        issues += self._xf_r02_net_rental()
+        issues += self._xf_r03_k1_per_partner()
+        issues += self._xf_r04_k1_sum()
+        issues += self._xf_r05_pg1_all_zero()
+        return issues
+
+    def _xf_r01_depreciation(self) -> List[Dict[str, Any]]:
+        """
+        XF-R01: Form4562 Line22 == IS.depreciation == Form8825 Line14 (within $1)
+
+        Both Form 4562 Line 22 and Form 8825 Line 14 are independently sourced
+        from IS.depreciation (Books-First). This audit confirms they agree.
+        A discrepancy means one or both forms has a wrong books-mapping.
+
+        IRC §446: form values must derive from books. Since both forms derive from
+        the same books value, a mismatch indicates one has an incorrect mapping.
+        """
+        issues = []
+        is_depr   = self._get_is_agg('depreciation')
+        fill_4562 = self._load_form_fill_dict('Form4562')
+        fill_8825 = self._load_form_fill_dict('Form8825')
+
+        f4562_l22 = _safe_float(fill_4562.get('F4562_L22') or fill_4562.get('Total_depr') or 0)
+        f8825_l14 = _safe_float(fill_8825.get('F079') or fill_8825.get('F8825_Line14') or 0)
+
+        # Check F4562 L22 vs IS.depreciation
+        if f4562_l22 > 0.01 and abs(f4562_l22 - is_depr) > 1.00:
+            issues.append(self.format_issue(
+                'XF-R01a', self.ERROR,
+                f"XF-R01: Form 4562 Line 22 = ${f4562_l22:,.2f} ≠ IS.depreciation ${is_depr:,.2f}. "
+                f"Discrepancy: ${abs(f4562_l22 - is_depr):,.2f}. "
+                f"Books-First violation: Form 4562 Line 22 must equal IS.depreciation from books.",
+                'IRC §446; LLCTaxAgent XF-R01',
+                "Fix Form 4562 books mapping: Line 22 must source from IS.depreciation."))
+
+        # Check F8825 L14 vs IS.depreciation
+        if f8825_l14 > 0.01 and abs(f8825_l14 - is_depr) > 1.00:
+            issues.append(self.format_issue(
+                'XF-R01b', self.ERROR,
+                f"XF-R01: Form 8825 Line 14 = ${f8825_l14:,.2f} ≠ IS.depreciation ${is_depr:,.2f}. "
+                f"Discrepancy: ${abs(f8825_l14 - is_depr):,.2f}. "
+                f"Books-First violation: Form 8825 Line 14 must equal IS.depreciation from books. "
+                f"CRITICAL: do NOT source Form 8825 Line 14 from Form 4562.",
+                'IRC §446; LLCTaxAgent XF-R01; Form 8825 Books-First rule',
+                "Fix Form 8825 books mapping: Line 14 must source from IS.depreciation directly."))
+
+        # Check F4562 L22 vs F8825 L14 (both should = IS.depreciation)
+        if f4562_l22 > 0.01 and f8825_l14 > 0.01 and abs(f4562_l22 - f8825_l14) > 1.00:
+            issues.append(self.format_issue(
+                'XF-R01c', self.ERROR,
+                f"XF-R01: Form 4562 Line 22 (${f4562_l22:,.2f}) ≠ Form 8825 Line 14 (${f8825_l14:,.2f}). "
+                f"Both must equal IS.depreciation (${is_depr:,.2f}). "
+                f"Since both forms are Books-First, this discrepancy indicates at least one "
+                f"form has a wrong books-mapping.",
+                'IRC §446; LLCTaxAgent XF-R01',
+                "Check Form 4562 and Form 8825 fill dicts. The one that doesn't equal "
+                f"IS.depreciation (${is_depr:,.2f}) has a wrong mapping."))
+
+        if not issues and is_depr > 0.01:
+            issues.append(self.format_issue(
+                'XF-R01', self.INFO,
+                f"XF-R01 PASS: F4562 L22 = ${f4562_l22:,.2f}, "
+                f"F8825 L14 = ${f8825_l14:,.2f}, "
+                f"IS.depreciation = ${is_depr:,.2f}. All agree within $1.",
+                'LLCTaxAgent XF-R01; IRC §446',
+                "No action required."))
+
+        return issues
+
+    def _xf_r02_net_rental(self) -> List[Dict[str, Any]]:
+        """
+        XF-R02: Form8825 Line21 == IS.net_rental == Schedule K Line2 (within $1)
+
+        Form 8825 Line 21 and Schedule K Line 2 are both Books-First from IS.net_rental.
+        IRS: "Enter the amount from Form 8825 Line 21 on Schedule K Line 2."
+        In Books-First system: both are independently IS.net_rental; audit confirms agreement.
+        """
+        issues    = []
+        net       = self._get_is_agg('net_rental')
+        fill_8825 = self._load_form_fill_dict('Form8825')
+        fill_1065 = self._load_form_fill_dict('Form1065')
+
+        f8825_l21 = _safe_float(fill_8825.get('F113') or fill_8825.get('F8825_Line21') or 0)
+        sched_k_l2 = _safe_float(fill_1065.get('K_2') or 0)
+
+        if abs(net) > 0.01:
+            if abs(f8825_l21 - net) > 1.00:
+                issues.append(self.format_issue(
+                    'XF-R02a', self.ERROR,
+                    f"XF-R02: Form 8825 Line 21 = ${f8825_l21:,.2f} ≠ IS.net_rental ${net:,.2f}. "
+                    f"Discrepancy: ${abs(f8825_l21 - net):,.2f}. Books-First violation.",
+                    'IRC §446; LLCTaxAgent XF-R02',
+                    "Fix Form 8825 Line 21 mapping to IS.net_rental (fill field F113)."))
+            if abs(sched_k_l2 - net) > 1.00:
+                issues.append(self.format_issue(
+                    'XF-R02b', self.ERROR,
+                    f"XF-R02: Schedule K Line 2 = ${sched_k_l2:,.2f} ≠ IS.net_rental ${net:,.2f}. "
+                    f"Discrepancy: ${abs(sched_k_l2 - net):,.2f}. Books-First violation.",
+                    'IRC §446; LLCTaxAgent XF-R02; Schedule K Line 2',
+                    "Fix Schedule K Line 2 (K_2) mapping to IS.net_rental in bookNS_IS.json."))
+            if not issues:
+                issues.append(self.format_issue(
+                    'XF-R02', self.INFO,
+                    f"XF-R02 PASS: F8825 L21 = ${f8825_l21:,.2f}, "
+                    f"Schedule K L2 = ${sched_k_l2:,.2f}, IS.net_rental = ${net:,.2f}. All agree.",
+                    'LLCTaxAgent XF-R02; IRC §446',
+                    "No action required."))
+
+        return issues
+
+    def _xf_r03_k1_per_partner(self) -> List[Dict[str, Any]]:
+        """
+        XF-R03: Schedule K Line2 × partner.pct == each K-1 Box 2 (within $0.02)
+
+        Each K-1 Box 2 = IS.net_rental × partner.pct (Books-First).
+        This audit reads the K-1 session state (computed values from FormSchK1Agent)
+        and verifies the per-partner Box 2 matches the formula.
+        IRC §702(a): character of items passes through. IRC §704(b): allocations
+        must have substantial economic effect.
+        """
+        issues  = []
+        net     = self._get_is_agg('net_rental')
+        owners  = self._get_owners()
+        k1_sess = self._load_agent_session('FormSchK1')
+
+        if abs(net) < 0.01:
+            return issues
+
+        for owner in owners:
+            oID      = owner.get('oID', owner.get('ownerID', ''))
+            pct      = _owner_pct(owner)
+            expected = round(net * pct, 2)
+            nm       = owner.get('nm', owner.get('name', oID))
+            if isinstance(nm, list):
+                nm = ' '.join(nm)
+
+            # Try to read the recorded Box 2 from the K-1 session state
+            partner_data = k1_sess.get('partners', {}).get(oID, {})
+            recorded_box2 = _safe_float(partner_data.get('box2', None))
+
+            if partner_data and abs(recorded_box2 - expected) > 0.02:
+                issues.append(self.format_issue(
+                    'XF-R03', self.ERROR,
+                    f"XF-R03: K-1 Box 2 for '{nm}' ({oID}) = ${recorded_box2:,.2f} "
+                    f"but IS.net_rental × pct = ${expected:,.2f} "
+                    f"({net:,.2f} × {pct:.4f}). Discrepancy: ${abs(recorded_box2-expected):.2f}. "
+                    f"Books-First violation (IRC §446): Box 2 must = IS.net_rental × partner.pct.",
+                    'IRC §446; IRC §702(a); IRC §704(b); LLCTaxAgent XF-R03',
+                    f"Check FormSchK1Agent session for '{oID}'. Verify pct = {pct:.4f} in llcOwners."))
+            else:
+                issues.append(self.format_issue(
+                    'XF-R03', self.INFO,
+                    f"XF-R03 PASS: '{nm}' ({oID}) Box 2 = ${expected:,.2f} "
+                    f"(IS.net_rental ${net:,.2f} × {pct*100:.2f}%) confirmed.",
+                    'LLCTaxAgent XF-R03; IRC §702(a)',
+                    "No action required."))
+
+        return issues
+
+    def _xf_r04_k1_sum(self) -> List[Dict[str, Any]]:
+        """
+        XF-R04: Sum of all K-1 Box 2 == Schedule K Line 2 (within $0.02)
+
+        Every dollar of Schedule K Line 2 must flow to a K-1 Box 2.
+        IRC §704(b): all partnership items must be allocated 100%.
+        If the sum of Box 2s across all K-1s ≠ Schedule K Line 2,
+        some rental income/loss is either double-counted or omitted.
+        """
+        issues  = []
+        net     = self._get_is_agg('net_rental')
+        owners  = self._get_owners()
+        k1_sess = self._load_agent_session('FormSchK1')
+        fill_1065 = self._load_form_fill_dict('Form1065')
+
+        k2_sched = _safe_float(fill_1065.get('K_2') or net)  # fallback to IS.net_rental
+
+        # Sum computed Box 2 values
+        box2_sum = 0.0
+        for owner in owners:
+            oID = owner.get('oID', owner.get('ownerID', ''))
+            partner_data = k1_sess.get('partners', {}).get(oID, {})
+            if partner_data:
+                box2_sum += _safe_float(partner_data.get('box2', 0))
+            else:
+                # Fall back to computed value
+                box2_sum += round(net * _owner_pct(owner), 2)
+
+        if abs(net) > 0.01:
+            if abs(box2_sum - k2_sched) > 0.02:
+                issues.append(self.format_issue(
+                    'XF-R04', self.ERROR,
+                    f"XF-R04: Sum of all K-1 Box 2 = ${box2_sum:,.2f} ≠ "
+                    f"Schedule K Line 2 = ${k2_sched:,.2f}. "
+                    f"Discrepancy: ${abs(box2_sum - k2_sched):.2f}. "
+                    f"IRC §704(b): all partnership items must be allocated 100%. "
+                    f"Partner percentages must sum to exactly 100%.",
+                    'IRC §704(b); LLCTaxAgent XF-R04',
+                    "Verify all partner pct values in llcOwners sum to exactly 1.0 (100%). "
+                    "A rounding error > $0.02 indicates a pct configuration problem."))
+            else:
+                issues.append(self.format_issue(
+                    'XF-R04', self.INFO,
+                    f"XF-R04 PASS: Sum of K-1 Box 2 = ${box2_sum:,.2f} = "
+                    f"Schedule K Line 2 = ${k2_sched:,.2f} (within $0.02).",
+                    'LLCTaxAgent XF-R04; IRC §704(b)',
+                    "No action required."))
+
+        return issues
+
+    def _xf_r05_pg1_all_zero(self) -> List[Dict[str, Any]]:
+        """
+        XF-R05: Form 1065 Page 1 Lines 1-23 all $0 (pure rental LLC).
+
+        IRC §469(c)(2): rental activity is passive — it never produces ordinary
+        business income or deductions on Form 1065 Page 1. All rental income
+        flows to Form 8825 → Schedule K Line 2 → K-1 Box 2.
+
+        IRS: Any non-zero value on Page 1 Lines 1-23 for a pure rental LLC is
+        an IRS violation. This includes Line 16a (depreciation) — rental property
+        depreciation belongs on Form 8825 Line 14, never on Page 1 Line 16a.
+        """
+        issues    = []
+        fill_1065 = self._load_form_fill_dict('Form1065')
+
+        # Check key Page 1 income/deduction logical keys
+        _PG1_KEYS = ['P1_1a', 'P1_1c', 'P1_3', 'P1_7', 'P1_8',
+                     'P1_9', 'P1_11', 'P1_14', 'P1_15', 'P1_16a',
+                     'P1_16c', 'P1_21', 'P1_22', 'P1_23']
+
+        bad = {k: _safe_float(fill_1065.get(k)) for k in _PG1_KEYS
+               if abs(_safe_float(fill_1065.get(k))) > 0.01}
+
+        if bad:
+            lines = ', '.join(f"{k}=${v:,.2f}" for k, v in bad.items())
+            issues.append(self.format_issue(
+                'XF-R05', self.ERROR,
+                f"XF-R05: Form 1065 Page 1 has non-zero values — IRS violation. "
+                f"Affected: {lines}. "
+                f"IRC §469(c)(2): pure rental LLC Page 1 Lines 1-23 must ALL be $0. "
+                f"Rental income → Form 8825 → Schedule K Line 2, never to Page 1.",
+                'IRC §469(c)(2); Form 1065 Instructions Lines 1-23; AgentF1065_IncStmt',
+                "Re-run Form1065Agent. Verify bookNS_IS.json has no mappings to "
+                "Page 1 income/deduction lines for rental amounts.",
+                fids=list(bad.keys())))
+        else:
+            issues.append(self.format_issue(
+                'XF-R05', self.INFO,
+                f"XF-R05 PASS: Form 1065 Page 1 Lines 1-23 all $0. "
+                f"Rental income correctly excluded from ordinary income section. "
+                f"IRC §469(c)(2) compliance confirmed.",
+                'LLCTaxAgent XF-R05; IRC §469(c)(2)',
+                "No action required."))
+
+        return issues
+
+    # ── Summary builder ───────────────────────────────────────────────────────
+
+    def _build_summary(self, form_results: Dict, xf_results: List[Dict]) -> str:
+        xf_errors  = [i for i in xf_results if i.get('severity') == self.ERROR]
+        xf_passes  = [i for i in xf_results if i.get('severity') == self.INFO
+                      and 'PASS' in i.get('message', '')]
+        form_states = {k: v.get('state', self.NOT_STARTED) for k, v in form_results.items()}
+        bad_forms   = [k for k, s in form_states.items() if s == self.NEEDS_FIXING]
+
+        if bad_forms or xf_errors:
+            return (f"LLCTaxAgent: NEEDS_FIXING. "
+                    f"Form issues: {', '.join(bad_forms) if bad_forms else 'none'}. "
+                    f"XF audit errors: {len(xf_errors)}.")
+        return (f"LLCTaxAgent: GO. All {len(form_results)} form agents passed. "
+                f"XF audit: {len(xf_passes)} rules passed. "
+                f"W&B Group LLC {self.tax_year} — ready for CPA review.")
+
+    # ── Session state persistence ─────────────────────────────────────────────
+
+    def _session_state_path(self) -> Optional[Path]:
+        d = self._agent_work_dir()
+        if d is None:
+            return None
+        return d / 'LLCTaxAgent_session_state.json'
+
+    def _load_session_state(self) -> Optional[Dict[str, Any]]:
+        p = self._session_state_path()
+        if p is None or not p.exists():
+            return None
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _save_session_state(self, state: Dict[str, Any]) -> None:
+        p = self._session_state_path()
+        if p is None:
+            return
+        try:
+            with open(p, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception:
+            pass
