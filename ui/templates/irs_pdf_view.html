@@ -177,6 +177,9 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
 {% endblock %}
 
 {% block content %}
+{# _SCRIPT_ROOT must be defined inside {% block %} for Jinja2 inheritance to include it.
+   The definition at line 13 (outside blocks) is silently dropped by the template engine. #}
+<script>const _SCRIPT_ROOT = {{ request.script_root | tojson }};</script>
 {# ── Blue sticky title bar ──────────────────────────────────────────────── #}
 <div class="panel title-panel">
     <div class="title-toolbar">

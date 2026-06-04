@@ -68,6 +68,7 @@
 {% endblock %}
 
 {% block content %}
+<script>const _SCRIPT_ROOT = {{ request.script_root | tojson }};</script>
 <div class="review-panel">
     <div class="review-header">
         <h2>📋 {{ form_label }} — Guided Tax Review</h2>
