@@ -86,18 +86,19 @@ class _SectionAgent(IRSFormsAgent):
         return str(getattr(self.llc, 'F1065', {}).get(field, default))
 
     def _get_is(self) -> Dict[str, float]:
-        """Return flat IS totals: {acct_name: balance}."""
+        """Return IS taxAggregates (Books-First; IRC §446/703 — books are authoritative)."""
         if self._is_data is not None:
             return self._is_data
         try:
             from ledger.stmtIS import stmtIS
-            stmt = stmtIS(self.llc)
-            rows = stmt.load()
-            self._is_data = {r.get('acctName', ''): _safe_float(r.get('Balance'))
-                             for r in rows}
+            self._is_data = stmtIS(self.llc).taxAggregates()
         except Exception:
             self._is_data = {}
         return self._is_data
+
+    def _get_is_agg(self, key: str, default: float = 0.0) -> float:
+        """Safe accessor for a single IS aggregate key."""
+        return _safe_float(self._get_is().get(key, default))
 
     def _get_bs(self) -> Dict[str, float]:
         """Return flat BS totals: {acct_name: balance}."""
@@ -124,16 +125,13 @@ class _SectionAgent(IRSFormsAgent):
         return self._owners
 
     def _get_is_total(self, category: str) -> float:
-        """Sum IS rows where acctType == category."""
-        total = 0.0
-        try:
-            from ledger.stmtIS import stmtIS
-            for r in stmtIS(self.llc).load():
-                if str(r.get('acctType', '')) == category:
-                    total += _safe_float(r.get('Balance'))
-        except Exception:
-            pass
-        return total
+        """Return IS aggregate for a broad category ('Income' or 'Expense')."""
+        agg = self._get_is()
+        if category == 'Income':
+            return abs(_safe_float(agg.get('total_income', 0)))
+        if category == 'Expense':
+            return abs(_safe_float(agg.get('total_expenses', 0)))
+        return 0.0
 
     def _get_bs_total_assets(self) -> float:
         try:
@@ -232,6 +230,35 @@ class _SectionAgent(IRSFormsAgent):
 # ────────────────────────────────────────────────────────────────────────────
 
 class AgentF1065_Info(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 1065 Page 1: General Information (Items A–K)
+
+    Every partnership return must include accurate entity identification.
+    Errors here are the most common reason IRS rejects returns.
+
+    EIN (Item D): Employer Identification Number — 9 digits, no dashes on form.
+      IRC §6109: taxpayer identification number required on every return.
+      Wrong EIN = return processed under wrong entity = penalties + corrections.
+
+    Partnership Representative (Schedule B Section): IRC §6223 (post-TCJA 2018).
+      The BBA (Bipartisan Budget Act) centralized audit regime requires a
+      designated Partnership Representative (PR). The PR has sole authority
+      to act on behalf of the partnership in IRS proceedings. Required on
+      every Form 1065 for tax years beginning 2018+.
+      Treas. Reg. §301.6223-1: PR must be named with name, address, phone, TIN.
+
+    Accounting Method (Item H): Cash or Accrual (or other).
+      IRC §446(c): permissible methods include cash, accrual, or combination.
+      W&B Group books depreciation and capitalizes assets → Accrual method.
+      The method filed must match how the books are actually kept (IRC §446(a)).
+
+    Number of K-1s (Item I): Must equal the number of partners in llcOwners.
+      IRS uses this to verify every partner filed their K-1.
+
+    Initial/Final return (Items G/H checkboxes): Required for first-year returns.
+      W&B Group 2025 = initial return year (first Form 1065 ever filed).
+    """
+
     LABEL             = 'General Information'
     AGENT_KEY         = 'AgentF1065_Info'
     LOGICAL_PREFIXES  = ['P1_Hdr', 'P1_A', 'P1_B', 'P1_C', 'P1_D',
@@ -395,6 +422,29 @@ class AgentF1065_Info(_SectionAgent):
 # ────────────────────────────────────────────────────────────────────────────
 
 class AgentF1065_IncStmt(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 1065 Page 1: Income & Deductions (Lines 1–23)
+
+    Core IRS rule for W&B Group (pure rental LLC):
+      IRC §469(c)(2): Rental activity is PASSIVE by definition.
+      Passive rental income/loss does NOT belong on Form 1065 Page 1.
+      Page 1 Lines 1–23 report ORDINARY business income only.
+      For a pure rental LLC: every line on Page 1 must be $0.
+
+    Correct IRS flow for rental income:
+      Books (Acct.Rev.Rent.*) → Form 8825 (per-property detail)
+        → Form 8825 Line 21 (net total) → Schedule K Line 2
+        → Schedule K-1 Box 2 (per partner × ownership %)
+
+    Incorrect flow (what this agent guards against):
+      Books → Form 1065 Page 1 Lines 1a/3/8 ← IRS violation
+      Books → Form 1065 Page 1 Line 16a (depreciation) ← IRS violation
+        (IRS Instructions Line 16a: "Do not include rental real estate
+         depreciation — that amount is reported on Form 8825 Line 14")
+
+    Books-First (IRC §446 + §703): all values sourced from stmtIS.taxAggregates().
+    """
+
     LABEL             = 'Income & Deductions'
     AGENT_KEY         = 'AgentF1065_IncStmt'
     LOGICAL_PREFIXES  = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P1_6',
@@ -402,101 +452,182 @@ class AgentF1065_IncStmt(_SectionAgent):
                          'P1_13', 'P1_14', 'P1_15', 'P1_16', 'P1_17', 'P1_18',
                          'P1_19', 'P1_20', 'P1_21', 'P1_22', 'P1_23']
 
+    # Page 1 income and deduction logical keys that MUST be $0 for rental LLC
+    _PG1_INCOME_KEYS     = ['P1_1a', 'P1_1c', 'P1_3', 'P1_7', 'P1_8']
+    _PG1_DEDUCTION_KEYS  = ['P1_9', 'P1_11', 'P1_14', 'P1_15',
+                             'P1_16a', 'P1_16c', 'P1_21', 'P1_22', 'P1_23']
+
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
-            self._rule_no_rent_on_pg1,
-            self._rule_line23_arithmetic,
-            self._rule_depr_vs_books,
+            self._rule_pg1_income_must_be_zero,
+            self._rule_pg1_deductions_must_be_zero,
+            self._rule_rental_depr_not_on_pg1,
+            self._rule_books_have_rental_activity,
+            self._rule_line23_must_be_zero,
         ])
 
     def pass5_summarize(self) -> str:
-        # For a pure rental LLC, Pg1 should be $0 ordinary business income
-        return "No ordinary business income on Page 1; all rental activity passive (§469)"
+        rent   = self._get_is_agg('rent_income')
+        net    = self._get_is_agg('net_rental')
+        sign   = 'income' if net >= 0 else 'loss'
+        return (f"Page 1 Lines 1–23: $0 (IRS §469 — all rental activity passive). "
+                f"Books: gross rent ${rent:,.2f}, net rental {sign} ${abs(net):,.2f} "
+                f"→ Schedule K Line 2 via Form 8825.")
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
-    def _rule_no_rent_on_pg1(self):
-        """Rental income must NOT be on Form 1065 Page 1 Lines 1–8."""
-        is_data = self._get_is()
-        rent_keys = [k for k in is_data if 'Rent' in k or 'Rev.Rent' in k or 'Acct.Rev' in k]
-        rent_total = sum(abs(is_data[k]) for k in rent_keys)
-        if rent_total > 0:
-            # Check if it's mapped to Pg1 via fill dict
-            fill = self._load_fill_dict()
-            pg1_income = _safe_float(fill.get('P1_1a')) + _safe_float(fill.get('P1_2'))
-            if pg1_income > 0:
-                return self.format_issue(
-                    'IS-R01', self.ERROR,
-                    f"Rental income (${rent_total:,.2f}) appears on Form 1065 Page 1. "
-                    f"It must flow through Form 8825 → Schedule K (§469 passive rule)",
-                    'IRC §469(c)(2); Pub 925 §1',
-                    "Remap Acct.Rev.Rent to Form 8825 via BookToIRS Aid (not to P1_1a)")
-
-    def _rule_depr_vs_books(self):
+    def _rule_pg1_income_must_be_zero(self):
         """
-        Line 16a (depreciation) in fill dict vs. live IS total.
-
-        Root cause on WBGroupLLC: stmtIS rows have blank acctName — account name
-        matching for 'depreciation' path returns $0 in the fill dict even when
-        real depreciation exists.  Flag this so the bookkeeper re-runs the
-        BookToIRS pipeline after verifying account names in llcExpRev.
+        IRS Rule: IRC §469(c)(2) — rental activity is passive.
+        Form 1065 Instructions, Lines 1–8: "Do not include income from
+        rental real estate activities. Report that income on Form 8825."
+        Page 1 Lines 1a, 1c, 3, 7, 8 must be blank/$0 for a rental LLC.
+        Verify the fill dict has no positive values on these lines.
         """
-        fill     = self._load_fill_dict()
-        fd_depr  = _safe_float(fill.get('P1_16a'))
-
-        # Live: sum all IS Expense rows (total_expenses proxy includes depreciation)
-        live_total_exp = _safe_float(self._get_is_total('Expense'))
-
-        # Check if P1_16a is 0/blank while live books have non-zero expenses
-        if fd_depr == 0 and live_total_exp > 0:
-            # Try to read IS directly for a depr-specific value
-            live_depr = self._live_depr_from_books()
-            if live_depr > 0:
-                return self.format_issue(
-                    'IS-R05', self.WARN,
-                    f"Line 16a (Depreciation): fill dict shows ${fd_depr:,.2f} but "
-                    f"live books contain ${live_depr:,.2f} in depreciation-type expenses. "
-                    f"The fill dict is likely stale or the BookToIRS pipeline could not "
-                    f"match depreciation accounts (blank acctName in IS rows).",
-                    'Form 1065 Instructions, Line 16a; IRC §168',
-                    "Re-run the BookToIRS pipeline to regenerate Form1065_FILL.pdf with "
-                    "current book values. If acctNames are blank in IS, verify that "
-                    "llcExpRev entries have correct acct values (e.g. Acct.Exp.Depr.*).",
-                    fids=['P1_16a', 'P1_16c'])
-
-    def _live_depr_from_books(self) -> float:
-        """Sum IS Expense rows whose account name or sub contains depreciation indicators."""
-        total = 0.0
-        try:
-            from ledger.stmtIS import stmtIS
-            for r in stmtIS(self.llc).load():
-                if r.get('acctType') != 'Expense':
-                    continue
-                acct = (str(r.get('acctName','')) + str(r.get('acctSub',''))).lower()
-                bal  = _safe_float(r.get('Balance'))
-                # Match by name OR by amount pattern typical of depreciation
-                if 'depr' in acct or 'deprec' in acct or 'amort' in acct:
-                    total += bal
-        except Exception:
-            pass
-        return total
-
-    def _rule_line23_arithmetic(self):
-        """Line 23 = Line 8 − Line 22 (spot check via fill dict)."""
         fill = self._load_fill_dict()
+        bad  = {k: _safe_float(fill.get(k)) for k in self._PG1_INCOME_KEYS
+                if abs(_safe_float(fill.get(k))) > 0.01}
+        if bad:
+            lines = ', '.join(f"{k}=${v:,.2f}" for k, v in bad.items())
+            return self.format_issue(
+                'IS-R01', self.ERROR,
+                f"Income appears on Form 1065 Page 1 — IRS violation. "
+                f"Rental income must NOT be on Page 1 Lines 1–8. Affected: {lines}. "
+                f"IRC §469(c)(2): rental activity is passive; it flows "
+                f"Books → Form 8825 → Schedule K Line 2, never to Page 1.",
+                'IRC §469(c)(2); Form 1065 Instructions Lines 1–8; Pub 925 §1',
+                "Remove all mappings from Acct.Rev.* to P1_1a/P1_3/P1_7/P1_8 "
+                "in BookToIRS Aid; re-run pipeline",
+                fids=list(bad.keys()))
+
+    def _rule_pg1_deductions_must_be_zero(self):
+        """
+        IRS Rule: Form 1065 Instructions Lines 9–22 apply to ORDINARY
+        business deductions only. Rental expenses (repairs, mortgage interest,
+        property taxes, utilities, depreciation) are deducted on Form 8825
+        Lines 5–17, not on Form 1065 Page 1.
+        Specifically: Line 16a — "Enter depreciation and cost recovery EXCEPT
+        for rental real estate activities. Rental depreciation → Form 8825 Line 14."
+        """
+        fill = self._load_fill_dict()
+        bad  = {k: _safe_float(fill.get(k)) for k in self._PG1_DEDUCTION_KEYS
+                if abs(_safe_float(fill.get(k))) > 0.01}
+        if bad:
+            lines = ', '.join(f"{k}=${v:,.2f}" for k, v in bad.items())
+            return self.format_issue(
+                'IS-R02', self.ERROR,
+                f"Deductions appear on Form 1065 Page 1 — IRS violation. "
+                f"Rental expenses must NOT be on Page 1 Lines 9–22. Affected: {lines}. "
+                f"All rental expenses (including depreciation on Line 16a) belong on "
+                f"Form 8825 Lines 5–17; rental depr specifically on Form 8825 Line 14.",
+                'Form 1065 Instructions Lines 9–22 and Line 16a; IRC §469',
+                "Remove all rental expense mappings from P1_9/11/14/15/16a/21/22 "
+                "in BookToIRS Aid. Re-run pipeline.",
+                fids=list(bad.keys()))
+
+    def _rule_rental_depr_not_on_pg1(self):
+        """
+        IRS Rule: Form 1065 Instructions Line 16a explicitly states:
+        "Enter the depreciation... EXCEPT for rental real estate activities.
+        Rental real estate depreciation is reported on Form 8825, Line 14."
+        Books source: IS.depreciation (Acct.Exp.Depreciation).
+        Correct path: IS.depreciation → Form 4562 Part III → Form 8825 Line 14
+                      → Schedule K Line 2 (via net rental calculation).
+        P1_16a must always be $0 for a pure rental LLC.
+        """
+        fill = self._load_fill_dict()
+        p1_16a = _safe_float(fill.get('P1_16a'))
+        book_depr = self._get_is_agg('depreciation')
+        if p1_16a > 0.01:
+            return self.format_issue(
+                'IS-R03', self.ERROR,
+                f"Depreciation ${p1_16a:,.2f} appears on Page 1 Line 16a — IRS violation. "
+                f"Rental property depreciation is NEVER on Form 1065 Page 1. "
+                f"IRS Instructions Line 16a: 'Do not include rental real estate activities.' "
+                f"Books show ${book_depr:,.2f} depreciation → correct path: "
+                f"Form 4562 Part III Line 19h → Form 8825 Line 14 → Schedule K Line 2.",
+                'Form 1065 Instructions Line 16a; IRC §168; Form 8825 Instructions Line 14',
+                "Remove P1_16a mapping from BookToIRS Aid. "
+                "Verify Form 8825 Line 14 mapping uses IS.depreciation from books.",
+                fids=['P1_16a', 'P1_16c'])
+        if book_depr > 0.01 and p1_16a < 0.01:
+            return self.format_issue(
+                'IS-R04', self.INFO,
+                f"Page 1 Line 16a = $0 (correct for rental LLC). "
+                f"Books show ${book_depr:,.2f} depreciation → verify it appears on "
+                f"Form 8825 Line 14 and Form 4562 Part III Line 19h.",
+                'Form 1065 Instructions Line 16a; Form 8825 Line 14',
+                "Confirm Form 8825 and Form 4562 are generated with the correct "
+                f"IS.depreciation value (${book_depr:,.2f}) from books.")
+
+    def _rule_books_have_rental_activity(self):
+        """
+        Positive verification: confirm books contain rental income/expense.
+        If books show $0 for all rental activity, something is wrong with
+        the ledger data — flag before the filing is produced.
+        IRS expects Form 8825 to be filed when rental activity exists.
+        Books source: IS.rent_income (Acct.Rev.Rent.*), IS.total_expenses.
+        """
+        agg       = self._get_is()
+        rent      = abs(_safe_float(agg.get('rent_income', 0)))
+        expenses  = abs(_safe_float(agg.get('total_expenses', 0)))
+        depr      = abs(_safe_float(agg.get('depreciation', 0)))
+        if rent < 0.01 and expenses < 0.01:
+            return self.format_issue(
+                'IS-R05', self.WARN,
+                "Books show $0 rental income and $0 expenses. "
+                "If the property was active during the year, ledger entries may be "
+                "missing from llcExpRev (Acct.Rev.Rent.*) or llcAssets. "
+                "An empty IS will produce a blank Form 8825 and Schedule K.",
+                'IRC §6031 — partnership must report all income/loss',
+                "Verify Acct.Rev.Rent.* entries exist in llcExpRev for the tax year. "
+                "Check llcAssets for the property's placed-in-service date.")
+        if rent > 0.01 and depr < 0.01:
+            return self.format_issue(
+                'IS-R06', self.WARN,
+                f"Books show rental income ${rent:,.2f} but $0 depreciation. "
+                f"A residential rental property (27.5-yr MACRS) should have a "
+                f"depreciation entry (Acct.Exp.Depreciation) for each tax year "
+                f"the property is in service.",
+                'IRC §168; Form 4562 Instructions Part III; Pub 946',
+                "Verify YE depreciation entry exists in llcAssets "
+                "(Acct.Exp.Depreciation with YE:Acct.Exp.Depreciation acctSub). "
+                "MACRS Year 1: ~5/12 of annual rate if placed in service mid-year.")
+
+    def _rule_line23_must_be_zero(self):
+        """
+        IRS Rule: For a pure rental LLC, Form 1065 Page 1 Line 23
+        (Ordinary Business Income/Loss) = $0.
+        Line 23 = Line 8 − Line 22. Since both Lines 8 and 22 are $0
+        for a rental LLC, Line 23 must also be $0.
+        All rental income/loss flows to Schedule K Line 2 (net rental),
+        not to Line 23 (ordinary income).
+        """
+        fill = self._load_fill_dict()
+        l23  = _safe_float(fill.get('P1_23'))
         l8   = _safe_float(fill.get('P1_8'))
         l22  = _safe_float(fill.get('P1_22'))
-        l23  = _safe_float(fill.get('P1_23'))
-        if l8 == 0 and l22 == 0 and l23 == 0:
-            return None  # nothing to check yet
-        expected = round(l8 - l22, 2)
-        if abs(expected - l23) > 0.01:
+        if abs(l23) > 0.01:
             return self.format_issue(
-                'IS-R03', self.WARN,
-                f"Line 23 arithmetic: Line 8 (${l8:,.2f}) − Line 22 (${l22:,.2f}) "
-                f"= ${expected:,.2f}, but Line 23 shows ${l23:,.2f}",
-                'Form 1065 Instructions, Line 23',
-                "Re-run BookToIRS pipeline to recompute Line 23",
+                'IS-R07', self.ERROR,
+                f"Line 23 (Ordinary Business Income) = ${l23:,.2f} — must be $0 "
+                f"for a pure rental LLC. Rental income/loss flows to Schedule K "
+                f"Line 2 (net rental), not to Page 1 Line 23 (ordinary income). "
+                f"IRS: IRC §469(c)(2) — rental = passive, never ordinary.",
+                'IRC §469(c)(2); Form 1065 Instructions Line 23',
+                "Remove P1_23 mapping from BookToIRS Aid. Line 23 auto-derives "
+                "from Line 8 − Line 22; both must be $0.",
+                fids=['P1_23'],
+                auto_fix=True)
+        if l8 != 0 or l22 != 0:
+            return self.format_issue(
+                'IS-R08', self.WARN,
+                f"Line 23 arithmetic inconsistency: Line 8 (${l8:,.2f}) − "
+                f"Line 22 (${l22:,.2f}) ≠ Line 23 (${l23:,.2f}). "
+                f"For rental LLC, all three should be $0.",
+                'Form 1065 Instructions Line 23',
+                "Re-run pipeline; verify no expense or income mappings exist for "
+                "Page 1 lines.",
                 auto_fix=True)
 
 
@@ -505,6 +636,42 @@ class AgentF1065_IncStmt(_SectionAgent):
 # ────────────────────────────────────────────────────────────────────────────
 
 class AgentF1065_Other(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 1065 Schedule B: Other Information (Pages 2–3)
+
+    Schedule B is a series of Yes/No compliance disclosures. The IRS uses
+    these answers to determine: (a) what additional forms/schedules apply,
+    (b) ownership structure for related-party rules, (c) BBA audit regime.
+
+    Key questions for W&B Group:
+
+    Q1 (Partnership type): Small domestic partnership? → Affects audit regime.
+
+    Q3a (Individual majority owner): Does any individual/estate/trust own >50%?
+      Must be answered. Affects §267 related-party rules and audit complexity.
+
+    Q3b (Entity majority owner): Any corporation/partnership/trust own >50%?
+      If Yes, additional disclosure may be needed under §267(b)/(c).
+
+    Q4(c) (Schedule L/M-1/M-2 not required): The MOST IMPORTANT question.
+      Gross receipts < $250K OR total assets < $1M → answer "Yes" → skip
+      Schedules L, M-1, M-2 entirely. This is mandatory, not optional.
+      Getting this wrong (filing empty schedules unnecessarily) creates
+      IRS automated audit triggers.
+
+    Q4d (Distributions): Did the partnership distribute money or property?
+      Must be answered Yes if any partner received any cash distribution.
+      Links to K-1 Box 19 and Schedule M-2 capital account analysis.
+
+    Q21 (BBA opt-out): IRC §6221(b) — partnerships with ≤100 qualifying
+      partners may elect out of the centralized partnership audit regime.
+      This is a one-time annual election. Default = in the BBA regime.
+      Electing out means IRS audits each partner separately (complex).
+
+    Partnership Representative (Section): Required for all BBA partnerships.
+      IRC §6223 + Treas. Reg. §301.6223-1. See AgentF1065_Info docstring.
+    """
+
     LABEL             = 'Schedule B'
     AGENT_KEY         = 'AgentF1065_Other'
     LOGICAL_PREFIXES  = ['B_']
@@ -647,61 +814,203 @@ class AgentF1065_Other(_SectionAgent):
 # ────────────────────────────────────────────────────────────────────────────
 
 class AgentF1065_Distr(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 1065 Schedule K: Partners' Distributive Share
+
+    Schedule K collects ALL partnership-level items that flow to partners'
+    individual returns via Schedule K-1. It is NOT another income statement —
+    it is a structured allocation register.
+
+    Key IRS rules for W&B Group (rental LLC):
+
+    Line 1 (Ordinary Business Income): Must be $0.
+      IRC §469(c)(2) — rental activity is passive; it never produces ordinary
+      income. Line 1 = Form 1065 Page 1 Line 23 = $0 for rental LLC.
+
+    Line 2 (Net Rental Real Estate Income/Loss): The central line.
+      This is the NET from all rental properties after all rental expenses.
+      IRS: Derived from Form 8825 Line 21 (sum of all properties' net).
+      Books-First: Schedule K Line 2 = IS.net_rental (total_income − total_expenses).
+      It is NET, not gross. IS.rent_income (gross) ≠ Schedule K Line 2.
+
+    Lines 1–11 (income/loss items): Each sourced from books independently.
+      IRC §702(a): partners are taxed on their distributive share of each
+      separately stated item. The partnership must report each item separately.
+
+    IRC §704(b) allocation: All Schedule K totals must sum to 100% across
+      all K-1s. The allocation mechanism (pro-rata or special) must match
+      the LLC's operating agreement.
+
+    Line 14 (Self-Employment Income): Must be $0.
+      IRC §1402(a)(13): limited partners and members of rental LLCs are
+      not subject to self-employment tax on rental income. Rental income
+      is not "net earnings from self-employment" by statute.
+
+    Books-First (IRC §446 + §703): all values from stmtIS.taxAggregates().
+    """
+
     LABEL             = 'Schedule K'
     AGENT_KEY         = 'AgentF1065_Distr'
     LOGICAL_PREFIXES  = ['K_']
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
-            self._rule_k_line2_populated,
+            self._rule_k1_must_be_zero,
+            self._rule_k2_matches_books,
+            self._rule_k2_is_net_not_gross,
             self._rule_partner_alloc_100,
             self._rule_no_se_income,
         ])
 
     def pass5_summarize(self) -> str:
-        is_data  = self._get_is()
-        net_rent = abs(is_data.get('Acct.Rev.Rent', 0) or
-                       sum(v for k, v in is_data.items() if 'Rent' in k and v < 0))
-        return (f"Net rental income per books: ${net_rent:,.2f} "
-                f"— allocated per §704(b) partnership percentages")
+        net_rental = self._get_is_agg('net_rental')
+        sign       = 'income' if net_rental >= 0 else 'loss'
+        owners     = self._get_owners()
+        n          = len(owners)
+        fill       = self._load_fill_dict()
+        k2_filed   = _safe_float(fill.get('K_2'))
+        return (f"Schedule K Line 2 = ${k2_filed:,.2f} (net rental {sign} per books: "
+                f"${net_rental:,.2f}). Line 1 = $0. "
+                f"Allocates to {n} partner{'s' if n != 1 else ''} per §704(b).")
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
-    def _rule_k_line2_populated(self):
+    def _rule_k1_must_be_zero(self):
+        """
+        IRS Rule: Schedule K Line 1 (Ordinary Business Income/Loss) = $0.
+        Line 1 carries Form 1065 Page 1 Line 23 — which is $0 for rental LLC
+        because IRC §469(c)(2) classifies all rental activity as passive.
+        Passive activity income is never "ordinary business income."
+        If K_1 is non-zero, it means either Page 1 was filled incorrectly
+        or a non-rental activity exists that the bookkeeper must explain.
+        """
         fill = self._load_fill_dict()
-        k2   = fill.get('K_2')
-        if k2 is None or k2 == '':
+        k1   = _safe_float(fill.get('K_1'))
+        if abs(k1) > 0.01:
             return self.format_issue(
-                'KD-R01', self.WARN,
-                "Schedule K Line 2 (net rental real estate income) is blank",
-                'Form 1065 Instructions, Schedule K',
-                "Map IS.net_rental to K_2 via BookToIRS Aid")
+                'KD-R01', self.ERROR,
+                f"Schedule K Line 1 (Ordinary Business Income) = ${k1:,.2f}. "
+                f"Must be $0 for a pure rental LLC. "
+                f"IRC §469(c)(2): all rental income is passive — it belongs on "
+                f"Schedule K Line 2, not Line 1. "
+                f"A non-zero K_1 indicates Page 1 Lines 1–23 were filled incorrectly.",
+                'IRC §469(c)(2); Form 1065 Instructions Schedule K Line 1',
+                "Verify Page 1 Lines 1–23 are all $0; remove K_1 mapping from BookToIRS Aid.",
+                fids=['K_1'])
+
+    def _rule_k2_matches_books(self):
+        """
+        IRS Rule: Schedule K Line 2 = net rental real estate income/loss.
+        IRS Instructions: "Enter the net income or loss from rental real
+        estate activities. Use the amounts from Form 8825, Line 21."
+        Books-First: Form 8825 Line 21 is itself IS.net_rental from books.
+        Therefore K_2 = IS.net_rental = IS.total_income − IS.total_expenses.
+        Verify the fill dict K_2 matches this books value within $1.00.
+        """
+        fill       = self._load_fill_dict()
+        k2_filed   = _safe_float(fill.get('K_2'))
+        net_rental = self._get_is_agg('net_rental')
+
+        if k2_filed == 0 and abs(net_rental) < 0.01:
+            return None  # both $0, no rental activity to verify
+
+        if k2_filed == 0 and abs(net_rental) > 0.01:
+            return self.format_issue(
+                'KD-R02', self.ERROR,
+                f"Schedule K Line 2 is blank but books show net rental "
+                f"{'income' if net_rental >= 0 else 'loss'} ${net_rental:,.2f}. "
+                f"K_2 must equal IS.net_rental (Books-First: IRC §446/703). "
+                f"A blank K_2 means rental activity is NOT flowing to partners.",
+                'Form 1065 Instructions Schedule K Line 2; IRC §702(a)',
+                "Map IS.net_rental → K_2 in bookNS_IS.json; re-run BookToIRS pipeline.",
+                fids=['K_2'])
+
+        if abs(k2_filed - net_rental) > 1.00:
+            return self.format_issue(
+                'KD-R03', self.WARN,
+                f"Schedule K Line 2 = ${k2_filed:,.2f} but books (IS.net_rental) "
+                f"= ${net_rental:,.2f}. Discrepancy: ${abs(k2_filed - net_rental):,.2f}. "
+                f"Books-First (IRC §446): K_2 must derive from IS.net_rental, "
+                f"not from any other form's value.",
+                'IRC §446; Form 1065 Instructions Schedule K Line 2',
+                "Re-run BookToIRS pipeline. Verify bookNS_IS.json maps "
+                "K_2 → IS.net_rental (not IS.rent_income or any form-sourced value).",
+                fids=['K_2'])
+
+    def _rule_k2_is_net_not_gross(self):
+        """
+        IRS Rule: Schedule K Line 2 = NET rental income, not gross rent.
+        IRS Instructions: "net income or loss" — meaning after all deductions.
+        Gross rental receipts (IS.rent_income) ≠ Schedule K Line 2.
+        Correct: IS.net_rental = IS.total_income − IS.total_expenses.
+        Common mistake: mapping IS.rent_income (gross) to K_2.
+        This under-states deductions to partners and over-states taxable income.
+        """
+        fill       = self._load_fill_dict()
+        k2_filed   = _safe_float(fill.get('K_2'))
+        gross_rent = self._get_is_agg('rent_income')
+        net_rental = self._get_is_agg('net_rental')
+        if abs(gross_rent) < 0.01:
+            return None
+        if abs(k2_filed - gross_rent) < 0.01 and abs(gross_rent - net_rental) > 0.01:
+            return self.format_issue(
+                'KD-R04', self.ERROR,
+                f"Schedule K Line 2 = ${k2_filed:,.2f} appears to be GROSS rent "
+                f"(IS.rent_income = ${gross_rent:,.2f}), not NET rental income "
+                f"(IS.net_rental = ${net_rental:,.2f}). "
+                f"IRS Instructions: Line 2 = net income AFTER all rental expenses. "
+                f"Filing gross rent on K_2 omits ${abs(gross_rent - net_rental):,.2f} "
+                f"of deductions from partners' returns.",
+                'Form 1065 Instructions Schedule K Line 2; IRC §702(a)',
+                "Change bookNS_IS.json K_2 mapping from IS.rent_income → IS.net_rental. "
+                "Re-run BookToIRS pipeline.",
+                fids=['K_2'])
 
     def _rule_partner_alloc_100(self):
+        """
+        IRS Rule: IRC §704(b) — all partnership items must be allocated 100%.
+        The sum of all partners' ownership percentages must equal exactly 1.0 (100%).
+        If percentages don't sum to 100%, the K-1 allocations will be incorrect
+        and IRS automated matching will flag the discrepancy.
+        """
         owners = self._get_owners()
         if not owners:
             return None
-        # pct stored as decimal 0.0–1.0; try both 'pct' and 'ownership_pct'
-        total = sum(_safe_float(o.get('pct', o.get('ownership_pct', 0))) for o in owners)
-        expected = 1.0 if total <= 1.5 else 100.0  # handle both decimal and percent formats
+        total    = sum(_safe_float(o.get('pct', o.get('ownership_pct', 0))) for o in owners)
+        expected = 1.0 if total <= 1.5 else 100.0
         if abs(total - expected) > 0.01:
             pct_str = f"{total*100:.2f}%" if expected == 1.0 else f"{total:.2f}%"
             return self.format_issue(
-                'KD-R03', self.ERROR,
-                f"Partner ownership percentages sum to {pct_str} (must be exactly 100%)",
-                'IRC §704(b) — all items must be allocated 100%',
-                "Correct pct values in llcOwners DB")
+                'KD-R05', self.ERROR,
+                f"Partner ownership percentages sum to {pct_str} (must be exactly 100%). "
+                f"IRC §704(b): all partnership items must be allocated in full. "
+                f"K-1 amounts will be under/over-allocated until this is corrected.",
+                'IRC §704(b); Form 1065 Instructions Schedule K-1',
+                "Correct pct values in llcOwners DB so they sum to exactly 1.0 (or 100).")
 
     def _rule_no_se_income(self):
+        """
+        IRS Rule: IRC §1402(a)(13) — limited partners are NOT subject to
+        self-employment tax on their distributive share of partnership income.
+        For a rental LLC: IRC §1402(a)(1) additionally excludes rental income
+        from net earnings from self-employment.
+        Schedule K Line 14 (SE income) must be $0 for a pure rental LLC.
+        Filing non-zero SE income here would incorrectly trigger SE tax
+        (~15.3%) on partners' personal returns.
+        """
         fill = self._load_fill_dict()
         k14  = _safe_float(fill.get('K_14a') or fill.get('K_14'))
-        if k14 != 0:
+        if abs(k14) > 0.01:
             return self.format_issue(
-                'KD-R05', self.WARN,
-                f"Schedule K Line 14 shows ${k14:,.2f} self-employment income. "
-                f"Passive rental LLCs should have $0 here.",
-                'IRC §1402(a)(13); Pub 541',
-                "Verify K_14 mapping — rental income is not SE income")
+                'KD-R06', self.ERROR,
+                f"Schedule K Line 14 (SE income) = ${k14:,.2f}. "
+                f"Must be $0 for rental LLC. "
+                f"IRC §1402(a)(1): rental income is not 'net earnings from self-employment.' "
+                f"IRC §1402(a)(13): limited partners are exempt from SE tax. "
+                f"Filing non-zero K_14 will incorrectly trigger 15.3% SE tax on partners.",
+                'IRC §1402(a)(1); IRC §1402(a)(13); Pub 541 (Partnerships)',
+                "Remove any mapping to K_14; verify it is blank in the fill dict.",
+                fids=['K_14', 'K_14a'])
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -709,6 +1018,41 @@ class AgentF1065_Distr(_SectionAgent):
 # ────────────────────────────────────────────────────────────────────────────
 
 class AgentF1065_Reconcile(_SectionAgent):
+    """
+    IRS Knowledge Base — Schedules L, M-1, M-2 (Form 1065 Page 5)
+
+    These three schedules are an IRS audit trail — they tie the tax return
+    to the books and explain every dollar of difference.
+
+    Schedule L (Balance Sheet per Books):
+      Required if Schedule B Q4 threshold is crossed (gross receipts ≥ $250K
+      AND total assets ≥ $1M; see Treas. Reg. §1.6031(a)-1(b)(4)).
+      Must match the BS exactly. Line 14 = BS.total_assets (Books-First).
+      If Schedule L doesn't tie to the books, it signals to IRS auditors
+      that the books are unreliable.
+
+    Schedule M-1 (Reconciliation of Income per Books with Return):
+      Explains every difference between book net income and taxable income.
+      Required at same threshold as Schedule L.
+      M-1 Line 1 = IS.net_income (book basis, from stmtIS.taxAggregates()).
+      M-1 Line 9 = Schedule K Line 1 = $0 for rental LLC.
+      For rental LLC: M-1 reconciliation shows that book net income (which
+      includes rental activity) = $0 ordinary income, because rental income
+      passes through Schedule K Line 2, not Line 1.
+
+    Schedule M-2 (Analysis of Partners' Capital Accounts):
+      Required at same threshold as Schedule L.
+      Must use tax basis method (post-2020 IRS requirement).
+      Per IRC §705: each partner's basis = contributions + income − losses − distributions.
+      Schedule M-2 is the aggregate view; K-1 Box L is the per-partner view.
+
+    Below-threshold behavior (this LLC): Schedules L/M-1/M-2 are NOT required.
+      Answer "Yes" to Schedule B Q4(c): "Is the partnership not required to
+      file Schedules L, M-1, and M-2?" This completely skips these pages.
+
+    Books-First (IRC §446 + §703): all values from stmtIS/stmtBS.taxAggregates().
+    """
+
     LABEL             = 'Schedules L / M-1 / M-2'
     AGENT_KEY         = 'AgentF1065_Reconcile'
     LOGICAL_PREFIXES  = ['L_', 'M1_', 'M2_']
@@ -718,62 +1062,160 @@ class AgentF1065_Reconcile(_SectionAgent):
             self._rule_schedules_required_check,
             self._rule_sched_l_balance,
             self._rule_m1_book_income,
+            self._rule_m1_line9_zero_for_rental,
+            self._rule_m2_capital_basis_method,
         ])
 
     def pass5_summarize(self) -> str:
         required = self._schedules_required()
         if not required:
-            return "Schedules L/M-1/M-2 not required (Schedule B Q4 = Yes)"
+            gross  = self._get_is_total('Income')
+            assets = self._get_bs_total_assets()
+            return (f"Schedules L/M-1/M-2 NOT required (Schedule B Q4 = Yes). "
+                    f"LLC is below both thresholds: "
+                    f"gross income ${gross:,.0f} < $250K and/or "
+                    f"total assets ${assets:,.0f} < $1M.")
         total_assets = self._get_bs_total_assets()
-        return f"Schedule L: total assets ${total_assets:,.2f}; M-1/M-2 complete"
+        book_ni      = self._get_is_agg('net_income')
+        return (f"Schedule L: total assets ${total_assets:,.2f}. "
+                f"M-1 Line 1 = ${book_ni:,.2f} (book net income). "
+                f"M-1 Line 9 = $0 (ordinary return income = $0 for rental LLC). "
+                f"M-2: tax basis method per post-2020 IRS requirement.")
 
     def _schedules_required(self) -> bool:
-        gross  = abs(self._get_is_total('Income'))
+        gross  = self._get_is_total('Income')
         assets = self._get_bs_total_assets()
         return gross >= 250_000 and assets >= 1_000_000
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
     def _rule_schedules_required_check(self):
-        if not self._schedules_required():
+        """
+        IRS Rule: Form 1065 Instructions, Schedule B Question 4(c).
+        Schedules L, M-1, and M-2 are ONLY required if BOTH:
+          (a) total gross receipts for the year ≥ $250,000, AND
+          (b) total assets at year-end ≥ $1,000,000.
+        If either threshold is not met, answer 'Yes' to Q4(c) and skip
+        these schedules entirely. Filing empty or zero schedules when not
+        required wastes space and creates IRS matching noise.
+        """
+        gross  = self._get_is_total('Income')
+        assets = self._get_bs_total_assets()
+        if not (gross >= 250_000 and assets >= 1_000_000):
             return self.format_issue(
                 'RC-R01', self.INFO,
-                "Schedules L/M-1/M-2 are not required for this LLC (below §250K/$1M threshold). "
-                "These sections will be left blank — consistent with Schedule B Q4.",
-                'Form 1065 Instructions, Schedule B Q4',
-                "No action needed — Schedule B Q4 handles this")
+                f"Schedules L/M-1/M-2 NOT required. "
+                f"Gross receipts ${gross:,.0f} {'≥' if gross >= 250_000 else '<'} $250K threshold; "
+                f"total assets ${assets:,.0f} {'≥' if assets >= 1_000_000 else '<'} $1M threshold. "
+                f"Schedule B Q4(c) should answer 'Yes' to skip these schedules.",
+                'Form 1065 Instructions, Schedule B Q4(c); Treas. Reg. §1.6031(a)-1(b)(4)',
+                "Confirm Schedule B Q4(c) = Yes in the form. "
+                "Leave Schedules L/M-1/M-2 entirely blank.")
 
     def _rule_sched_l_balance(self):
+        """
+        IRS Rule: Schedule L (Balance Sheet per Books) must agree exactly
+        with the partnership's books (Books-First — IRC §446/703).
+        Schedule L Line 14 (total assets, end of year) = BS.total_assets.
+        If L_14_2 ≠ BS.total_assets, the IRS balance sheet does not reconcile
+        to the accounting balance sheet — a red flag in any IRS audit.
+        """
         if not self._schedules_required():
             return None
-        fill         = self._load_fill_dict()
-        l14_end      = _safe_float(fill.get('L_14_2'))  # end-of-year
-        bs_assets    = self._get_bs_total_assets()
+        fill      = self._load_fill_dict()
+        l14_end   = _safe_float(fill.get('L_14_2'))
+        bs_assets = self._get_bs_total_assets()
         if bs_assets > 0 and abs(l14_end - bs_assets) > 1.00:
             return self.format_issue(
                 'RC-R02', self.ERROR,
-                f"Schedule L Line 14 (end) = ${l14_end:,.2f} but BS total assets = ${bs_assets:,.2f}. "
-                f"Discrepancy: ${abs(l14_end - bs_assets):,.2f}",
-                'Form 1065 Instructions, Schedule L',
-                "Remap BS.total_assets to L_14_2 and rerun BookToIRS pipeline")
+                f"Schedule L Line 14 (total assets, end) = ${l14_end:,.2f} "
+                f"but BS.total_assets = ${bs_assets:,.2f}. "
+                f"Discrepancy: ${abs(l14_end - bs_assets):,.2f}. "
+                f"Schedule L must equal the books (IRC §446 Books-First rule). "
+                f"IRS: a balance sheet that doesn't tie to books is an audit trigger.",
+                'Form 1065 Instructions Schedule L; IRC §446',
+                "Verify L_14_2 mapping uses BS.total_assets from books. "
+                "Re-run BookToIRS pipeline.",
+                fids=['L_14_2'])
 
     def _rule_m1_book_income(self):
+        """
+        IRS Rule: Schedule M-1 Line 1 = net income (loss) per books.
+        This is the STARTING POINT of the book-to-tax reconciliation.
+        Books-First: M-1 Line 1 = IS.net_income from stmtIS.taxAggregates().
+        If M-1 Line 1 doesn't match the books, the entire M-1 reconciliation
+        is built on a wrong foundation.
+        """
         if not self._schedules_required():
             return None
-        fill     = self._load_fill_dict()
-        m1_line1 = _safe_float(fill.get('M1_1'))
-        try:
-            from ledger.stmtIS import stmtIS
-            ni = _safe_float(stmtIS(self.llc).get('TOTAL', 'Balance'))
-        except Exception:
+        fill      = self._load_fill_dict()
+        m1_line1  = _safe_float(fill.get('M1_1'))
+        book_ni   = self._get_is_agg('net_income')
+        if abs(book_ni) < 0.01:
             return None
-        if ni != 0 and abs(m1_line1 - ni) > 1.00:
+        if abs(m1_line1 - book_ni) > 1.00:
             return self.format_issue(
-                'RC-R05', self.WARN,
-                f"M-1 Line 1 (${m1_line1:,.2f}) differs from IS net income (${ni:,.2f}). "
-                f"These must match.",
-                'Form 1065 Instructions, Schedule M-1',
-                "Map IS.net_income to M1_1 via BookToIRS Aid")
+                'RC-R03', self.WARN,
+                f"M-1 Line 1 (net income per books) = ${m1_line1:,.2f} "
+                f"but IS.net_income from books = ${book_ni:,.2f}. "
+                f"M-1 Line 1 must equal the books (Books-First: IRC §446). "
+                f"M-1 reconciliation is invalid if Line 1 doesn't start from the correct book income.",
+                'Form 1065 Instructions Schedule M-1 Line 1; IRC §446; IRC §703',
+                "Verify M1_1 maps to IS.net_income in bookNS_IS.json. Re-run pipeline.",
+                fids=['M1_1'])
+
+    def _rule_m1_line9_zero_for_rental(self):
+        """
+        IRS Rule: Schedule M-1 Line 9 = income (loss) per return.
+        For a rental LLC, "income per return" = Schedule K Line 1 = $0.
+        All rental income/loss is on Schedule K Line 2 (passive rental),
+        not Line 1 (ordinary business income).
+        Therefore M-1 Line 9 must be $0 for a pure rental LLC.
+        Common error: mapping IS.net_income to M1_9, which would incorrectly
+        show the rental loss as ordinary income on the return.
+        """
+        if not self._schedules_required():
+            return None
+        fill   = self._load_fill_dict()
+        m1_l9  = _safe_float(fill.get('M1_9'))
+        if abs(m1_l9) > 0.01:
+            return self.format_issue(
+                'RC-R04', self.ERROR,
+                f"M-1 Line 9 (income per return) = ${m1_l9:,.2f}. "
+                f"Must be $0 for rental LLC. "
+                f"Line 9 = Schedule K Line 1 (ordinary income) = $0 for rental LLC. "
+                f"Rental income/loss is on Schedule K Line 2, never on Line 1. "
+                f"A non-zero M-1 Line 9 indicates IS.net_income was incorrectly mapped here.",
+                'Form 1065 Instructions Schedule M-1 Line 9; IRC §469(c)(2)',
+                "Remove M1_9 mapping from bookNS_IS.json. "
+                "M-1 Line 9 should be blank/$0 for rental LLC.",
+                fids=['M1_9'])
+
+    def _rule_m2_capital_basis_method(self):
+        """
+        IRS Rule: Post-2020 requirement — Schedule M-2 and K-1 Box L must
+        use the TAX BASIS METHOD of capital reporting.
+        Previous methods (§704(b) book value, GAAP, or other) are no longer
+        accepted on Form 1065 for tax years ending 2020 and later.
+        Rev. Proc. 2020-13; TD 9902; Form 1065 Instructions M-2.
+        Tax basis = actual amounts contributed + taxable income allocated
+                    − deductions allocated − actual distributions.
+        Only needs audit if Schedule L/M-1/M-2 are required.
+        """
+        if not self._schedules_required():
+            return None
+        return self.format_issue(
+            'RC-R05', self.INFO,
+            "Schedule M-2 must use the TAX BASIS METHOD of capital reporting "
+            "(IRS requirement for tax years 2020+). "
+            "Verify: partner capital accounts reflect actual tax basis "
+            "(contributions + taxable income − deductions − distributions), "
+            "NOT §704(b) book value or GAAP basis. "
+            "K-1 Box L must use the same tax basis method.",
+            'Rev. Proc. 2020-13; TD 9902; Form 1065 Instructions Schedule M-2',
+            "Confirm with CPA that M-2 uses tax basis. "
+            "If partners' capital accounts were previously tracked on a different "
+            "basis, a conversion computation may be needed.")
 
 
 # ────────────────────────────────────────────────────────────────────────────

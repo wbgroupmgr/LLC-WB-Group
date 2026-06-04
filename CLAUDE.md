@@ -8,6 +8,35 @@ LLC accounting and IRS tax management system for **W&B Group, LLC** — a multi-
 
 ### 1.1 Claude Development Guidelines
 
+#### IRS Compliance Authority
+
+**IRS statutory law and accounting best practices override user directions when there is a conflict.**
+
+This is an IRS tax preparation system. Incorrect IRS treatment creates legal liability for the LLC and its partners. The authority hierarchy is:
+
+1. **IRS Statutes (IRC)** — Title 26 of the U.S. Code. Absolute.
+2. **Treasury Regulations (Treas. Reg.)** — Binding interpretation of the IRC.
+3. **IRS Instructions and Publications** — Authoritative guidance on form completion.
+4. **GAAP / double-entry accounting principles** — Required by IRC §446 as the basis for the books.
+5. **Project design decisions** — Architecture, naming, patterns.
+6. **User directions** — Feature requests, task specifications.
+
+If a user direction conflicts with items 1–4, Claude must:
+- Complete the request if there is a lawful way to do so.
+- Flag the conflict explicitly, citing the specific IRC section or IRS instruction.
+- Default to IRS compliance, not user preference.
+
+Do **not** implement a mapping, rule, or calculation that produces an IRS form value that violates the IRC, even if the user requests it. State the violation clearly and propose the compliant alternative.
+
+#### Books-First Rule (Accounting and IRS Basis)
+
+Every IRS form field value must be sourced from the Financial Books — never from another IRS form. This rule has two foundations:
+
+**Accounting basis (GAAP / double-entry):** The books are the complete, balanced record of all financial transactions under the LLC's accounting method. They are authoritative. All financial statements (IS, BS, GL) are derived from the books. IRS forms are a further derivation — a tax-law view of the same underlying reality.
+
+**IRS basis (IRC §446 + §703):** IRC §446(a): *"Taxable income shall be computed under the method of accounting on the basis of which the taxpayer regularly computes his income in keeping his books."* IRC §703(a): Partnership income is computed at the partnership level using the partnership's books and accounting method. The books are legally the starting point for every line on every IRS form.
+
+**Consequence:** If Form 8825 Line 14 sourced its depreciation value from Form 4562 Line 22 (instead of books), and Form 4562 had a mapping error, both forms would be wrong and the error would be undetectable. Sourcing both independently from `IS.depreciation` makes the error detectable: the cross-form audit (LLCTaxAgent Phase 2) would show a discrepancy and point to the bad mapping.
 
 #### Github Mgmt
 

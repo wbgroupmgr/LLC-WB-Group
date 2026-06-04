@@ -1,6 +1,6 @@
 # Form1065Agent — Design Document
 
-**Status:** v0.8 — revised 2026-06-03 (Books-First Rule added; cross-form references corrected throughout)
+**Status:** v0.9 — revised 2026-06-03 (IRS-first authority; section agents rewritten as IRS knowledge bases; audit rules now verify IRS compliance, not just field presence)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Baseline docs:**
 - `docs/design_BUS_04.0-LLCTaxAgent.md` -master compliance coordinator for **Tax Preparation** and submission to IRS
@@ -384,55 +384,74 @@ Each section agent encapsulates the IRS rules relevant to its section only. Cros
 
 ### 3.2 `AgentF1065_IncStmt` Expert Rules
 
-| Rule ID | Rule | IRS Cite |
-|---|---|---|
-| IS-R01 | `Acct.Rev.Rent` must NOT appear on Lines 1–8 — routes to Form 8825 | IRC §469(c)(2); Pub 925 §1 |
-| IS-R02 | Lines 1–8 should be $0 for a pure rental LLC | Form 1065 Instructions, Line 1a |
-| IS-R03 | Line 23 (Ordinary Business Income) = Line 8 − Line 22 | Arithmetic check |
-| IS-R04 | Guaranteed payments to partners (Line 10) must match `llcOwners` guaranteed payment field | IRC §707(c) |
-| IS-R05 | Line 16a depreciation = `IS.depreciation` from books (`Acct.Exp.Depreciation`). After all forms are finalized, LLCTaxAgent cross-form audit confirms Form 4562 Line 22 equals this value — both independently sourced from the same book account. | Form 4562 Instructions; §0 Books-First Rule |
+**Core IRS principle:** IRC §469(c)(2) — rental activity is passive by statutory definition. Passive rental income/loss is NEVER ordinary business income. It does not belong on Form 1065 Page 1. For a pure rental LLC, every Page 1 income and deduction line (Lines 1–23) must be $0.
+
+| Rule ID | Severity | IRS Rule | Statutory Basis |
+|---|---|---|---|
+| IS-R01 | ERROR | Any non-zero value on Page 1 Lines 1a/1c/3/7/8 = IRS violation. Rental income flows: Books → Form 8825 → Schedule K Line 2. Never to Page 1. | IRC §469(c)(2); Form 1065 Instructions Lines 1–8 |
+| IS-R02 | ERROR | Any non-zero deduction on Page 1 Lines 9–22 = IRS violation. All rental expenses (repairs, interest, taxes, depreciation) go on Form 8825 Lines 5–17. | Form 1065 Instructions Lines 9–22 |
+| IS-R03 | ERROR | P1_16a (depreciation) must be $0. IRS Instructions Line 16a: "Do not include rental real estate activities — report that depreciation on Form 8825 Line 14." | Form 1065 Instructions Line 16a; IRC §168 |
+| IS-R04 | INFO | Positive verification: P1_16a = $0 is CORRECT. Confirm the same depreciation value appears on Form 8825 Line 14 and Form 4562 Part III. | Form 8825 Line 14; Form 4562 Part III |
+| IS-R05 | WARN | Books show $0 rental income and $0 expenses — ledger data may be missing for the tax year. An empty IS produces a blank Form 8825 and Schedule K. | IRC §6031 |
+| IS-R06 | WARN | Books show rental income but $0 depreciation. Residential rental property (27.5-yr MACRS) should have annual depreciation starting with the year placed in service. | IRC §168; Form 4562 Part III; Pub 946 |
+| IS-R07 | ERROR | Line 23 (Ordinary Business Income) must be $0. Line 23 = Line 8 − Line 22 = $0 − $0 = $0. Non-zero Line 23 means Page 1 was filled incorrectly. | IRC §469(c)(2); Form 1065 Instructions Line 23 |
+| IS-R08 | WARN | Line 23 arithmetic inconsistency: Lines 8 and/or 22 non-zero (all three should be $0 for rental LLC). | Form 1065 Instructions Line 23 |
+
+**What this agent does NOT check:** Whether rental income appears on Form 8825 (that is Form8825Agent's jurisdiction). Whether depreciation is on Form 4562 (Form4562Agent). This agent only guards Form 1065 Page 1.
 
 ---
 
 ### 3.3 `AgentF1065_Other` Expert Rules
 
-| Rule ID | Rule | IRS Cite |
-|---|---|---|
-| OT-R01 | Schedule B Q4: if gross receipts < $250K **or** total assets < $1M → answer "Yes" (skip Scheds L/M-1/M-2) | Form 1065 Instructions, Sched B |
-| OT-R02 | Partnership Representative (PR) name + TIN populated | IRC §6223; Treas. Reg. §301.6223-1 |
-| OT-R03 | Q5: Any partner that is a disregarded entity? Must disclose | Form 1065 Instructions, Sched B Q5 |
-| OT-R04 | Q21: Is this a BBA partnership that wants to elect out of centralized audit? (≤100 partners, all individuals) — bookkeeper decision | IRC §6221(b) |
-| OT-R05 | Ownership >50%: individual majority owner check and entity majority owner check | Form 1065 Instructions, Sched B Q2-3 |
+**Core IRS principle:** Schedule B is a mandatory compliance disclosure questionnaire. Every Yes/No question must be explicitly answered based on facts — the IRS treats blanks as "No" but incorrect answers create liability. The most consequential question for this LLC is Q4(c) which determines whether Schedules L/M-1/M-2 are required.
+
+| Rule ID | Severity | IRS Rule | Statutory Basis |
+|---|---|---|---|
+| OT-R01 | INFO | Schedules L/M-1/M-2 threshold: gross receipts < $250K OR total assets < $1M → Q4(c) = "Yes" (skip those schedules entirely) | Form 1065 Instructions Sched B Q4(c); Treas. Reg. §1.6031(a)-1(b)(4) |
+| OT-R02 | ERROR | Partnership Representative must be named with name, address, phone, and TIN. Required for all BBA partnerships (2018+). | IRC §6223; Treas. Reg. §301.6223-1 |
+| OT-R05 | INFO | Any individual partner owning >50% triggers Q3a disclosure | Form 1065 Instructions Sched B Q3a-3b |
+| OT-R06 | WARN | Q3a (individual >50% owner) must be answered explicitly — bookkeeper confirms | Form 1065 Instructions Sched B Q3a |
+| OT-R07 | INFO/WARN | Q4d (distributions): must be "Yes" if any cash was distributed to any partner during the year | Form 1065 Instructions Sched B Q4d; IRC §731 |
+| OT-R08 | WARN | Key Schedule B questions requiring bookkeeper review before filing | Form 1065 Instructions Sched B |
 
 ---
 
 ### 3.4 `AgentF1065_Distr` Expert Rules
 
-| Rule ID | Rule | IRS Cite |
-|---|---|---|
-| KD-R01 | Schedule K Line 2 = `IS.net_rental` sourced directly from books. After all forms are finalized, LLCTaxAgent cross-form audit (XF-R02) checks that Form 8825 Line 23 — also books-derived — equals this value. | Form 1065 Instructions, Sched K |
-| KD-R02 | Schedule K Line 5 (interest income) must match IS `interest_income` | Sched K Instructions |
-| KD-R03 | Sum of all K-1 Box 2 allocations must equal Schedule K Line 2 | IRC §704(b) |
-| KD-R04 | Schedule K Line 19a (distributions) must match sum of `llcOwners` distributions | IRC §731 |
-| KD-R05 | No self-employment income on Line 14 for a passive rental LLC | IRC §1402(a)(13); Pub 541 |
+**Core IRS principles:**
+- **IRC §469(c)(2):** Rental income is passive → Schedule K Line 1 = $0; rental income flows to Schedule K Line 2.
+- **IRC §702(a):** Each separately stated K item must be reported on its own line and allocated to each partner.
+- **IRC §704(b):** All K items must allocate 100% across all partners (per operating agreement or pro-rata).
+- **IRC §1402(a)(1) + (13):** Rental income and limited partner income are NOT subject to SE tax → Line 14 = $0.
 
-**Books-First (§0):** `AgentF1065_Distr` reads all Schedule K values directly from the books (`IS.*`, `BS.*`, `llcOwners`). It never reads from Form 8825 or any other IRS form. After all forms are independently finalized, LLCTaxAgent cross-form audit (XF-R02) confirms that Form 8825 Line 23 and Schedule K Line 2 agree — because both were correctly derived from the same book source.
+| Rule ID | Severity | IRS Rule | Statutory Basis |
+|---|---|---|---|
+| KD-R01 | ERROR | Schedule K Line 1 (Ordinary Business Income) = $0 for rental LLC. Line 1 carries Page 1 Line 23. Rental income is never ordinary. | IRC §469(c)(2) |
+| KD-R02 | ERROR | Schedule K Line 2 blank while books show non-zero net_rental. K_2 must be populated from IS.net_rental. | Form 1065 Instructions Sched K Line 2; IRC §702(a) |
+| KD-R03 | WARN | K_2 value differs from books by > $1. Books-First: K_2 = IS.net_rental = IS.total_income − IS.total_expenses. | IRC §446; IRC §703 |
+| KD-R04 | ERROR | K_2 appears to equal gross rent (IS.rent_income), not net rental (IS.net_rental). IRS: Line 2 = net income AFTER all expenses. | Form 1065 Instructions Sched K Line 2 |
+| KD-R05 | ERROR | Partner ownership percentages don't sum to 100%. All K items must allocate in full. | IRC §704(b) |
+| KD-R06 | ERROR | Schedule K Line 14 (SE income) non-zero. Must be $0 — rental income is not SE income; limited partners exempt from SE tax. Filing non-zero triggers 15.3% SE tax on partners. | IRC §1402(a)(1); IRC §1402(a)(13); Pub 541 |
+
+**Books-First note:** `AgentF1065_Distr` reads all Schedule K values from `stmtIS.taxAggregates()` and `llcOwners`. It never sources data from Form 8825 or any other IRS form. Cross-form audit (LLCTaxAgent XF-R02) confirms that the independently-computed Form 8825 Line 23 equals Schedule K Line 2 — both derived from the same book source.
 
 ---
 
 ### 3.5 `AgentF1065_Reconcile` Expert Rules
 
-| Rule ID | Rule | IRS Cite |
-|---|---|---|
-| RC-R01 | Schedule L required only if OT-R01 threshold is crossed; otherwise skip | Sched B Q4 outcome |
-| RC-R02 | Sched L total assets (end, Line 14) = BS `total_assets` | Form 1065 Instructions, Sched L |
-| RC-R03 | Sched L total liabilities + capital (Line 22) = BS `total_liab_capital` | Sched L arithmetic |
-| RC-R04 | Sched L Line 14 (end) = Form 1065 Page 1 Item F | Form 1065 Instructions |
-| RC-R05 | M-1 Line 1 = IS `net_income` (book basis) | Sched M-1 Instructions |
-| RC-R06 | M-1 Line 4a = `IS.depreciation` (book basis) − MACRS amount computed from asset records (`llcAssets` basis, class, convention). Both values from books — no dependency on Form 4562. | Pub 946; Sched M-1 |
-| RC-R07 | M-1 Line 9 (taxable income) must equal Schedule K Line 1 | Sched M-1 arithmetic |
-| RC-R08 | M-2 uses tax basis method (not §704(b) or GAAP basis) | Post-2020 IRS requirement |
-| RC-R09 | Each partner's M-2 ending capital = beg + contributions + net income − distributions (±$1.00 tolerance) | Sched M-2 Instructions |
+**Core IRS principles:**
+- **Schedule L** = IRS's audit of the balance sheet. If L doesn't tie to BS, the IRS balance sheet doesn't reconcile to books — an immediate audit red flag.
+- **Schedule M-1** = The IRS's required explanation for every dollar of difference between book income and taxable income. Missing M-1 entries are an automated IRS matching trigger.
+- **Post-2020 requirement:** Schedule M-2 and K-1 Box L must use the **tax basis method** (not §704(b) book value or GAAP). See Rev. Proc. 2020-13; TD 9902.
+- **Threshold:** These schedules are ONLY required if BOTH gross receipts ≥ $250K AND total assets ≥ $1M (Q4(c) = "Yes" skips them entirely).
+
+| Rule ID | Severity | IRS Rule | Statutory Basis |
+|---|---|---|---|
+| RC-R01 | INFO | Schedules L/M-1/M-2 not required — below threshold. Q4(c) = Yes → skip entirely. | Form 1065 Instructions Sched B Q4(c); Treas. Reg. §1.6031(a)-1(b)(4) |
+| RC-R02 | ERROR | Sched L Line 14 (total assets, end) ≠ BS.total_assets. Books-First: must match exactly. | IRC §446; Form 1065 Instructions Sched L |
+| RC-R03 | WARN | M-1 Line 1 ≠ IS.net_income from books. Line 1 is the starting point; wrong value makes the entire reconciliation invalid. | IRC §446; IRC §703; Form 1065 Instructions Sched M-1 |
+| RC-R04 | ERROR | M-1 Line 9 (income per return) ≠ $0 for rental LLC. Line 9 = Schedule K Line 1 = $0. Non-zero Line 9 means IS.net_income was incorrectly mapped here. | IRC §469(c)(2); Form 1065 Instructions Sched M-1 Line 9 |
+| RC-R05 | INFO | M-2 must use tax basis method (post-2020). Confirm with CPA that capital accounts reflect actual tax basis. | Rev. Proc. 2020-13; TD 9902; Form 1065 Instructions Sched M-2 |
 
 ---
 
@@ -1173,4 +1192,4 @@ All five open questions from v0.2 review are **locked**.
 
 ---
 
-*End of Design Document — v0.8, 2026-06-03*
+*End of Design Document — v0.9, 2026-06-03*
