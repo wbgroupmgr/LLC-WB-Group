@@ -2059,21 +2059,20 @@ class llcMgmt:
                     note = ''
                     if placement_dt:
                         try:
+                            from irs.irsDepreciation import (
+                                macrs_residential_year1 as _macrs_yr1,
+                            )
                             parts = placement_dt.replace('-', '.').replace('/', '.').split('.')
                             place_year  = int(parts[0])
                             place_month = int(parts[1])
                             if place_year == year:
-                                # IRS MACRS mid-month convention: property treated as placed in
-                                # service at the midpoint of the month → 0.5 months for the
-                                # placement month + full months remaining.
-                                # Fraction = (12.5 − place_month) / 12
-                                #          = (25 − 2×place_month) / 24   (integer arithmetic)
-                                # e.g. August (M=8): (25−16)/24 = 9/24 = 4.5/12 = 0.375
-                                half_months = 25 - 2 * place_month   # numerator over /24
-                                depr_amt    = round(total_cost / useful_life * half_months / 24.0, 2)
-                                mon_name    = _dt.date(year, place_month, 1).strftime('%b')
+                                # IRS MACRS mid-month convention via shared irs.irsDepreciation
+                                # service (IRC §168(d)(2)).  Formula: basis/life × (12.5-M)/12.
+                                depr_amt = _macrs_yr1(total_cost, place_month, useful_life)
+                                frac     = round(12.5 - place_month, 1)
+                                mon_name = _dt.date(year, place_month, 1).strftime('%b')
                                 note = (f"GL basis ${total_cost:,.2f} ÷ {useful_life}yr "
-                                        f"× {half_months}/24 = {half_months/2:.1f}/12 months "
+                                        f"× {frac}/12 months "
                                         f"({mon_name} mid-month, first year)")
                             else:
                                 depr_amt = round(total_cost / useful_life, 2)
