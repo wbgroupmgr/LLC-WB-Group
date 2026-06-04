@@ -122,16 +122,27 @@ class _SectionAgent(IRSFormsAgent):
         return None
 
     def _get_placed_month(self) -> Optional[int]:
-        """Return the month number (1-12) from the placed-in-service date."""
+        """Return the month number (1-12) from the placed-in-service date.
+
+        Handles all date formats used in llcAssets:
+          'YYYY.MM.DD'   — books standard (dt field)  e.g. '2025.08.20'
+          'YYYY-MM-DD'   — ISO                         e.g. '2025-08-20'
+          'MM/DD/YYYY'   — US format                   e.g. '08/20/2025'
+          'M/YY'         — form short form              e.g. '8/25'
+          'August 2025'  — month-name form
+        """
         d = self._get_placed_in_service()
         if not d:
             return None
-        # Expect formats: 'YYYY-MM-DD', 'MM/DD/YYYY', 'M/YYYY', '8/25', 'August 2025'
         import re
-        # ISO
-        m = re.match(r'(\d{4})-(\d{2})-\d{2}', d)
+        # YYYY.MM.DD — books standard (dt field uses dots)
+        m = re.match(r'\d{4}\.(\d{2})\.\d{2}', d)
         if m:
-            return int(m.group(2))
+            return int(m.group(1))
+        # YYYY-MM-DD — ISO
+        m = re.match(r'\d{4}-(\d{2})-\d{2}', d)
+        if m:
+            return int(m.group(1))
         # MM/DD/YYYY or M/D/YYYY
         m = re.match(r'(\d{1,2})/(\d{1,2})/\d{4}', d)
         if m:
@@ -140,7 +151,7 @@ class _SectionAgent(IRSFormsAgent):
         m = re.match(r'(\d{1,2})/\d{2,4}$', d)
         if m:
             return int(m.group(1))
-        # Month name
+        # Month name (e.g. 'August 2025')
         months = {'january': 1, 'february': 2, 'march': 3, 'april': 4,
                   'may': 5, 'june': 6, 'july': 7, 'august': 8,
                   'september': 9, 'october': 10, 'november': 11, 'december': 12}
@@ -396,8 +407,10 @@ class AgentF4562_MACRS(_SectionAgent):
                 "IRC §168(a): MACRS begins on the placed-in-service date. "
                 "Without it, Year 1 depreciation (including mid-month convention) cannot be computed.",
                 'IRC §168(a); Form 4562 Instructions Part III Col (b)',
-                "Set dateInService (or placed_in_service) in the llcAssets record for H_805HighMesa. "
-                "Format: 'YYYY-MM-DD' or 'MM/DD/YYYY'. August 2025 → Col (b) = '8/25'.")
+                "Check that the Acct.Fixed.Tangible.InService record in llcAssets_WBGroupLLC.json "
+                "exists and has a non-empty date. The 'dt' field (e.g. '2025.08.20') is accepted. "
+                "If missing, add: dateInService='2025-08-20' (or 'placed_in_service'). "
+                "August 2025 → Form 4562 Col (b) = '8/25'.")
 
     def _rule_land_not_excluded(self):
         """
