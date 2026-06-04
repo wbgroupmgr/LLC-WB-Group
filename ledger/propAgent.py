@@ -1,6 +1,16 @@
 import math
 from typing import Any, Dict, List, Optional
 
+try:
+    from irs.irsDepreciation import (
+        macrs_residential_year1 as _macrs_year1,
+        net_tangible_basis as _net_tangible_basis,
+        MACRS_RECOVERY_YEARS as _DEFAULT_LIFE,
+    )
+    _IRS_DEPR_AVAILABLE = True
+except ImportError:
+    _IRS_DEPR_AVAILABLE = False
+
 CAPITALIZE = 'Capitalize'
 AMORTIZE   = 'Amortize'
 EXPENSE    = 'Expense'
@@ -93,18 +103,27 @@ _RULES: List[tuple] = [
 
 def _compute_depreciation(bldg_amt: float, closing_date_str: str,
                           useful_life: float = 27.5) -> Dict:
-    """MACRS straight-line, mid-month convention for residential real property."""
+    """MACRS straight-line, mid-month convention for residential real property.
+
+    Delegates to irs.irsDepreciation.macrs_residential_year1() — the shared
+    IRS knowledge service — so propAgent and Form4562Agent always use the
+    same formula and basis logic.
+    """
     try:
         s = str(closing_date_str or '').strip().replace('.', '-').replace('/', '-')
         month = int(s.split('-')[1])
         assert 1 <= month <= 12
     except Exception:
         return {}
+    months_in_service = round(12.5 - month, 1)   # mid-month: (12.5 - M)
     full_year         = round(bldg_amt / useful_life, 2)
-    months_in_service = round(12.0 - month + 0.5, 1)   # mid-month: placed in service mid-M
+    if _IRS_DEPR_AVAILABLE:
+        depr_ytd = _macrs_year1(bldg_amt, month, useful_life)
+    else:
+        depr_ytd = round(full_year * months_in_service / 12.0, 2)
     return {
         'depr_full_year':    full_year,
-        'depr_ytd':          round(full_year * months_in_service / 12.0, 2),
+        'depr_ytd':          depr_ytd,
         'months_in_service': months_in_service,
         'closing_month':     month,
         'useful_life':       useful_life,
