@@ -177,17 +177,22 @@ STEP 8  UI Interactions — Issue Resolution
           → For each ERROR/WARN issue, bookkeeper has two correction paths:
 
           PATH A — Books correction (propNm or amount wrong in the ledger):
+            → UI shows transactions tDB/tID that needs editing. 
             → Open ledger editor → fix the transaction (propNm, amount, acct)
             → DB updated → GL updated → stmtIS reflects new value
             → Return to STEP 4 (Refresh FILL.pdf) to see corrected value
+            → fix next error
 
           PATH B — BookToIRS mapping correction (wrong fid→UAS mapping):
             → Click "🛠 Aid" → Aid dialog opens for the flagged fid
-            → View current mapping; edit bookNS entry or custom map
+                → FIXME: need better Aid, 
+                → instead of a single Form Field, show table of all fields per section agent that
+                → edit UI table and submit --> updates bookNS entry or custom map
             → Save persists to bookNS_*.json immediately
-            → "Commit" in Aid calls BookToIRS.regenerate() (same as step 4)
+            → fix next error
 
 STEP 9  Submit Bookkeeper Dialog
+          → "Commit" in bookkeeper UI calls BookToIRS.regenerate() (same as step 4)
           → After resolving all ERRORs, bookkeeper acknowledges the session
           → session_state.json updated to GO
 

@@ -209,11 +209,14 @@ class LLCTaxAgent(IRSFormsAgent):
         from irs.taxAgents.FormSchK1Agent import FormSchK1Agent
 
         results = {}
-        for AgentCls in [Form1065Agent, Form8825Agent, Form4562Agent, FormSchK1Agent]:
+        for AgentCls in [Form4562Agent, Form8825Agent, Form1065Agent, FormSchK1Agent]:
             name = AgentCls.__name__
             try:
-                agent  = AgentCls(self.llc, self.tax_year)
-                result = agent.run_phases_1_2()
+                agent = AgentCls(self.llc, self.tax_year)
+                # run_agent() = audit + PDF generation (Form8825/4562/SchK1 only).
+                # Fall back to run_phases_1_2() when run_agent() is not yet defined.
+                run_fn = getattr(agent, 'run_agent', None) or getattr(agent, 'run_phases_1_2')
+                result = run_fn()
                 halt   = result.get('overall_halt', 0)
                 # Normalize: some agents store halt in sections, not at top
                 if not halt:

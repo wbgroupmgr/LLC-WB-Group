@@ -587,11 +587,18 @@ class stmtIS_Tax(stmtIS):
 
     def _build_f8825_filldict(self) -> Dict[str, Any]:
         '''
-        Build a Form 8825 fill dict dynamically from IS ByProperty data.
+        Build a Form 8825 fill dict dynamically from IS data.
 
-        Form 8825 has one column per rental property (A-D on page 1,
-        E-H on page 2).  Properties are sorted alphabetically by propNm
-        and assigned columns in that order.
+        Two-phase approach (design_BUS_04.0_TaxPrep.md G8+G9):
+          Phase 1: _aggregate_by_property() — discovers active properties and
+                   their per-property line values. Requires propNm on GL records.
+          Phase 2: taxAggregates() — authoritative dollar totals (propNm-agnostic).
+                   Used to recover values dropped in Phase 1 due to missing propNm
+                   (single-property LLC), and ALWAYS used for form-level totals.
+
+        propNm rule: every GL record for rental ops MUST have propNm set to the
+        property identifier (e.g. "H_805HighMesa"). LLC-level entries use "LLC".
+        Missing propNm is a data-integrity error — F8EX-R01 will flag it.
 
         Account-to-line mapping (Form 8825 line numbers):
             Acct.Rev.Rent         → Line 2a  (F023) Gross rents
@@ -600,20 +607,18 @@ class stmtIS_Tax(stmtIS):
             Acct.Exp.Repair       → Line 11  (F067) Repairs
             Acct.Exp.Util         → Line 12  (F071) Utilities
             Acct.Exp.Depreciation → Line 14  (F079) Depreciation
-            Acct.Exp.Operating  ↘ → Line 17  (F091) Other (summed together)
+            Acct.Exp.Operating  ↘ → Line 17  (F091) Other (summed)
             Acct.Exp.Other      ↗
                                   → Line 18  (F095) Expense subtotal (computed)
                                   → Line 19a (F099) Net income/loss (computed)
 
-        Field numbering:
-            Page 1 (props A-D): base_fid + col_offset (0-3)
-            Page 2 (props E-H): Page 1 base + 119
+        Field numbering: Page 1 (props A-D): base_fid + col_offset (0-3)
+                         Page 2 (props E-H): Page 1 base + 119
         '''
         gl_records = getattr(self, '_gl_records', []) or []
-        if not gl_records:
-            return {}
 
-        rows = _Pipeline._aggregate_by_property(gl_records, 'ByProperty')
+        # Phase 2 authoritative totals — always available, propNm-agnostic
+        agg = self.taxAggregates()
 
         # base fid for the first property column (Col_a) of each line, per page
         _P1: Dict[str, int] = {
@@ -630,9 +635,8 @@ class stmtIS_Tax(stmtIS):
         _P2: Dict[str, int] = {k: v + 119 for k, v in _P1.items()}
 
         # account → (line_key, negate)
-        # Income: Balance is negative (credit), negate to get positive display value
-        # Expense: Balance is positive (debit), use as-is
-        # Acct.Exp.Operating and Acct.Exp.Other both fold into 'other' (F091, summed)
+        # Income balance = negative (credit) → negate to positive display value
+        # Expense balance = positive (debit)  → use as-is
         _ACCT_LINE: Dict[str, tuple] = {
             'Acct.Rev.Rent':       ('gross_rents',  True),
             'Acct.Rev.Fees.Other': ('other_income', True),
@@ -643,20 +647,40 @@ class stmtIS_Tax(stmtIS):
             'Acct.Exp.Other':      ('other',        False),
         }
 
+        # Phase 1: per-property breakdown from propNm-keyed GL aggregation
         prop_vals: Dict[str, Dict[str, float]] = {}
-        for r in rows:
-            if r.get('acctType') not in IS_TYPES:
-                continue
-            propNm = str(r.get('propNm', '') or '')
-            acct   = str(r.get('acct',   '') or '')
-            if not propNm or acct not in _ACCT_LINE:
-                continue
-            balance = float(r.get('Balance', 0) or 0)
-            line_key, negate = _ACCT_LINE[acct]
-            val = -balance if negate else balance
-            if propNm not in prop_vals:
-                prop_vals[propNm] = {}
-            prop_vals[propNm][line_key] = prop_vals[propNm].get(line_key, 0.0) + val
+        if gl_records:
+            rows = _Pipeline._aggregate_by_property(gl_records, 'ByProperty')
+            for r in rows:
+                if r.get('acctType') not in IS_TYPES:
+                    continue
+                propNm = str(r.get('propNm', '') or '')
+                acct   = str(r.get('acct',   '') or '')
+                if not propNm or acct not in _ACCT_LINE:
+                    continue  # missing propNm → recovered in Phase 2 below
+                balance = float(r.get('Balance', 0) or 0)
+                line_key, negate = _ACCT_LINE[acct]
+                val = -balance if negate else balance
+                if propNm not in prop_vals:
+                    prop_vals[propNm] = {}
+                prop_vals[propNm][line_key] = prop_vals[propNm].get(line_key, 0.0) + val
+
+        # Phase 2: single-property fallback — recover values that were dropped
+        # in Phase 1 due to missing propNm, using taxAggregates() as authority.
+        # Directly maps line_key → taxAggregates() key for unambiguous 1-1 accounts.
+        _AGG_RECOVER: Dict[str, str] = {
+            'gross_rents':  'rent_income',
+            'other_income': 'other_income',
+            'depreciation': 'depreciation',
+            'repairs':      'repairs',
+        }
+        if len(prop_vals) == 1:
+            only_prop = next(iter(prop_vals))
+            pv = prop_vals[only_prop]
+            for line_key, agg_key in _AGG_RECOVER.items():
+                agg_val = round(float(agg.get(agg_key) or 0), 2)
+                if agg_val and not pv.get(line_key):
+                    pv[line_key] = agg_val  # restore from authoritative source
 
         if not prop_vals:
             return {}
@@ -668,6 +692,7 @@ class stmtIS_Tax(stmtIS):
                                      pv.get('depreciation', 0.0) + pv.get('other', 0.0))
             pv['net_income']      = pv['income_subtotal'] - pv['exp_subtotal']
 
+        # Assign per-property fids
         out: Dict[str, Any] = {}
         for i, propNm in enumerate(sorted(prop_vals.keys())):
             if i >= 8:
@@ -680,14 +705,14 @@ class stmtIS_Tax(stmtIS):
                     continue
                 out[f'F{base_fid + col:03d}'] = round(val, 2)
 
-        # Aggregate totals across all properties
-        total_rental_income = round(sum(pv.get('income_subtotal', 0.0) for pv in prop_vals.values()), 2)
-        total_rental_expense = round(sum(pv.get('exp_subtotal', 0.0) for pv in prop_vals.values()), 2)
-        total_net = round(sum(pv.get('net_income', 0.0) for pv in prop_vals.values()), 2)
-        if total_rental_income: out['F103'] = total_rental_income
-        if total_rental_expense: out['F104'] = total_rental_expense
-        # F106 = net ordinary income (0 — no ordinary income accounts yet)
-        if total_net: out['F113'] = total_net
+        # Form-level totals — ALWAYS from taxAggregates() (authoritative, propNm-agnostic).
+        # These override any per-property summation so they always match the books.
+        total_income   = round(float(agg.get('total_income',   0) or 0), 2)
+        total_expenses = round(float(agg.get('total_expenses', 0) or 0), 2)
+        net_rental     = round(float(agg.get('net_rental', agg.get('net_income', 0)) or 0), 2)
+        if total_income:   out['F103'] = total_income
+        if total_expenses: out['F104'] = total_expenses
+        if net_rental:     out['F113'] = net_rental
         return out
 
     @staticmethod

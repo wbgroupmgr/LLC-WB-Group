@@ -489,20 +489,25 @@ class AgentF4562_MACRS(_SectionAgent):
         annual   = basis / self._RECOVERY_PERIOD
         expected = round(annual * ((12.5 - month) / 12), 2)
 
-        if abs(expected - depr) > 10.00:
+        diff = abs(expected - depr)
+        if diff > 10.00:
+            # Severity: ERROR when discrepancy is material and books value is non-trivial.
+            # A >$10 difference indicates a real problem: wrong basis, wrong month,
+            # land not excluded, or a books entry error — not just rounding.
+            severity = self.ERROR if depr > 100.0 else self.WARN
             return self.format_issue(
-                'F45M-R05', self.INFO,
-                f"MACRS Year 1 formula verification: "
-                f"basis ${basis:,.2f} / 27.5 × ((12.5-{month})/12) = ${expected:,.2f}. "
-                f"IS.depreciation = ${depr:,.2f}. Difference = ${abs(expected - depr):,.2f}. "
-                f"If difference > $10, possible causes: wrong placed-in-service month, "
-                f"land not excluded from basis, or a books entry error. CPA review recommended.",
-                'IRC §168; Pub 946 Appendix A Table A-6; Rev. Proc. 87-57',
-                f"Verify: (1) placed-in-service date is month {month} (correct?), "
-                f"(2) depreciable basis ${basis:,.2f} excludes land, "
-                f"(3) IS.depreciation entry in llcAssets is ${depr:,.2f}. "
-                "If books are correct, the small difference may be due to rounding — "
-                "file with IS.depreciation (Books-First).",
+                'F45M-R05', severity,
+                f"MACRS formula discrepancy: expected ${expected:,.2f} "
+                f"(basis ${basis:,.2f} / 27.5 × (12.5-{month})/12) "
+                f"but IS.depreciation = ${depr:,.2f}. Difference = ${diff:,.2f}. "
+                f"Causes: wrong placed-in-service month, land not excluded from basis, "
+                f"or incorrect books entry. Books-First (IRC §446): file IS.depreciation "
+                f"unless books are corrected.",
+                'IRC §168; Pub 946 Appendix A Table A-6; IRC §446 Books-First',
+                f"Investigate: (1) placed-in-service month correct? (currently month {month}), "
+                f"(2) depreciable basis ${basis:,.2f} excludes land value? "
+                f"(3) is Acct.Exp.Depreciation in llcAssets set to MACRS amount ${expected:,.2f}? "
+                f"If books are wrong, correct them — the FILL.pdf must reflect corrected books.",
                 fids=['F4562_L19h_g', 'F4562_L19h_b', 'F4562_L19h_c'])
 
 
@@ -1007,6 +1012,18 @@ class Form4562Agent(IRSFormsAgent):
             'overall_state': self.NOT_STARTED,
             'sections':      sections,
         }
+
+    def run_agent(self) -> Dict[str, Any]:
+        '''Full agent cycle: audit → (if GO) generate Form4562_FILL.pdf.'''
+        session = self.run_phases_1_2()
+        if session.get('overall_state') == self.GO:
+            try:
+                from irs.BookToIRS import BookToIRS
+                pdf_result = BookToIRS(self.llc, 'Form4562').regenerate()
+                session['pdf'] = pdf_result
+            except Exception as exc:
+                session['pdf'] = {'error': str(exc)}
+        return session
 
     @staticmethod
     def _first_halt_message(issues: List[Dict]) -> str:

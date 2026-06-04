@@ -500,12 +500,18 @@ class AgentF8825_Expenses(_SectionAgent):
                 'F8EX-R01', self.ERROR,
                 f"Form 8825 Line 14 (Depreciation) is blank but IS.depreciation = ${depr:,.2f}. "
                 f"IRC §168: MACRS depreciation must be reported on Form 8825 Line 14. "
-                f"Books source: Acct.Exp.Depreciation → Form 8825 Line 14, Col A (fill F079). "
+                f"Form 8825 uses a dynamic per-property builder (_build_f8825_filldict), NOT "
+                f"bookNS_IS.json. A blank F079 means the depreciation GL entry is missing propNm. "
                 f"A blank Line 14 overstates net rental income by ${depr:,.2f}.",
                 'IRC §168; Form 8825 Instructions Line 14; IRC §446 Books-First',
-                "Verify bookNS_IS.json maps IS.depreciation → Form 8825 Line 14 (F079). "
-                "Books-First: do NOT copy from Form 4562; re-run BookToIRS pipeline.",
-                fids=['F079', 'F8825_Line14'])
+                "Check propNm on Acct.Exp.Depreciation entry in llcAssets_WBGroupLLC.json — "
+                "it must be set to the property name (e.g. 'H_805HighMesa'). "
+                "Form 8825 does NOT use bookNS_IS.json; it uses _build_f8825_filldict() which "
+                "requires propNm on every GL record. Fix propNm, then click Refresh FILL.pdf.",
+                fids=['F079'],
+                suggested_mapping={'action': 'fix_propNm', 'acct': 'Acct.Exp.Depreciation',
+                                   'required_propNm': 'H_805HighMesa',
+                                   'source_file': 'llcAssets_WBGroupLLC.json'})
 
     def _rule_line14_mismatch(self):
         """
@@ -820,6 +826,25 @@ class Form8825Agent(IRSFormsAgent):
             'overall_state': self.NOT_STARTED,
             'sections':      sections,
         }
+
+    def run_agent(self) -> Dict[str, Any]:
+        '''
+        Full agent cycle: audit → (if GO) generate FILL.pdf.
+
+        Returns the run_phases_1_2 session dict with an optional 'pdf' key
+        added when generation succeeds.  Callers check overall_state:
+          GO           → FILL.pdf written; pdf dict present
+          NEEDS_FIXING → audit issues must be resolved; pdf key absent
+        '''
+        session = self.run_phases_1_2()
+        if session.get('overall_state') == self.GO:
+            try:
+                from irs.BookToIRS import BookToIRS
+                pdf_result = BookToIRS(self.llc, 'Form8825').regenerate()
+                session['pdf'] = pdf_result
+            except Exception as exc:
+                session['pdf'] = {'error': str(exc)}
+        return session
 
     @staticmethod
     def _first_halt_message(issues: List[Dict]) -> str:
