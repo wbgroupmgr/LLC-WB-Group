@@ -60,7 +60,12 @@ class IRSFormsAgent:
                      suggested_mapping: dict = None) -> Dict[str, Any]:
         """
         fids: logical key(s) in Form1065_namespace, e.g. ['B_PR_1', 'B_PR_2']
-        suggested_mapping: {fid, src, path} — pre-fill hint for the Aid dialog
+        suggested_mapping: context dict for the UI. Recognised keys:
+          {fid, src, path}          — pre-fill hint for the Aid mapping dialog
+          {confirm_required: True,
+           confirm_yes: str,        — label for "books are correct" button
+           confirm_no:  str}        — label for "books need correction" button
+          {action: 'fix_propNm', …} — direct data-fix hints
         """
         return {
             'rule_id':           rule_id,

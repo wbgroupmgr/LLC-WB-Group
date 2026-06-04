@@ -34,6 +34,10 @@ from pathlib  import Path
 from typing   import Any, Dict, List, Optional
 
 from irs.taxAgents.IRSFormsAgent import IRSFormsAgent
+from irs.irsDepreciation import (
+    net_tangible_basis, macrs_residential_year1, verify_depreciation,
+    MACRS_RECOVERY_YEARS, FORMULA_TOLERANCE,
+)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -359,10 +363,9 @@ class AgentF4562_MACRS(_SectionAgent):
     def pass5_summarize(self) -> str:
         depr   = self._get_is_agg('depreciation')
         placed = self._get_placed_in_service() or 'unknown'
-        basis  = sum(_safe_float(r.get('amt', r.get('amount', 0)))
-                     for r in self._get_tangible_inservice())
+        basis  = net_tangible_basis(self._get_tangible_inservice())
         return (f"MACRS Line 19h: H_805HighMesa placed {placed}, "
-                f"basis ≈ ${basis:,.2f}, 27.5yr S/L MM, "
+                f"net basis ${basis:,.2f}, 27.5yr S/L MM, "
                 f"Col (g) = ${depr:,.2f} (= IS.depreciation, Books-First).")
 
     # ── Rules ────────────────────────────────────────────────────────────────
@@ -426,18 +429,18 @@ class AgentF4562_MACRS(_SectionAgent):
         land_rows = self._get_land_rows()
         tang_rows = self._get_tangible_inservice()
         if land_rows and tang_rows:
-            land_total = sum(_safe_float(r.get('amt', r.get('amount', 0))) for r in land_rows)
-            tang_total = sum(_safe_float(r.get('amt', r.get('amount', 0))) for r in tang_rows)
+            land_total = net_tangible_basis(land_rows)    # net land balance
+            tang_total = net_tangible_basis(tang_rows)    # net depreciable basis
             return self.format_issue(
                 'F45M-R03', self.WARN,
                 f"Land records found in llcAssets (Acct.Fixed.Land = ${land_total:,.2f}). "
-                f"Verify Form 4562 Col (c) uses ONLY the tangible depreciable basis "
-                f"(Acct.Fixed.Tangible.InService = ${tang_total:,.2f}) and NOT the land value. "
+                f"Verify Form 4562 Col (c) uses ONLY the net tangible depreciable basis "
+                f"(net Acct.Fixed.Tangible.InService = ${tang_total:,.2f}) and NOT the land value. "
                 f"IRC §167; Reg. §1.167(a)-2: land is never depreciable. "
                 f"Correct Col (c) = ${tang_total:,.2f} (excludes land ${land_total:,.2f}).",
                 'IRC §167; Treas. Reg. §1.167(a)-2; Form 4562 Instructions Col (c)',
                 f"Confirm Form 4562 Part III Line 19h Col (c) = ${tang_total:,.2f} "
-                f"(tangible basis only). Land ${land_total:,.2f} is never depreciable.",
+                f"(net tangible basis: Debit − Credit entries). Land ${land_total:,.2f} never depreciable.",
                 fids=['F4562_L19h_c'])
 
     def _rule_column_g_mismatch(self):
@@ -469,20 +472,22 @@ class AgentF4562_MACRS(_SectionAgent):
 
     def _rule_macrs_formula_check(self):
         """
-        F45M-R05: MACRS Year 1 formula verification.
-        Compute expected depreciation using the IRS mid-month convention formula
-        and compare against IS.depreciation. If they differ by > $10, flag for CPA review.
+        F45M-R05: MACRS Year 1 formula verification (via irs.irsDepreciation service).
 
-        Formula (IRC §168; Pub 946 Table A-6):
-          Annual = depreciable_basis / 27.5
-          Year 1 = Annual × ((12.5 - placed_month) / 12)
+        Uses net_tangible_basis() (Debit − Credit) as the depreciable basis — NOT
+        sum(all amt). This matches the GL balance computation and correctly excludes
+        closing-cost credits from the depreciable cost.
 
-        For August 2025 (month=8):
-          Year 1 = (basis / 27.5) × ((12.5 - 8) / 12) = (basis / 27.5) × (4.5 / 12)
+        Formula (IRC §168; Pub 946 Table A-6 reproduced by irsDepreciation.macrs_residential_year1):
+          net_basis  = sum(Debit amt) − sum(Credit amt) for Acct.Fixed.Tangible.InService
+          annual     = net_basis / 27.5
+          year1      = annual × ((12.5 − placed_month) / 12)  ← mid-month convention
 
-        This is a verification rule — it does not modify the books or the fill dict.
-        A difference > $10 may indicate: (a) wrong placed-in-service month in llcAssets,
-        (b) wrong depreciable basis (land not excluded), or (c) a books entry error.
+        Books-First (IRC §446): IS.depreciation is the filing value. This rule verifies
+        that the books entry is consistent with MACRS parameters. A discrepancy indicates
+        an accounting reconciliation issue — NOT a BookToIRS mapping issue.
+
+        Bookkeeper action: confirm that books are correct (not a "fix the mapping" issue).
         """
         depr = self._get_is_agg('depreciation')
         if depr < 0.01:
@@ -492,36 +497,41 @@ class AgentF4562_MACRS(_SectionAgent):
         if not tang_rows:
             return None
 
-        basis = sum(_safe_float(r.get('amt', r.get('amount', 0))) for r in tang_rows)
+        basis = net_tangible_basis(tang_rows)   # Debit − Credit; matches GL balance
         month = self._get_placed_month()
 
         if not basis or not month:
             return None
 
-        # Mid-month convention: property placed in month M gets (12.5 - M)/12 of annual depr
-        annual   = basis / self._RECOVERY_PERIOD
-        expected = round(annual * ((12.5 - month) / 12), 2)
+        result = verify_depreciation(depr, basis, month, self._RECOVERY_PERIOD)
+        diff   = result['diff']
 
-        diff = abs(expected - depr)
+        if diff <= FORMULA_TOLERANCE:
+            return None  # within $1.00 rounding tolerance — no issue
+
         if diff > 10.00:
-            # Severity: ERROR when discrepancy is material and books value is non-trivial.
-            # A >$10 difference indicates a real problem: wrong basis, wrong month,
-            # land not excluded, or a books entry error — not just rounding.
             severity = self.ERROR if depr > 100.0 else self.WARN
-            return self.format_issue(
-                'F45M-R05', severity,
-                f"MACRS formula discrepancy: expected ${expected:,.2f} "
-                f"(basis ${basis:,.2f} / 27.5 × (12.5-{month})/12) "
-                f"but IS.depreciation = ${depr:,.2f}. Difference = ${diff:,.2f}. "
-                f"Causes: wrong placed-in-service month, land not excluded from basis, "
-                f"or incorrect books entry. Books-First (IRC §446): file IS.depreciation "
-                f"unless books are corrected.",
-                'IRC §168; Pub 946 Appendix A Table A-6; IRC §446 Books-First',
-                f"Investigate: (1) placed-in-service month correct? (currently month {month}), "
-                f"(2) depreciable basis ${basis:,.2f} excludes land value? "
-                f"(3) is Acct.Exp.Depreciation in llcAssets set to MACRS amount ${expected:,.2f}? "
-                f"If books are wrong, correct them — the FILL.pdf must reflect corrected books.",
-                fids=['F4562_L19h_g', 'F4562_L19h_b', 'F4562_L19h_c'])
+        else:
+            severity = self.INFO   # $1–$10: mention but not blocking
+
+        expected = result['expected']
+        return self.format_issue(
+            'F45M-R05', severity,
+            f"MACRS formula reconciliation: net basis ${basis:,.2f} / 27.5 × "
+            f"(12.5-{month})/12 = ${expected:,.2f}. "
+            f"IS.depreciation (books) = ${depr:,.2f}. Difference = ${diff:,.2f}. "
+            f"This is an accounting reconciliation question — NOT a BookToIRS mapping issue. "
+            f"IS.depreciation is sourced from Acct.Exp.Depreciation (set by YE closing). "
+            f"Books-First (IRC §446): file IS.depreciation unless books are corrected.",
+            'IRC §168; Pub 946 Table A-6; IRC §446 Books-First',
+            f"Confirm: Is IS.depreciation = ${depr:,.2f} the correct MACRS amount for this property? "
+            f"If YES → books are correct; proceed with filing IS.depreciation. "
+            f"If NO → correct the YE closing entry in llcAssets (Acct.Exp.Depreciation) "
+            f"to the MACRS formula result ${expected:,.2f}, then Refresh FILL.pdf.",
+            fids=['F4562_L19h_g', 'F4562_L19h_b', 'F4562_L19h_c'],
+            suggested_mapping={'confirm_required': True,
+                               'confirm_yes': f'Books correct — file IS.depreciation ${depr:,.2f}',
+                               'confirm_no':  f'Books wrong — correct to MACRS ${expected:,.2f}'})
 
 
 # ────────────────────────────────────────────────────────────────────────────

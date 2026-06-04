@@ -64,6 +64,22 @@
     .no-issues { color: #166534; font-size: 12px; padding: 6px 0; }
     .run-bar { padding: 14px 18px; display: flex; gap: 10px; align-items: center; }
     .ts-label { font-size: 11px; color: #9ca3af; margin-left: auto; }
+    /* Bookkeeper confirmation buttons (confirm_required issues) */
+    .btn-confirm-yes {
+        background: #dcfce7; color: #166534; border: 1px solid #86efac;
+        border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600;
+        cursor: pointer; white-space: nowrap;
+    }
+    .btn-confirm-yes:hover { background: #bbf7d0; }
+    .btn-confirm-yes.confirmed { background: #166534; color: white; cursor: default; }
+    .btn-confirm-no {
+        background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;
+        border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600;
+        cursor: pointer; white-space: nowrap;
+    }
+    .btn-confirm-no:hover { background: #fde68a; }
+    .btn-confirm-no.flagged { background: #92400e; color: white; cursor: default; }
+    .confirm-hint { font-size: 10px; color: #9ca3af; line-height: 1.3; }
 </style>
 {% endblock %}
 
@@ -140,7 +156,25 @@
                         {% endif %}
                         <div class="issue-action">→ {{ issue.action }}</div>
                         <div class="issue-cite">{{ issue.irs_cite }}</div>
-                        {% if issue.fids %}
+                        {# Yes/No confirmation buttons — shown when confirm_required is set #}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.confirm_required %}
+                        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <button type="button" class="btn-confirm-yes"
+                                    onclick="issueConfirm(this, '{{ issue.rule_id }}', 'yes')"
+                                    title="{{ issue.suggested_mapping.confirm_yes }}">
+                                ✓ Yes — books are correct
+                            </button>
+                            <button type="button" class="btn-confirm-no"
+                                    onclick="issueConfirm(this, '{{ issue.rule_id }}', 'no')"
+                                    title="{{ issue.suggested_mapping.confirm_no }}">
+                                ✗ No — needs correction
+                            </button>
+                            <span class="confirm-hint">
+                                Yes: {{ issue.suggested_mapping.confirm_yes }}<br>
+                                No: {{ issue.suggested_mapping.confirm_no }}
+                            </span>
+                        </div>
+                        {% elif issue.fids %}
                         <div style="margin-top:5px">
                             <a class="aid-link"
                                href="{{ url_for('view_object', obj_type=back_obj) }}?aid_fid={{ issue.fids[0] }}">
@@ -199,5 +233,40 @@ function runAgent(btn) {
               `<span style="color:#991b1b">Fetch error: ${err}</span>`;
       });
 }
+
+// Bookkeeper Yes/No confirmation for issues with confirm_required=true.
+// Records the decision in localStorage (session-scoped) so the page
+// remembers the answer across a reload. Persisting to the server would
+// require a dedicated /api/agent/<key>/confirm route — add in a future pass.
+function issueConfirm(btn, ruleId, choice) {
+    const key = 'confirm_' + ruleId;
+    localStorage.setItem(key, choice);
+    const row = btn.closest('[style]');  // the confirm button row
+    if (choice === 'yes') {
+        btn.classList.add('confirmed');
+        btn.textContent = '✓ Confirmed — books correct';
+        btn.disabled = true;
+        const noBtn = row ? row.querySelector('.btn-confirm-no') : null;
+        if (noBtn) { noBtn.style.display = 'none'; }
+    } else {
+        btn.classList.add('flagged');
+        btn.textContent = '⚠ Flagged for CPA review';
+        btn.disabled = true;
+        const yesBtn = row ? row.querySelector('.btn-confirm-yes') : null;
+        if (yesBtn) { yesBtn.style.display = 'none'; }
+    }
+}
+
+// Restore any previous confirmations on page load.
+(function () {
+    document.querySelectorAll('[data-rule-id]').forEach(el => {
+        const ruleId = el.getAttribute('data-rule-id');
+        const saved  = localStorage.getItem('confirm_' + ruleId);
+        if (saved) {
+            const btn = el.querySelector(saved === 'yes' ? '.btn-confirm-yes' : '.btn-confirm-no');
+            if (btn) issueConfirm(btn, ruleId, saved);
+        }
+    });
+})();
 </script>
 {% endblock %}
