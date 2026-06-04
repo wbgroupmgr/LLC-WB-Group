@@ -4,6 +4,17 @@ Authentication and user-registration layer for the LLC Management App (`llcMgmt`
 
 ---
 
+## Session Summary — 2026-06-02
+
+**Implemented this session:**
+- Redesigned auth from single-layer GPG (platform-specific passphrase, broke cross-platform) to two-layer model: MASTER passphrase in `~/.llcRentalTracker/config.json` → `keys.json.gpg` → `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY` → `pw.json.gpg`.
+- Established PA=master host rule: only PA pushes `pw.json.gpg` commits; local machines pull only. Shared `LLC_GPG_PASSPHRASE` ensures all platforms decrypt the same file.
+- Added `wsCmd --newBus` bootstrap command for new LLC provisioning.
+- Added `--F` force flag to skip confirmation prompts in scripted runs.
+- Fixed `wsCmd` import crash: deferred `deepdiff` and other heavy optional imports to function bodies (not module top-level) so `--start` works on hosts without optional deps installed.
+
+---
+
 ## Problem Statement — Why the Original Design Failed
 
 The original design encrypted `pw.json.gpg` with a **platform-specific**

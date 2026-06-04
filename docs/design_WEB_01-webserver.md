@@ -151,6 +151,20 @@ Encryption: GPG symmetric AES-256, passphrase = `LLC_GPG_PASSPHRASE`.
 
 ---
 
+## Lessons Learned — Session 2026-06-02
+
+### Architecture
+- **Two-layer GPG secrets model**: `~/.llcRentalTracker/config.json` holds a MASTER passphrase → decrypts `keys.json.gpg` → yields `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY` → decrypts `pw.json.gpg` (user DB). The MASTER passphrase never enters the repo; `keys.json.gpg` and `pw.json.gpg` are committed. All platforms sharing the same `LLC_GPG_PASSPHRASE` (from their local `keys.json.gpg`) can decrypt `pw.json.gpg`.
+- **PA = master host rule**: Only PythonAnywhere (PA) pushes commits to the Business Repo (`LLC-WBGroup`). Local machines pull only. This ensures `pw.json.gpg` committed to the repo is always encrypted with PA's passphrase, which all platforms know via `keys.json.gpg`. Breaking this rule causes `gpg: decryption failed: Bad session key` on PA.
+- **`wsCmd --newBus` bootstrap**: New-business provisioning sequence: `--newBus <path>` creates the LLC repo skeleton, copies template JSONs, runs `--setup` to generate `LLC_SECRET_KEY` and seed `pw.json.gpg`. The `--F` force flag skips confirmation prompts for CI/scripted runs.
+- **Flask route registration order**: Static route patterns (`/view/yeFinancialReport`) must be registered before dynamic catch-all patterns (`/view/<obj_type>`). Flask matches routes in registration order and will never reach the static route if the dynamic one is registered first.
+
+### Software Engineering
+- **Lazy imports at CLI entry points**: `wsCmd.py` must defer any `import` that transitively pulls in `deepdiff` (or other optional heavy deps) to the function body that needs it, not the module top-level. A bare `import deepdiff` at module level will crash `wsCmd.py --start` on hosts where deepdiff is not installed, even if the start path never uses deepdiff.
+- **`importlib.util.spec_from_file_location` bypasses package `__init__.py`**: Use this when a module is safe to import standalone but its package `__init__.py` has heavy transitive deps. Critical for `wsCmd.py` loading `llcMgmt.py` without triggering the full `uillc` package init.
+
+---
+
 ## Key Files
 
 | File | Purpose |

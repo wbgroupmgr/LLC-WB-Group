@@ -9,6 +9,19 @@ Enhance LLC App with the following changes
 The current design is very complicated and complex.   The whole LLC data model is not clear.  Please refractor the code to adhere to the following data model. 
 
 
+## Lessons Learned — Session 2026-06-02
+
+### Accounting
+- **`acctOwner` field on equity records**: Multi-member LLC equity records use `acctOwner=oID` (owner identifier) on `Acct.Equity.Owner.Capital.*` entries to distinguish per-member capital without adding new COA accounts. The same COA path applies to all members; `acctOwner` is the discriminator for K-1 Item L aggregation.
+- **YE closing entries require `Ledger` field set**: If `Ledger=nan` (or blank) on a closing entry, `toDoubleEntry()` skips it and no counter-entry is generated. The GL equation then breaks because only one side of the close posts. Both the Dr and Cr sides of every YE closing journal must have `Ledger` populated.
+
+### Software Engineering
+- **Single shared DB (Phase 3)**: `Accts/` is now a single DB across all fiscal years — no per-year subdirectory. Year isolation is achieved by date-prefix filtering at load time in `llcReportEngine` and `utilWorkingDB`. This simplifies COA and profile management (one file, never copied) while keeping year-specific artifacts (IRS Forms/, BankStmts/) in `<year>/` folders.
+- **`acctMinor` column in ViewBy=All Balance Sheet**: The BS view surfaces `acctMinor` as a column when `view_by='All'` to show per-owner equity splits. This column is derived at aggregation time from `acctOwner` on the GL records — it does not require a separate COA entry.
+- **Schema evolution — add fields without migration**: Adding `acctOwner` to COA and transaction records is backward-compatible if all code paths treat missing/null `acctOwner` as "entity-level" (no per-member split). No DB migration script is needed.
+
+---
+
 1. **Financial DB Data Objects** : DB/json File
     - these are all in the ledger folder as *.py
     - most of these are built on a `dual-account` transaction model.   For any given transaction, there is Credit Account and a Debit Account.

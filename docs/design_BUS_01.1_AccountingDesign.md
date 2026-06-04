@@ -195,6 +195,20 @@ top/pages/AcountingData/
 - irs/irsFormFieldNames.py
 ````
 
+## Lessons Learned — Session 2026-06-02
+
+### Accounting
+- **MACRS mid-month convention formula**: Year-1 depreciation fraction = `(25 − 2M) / 24` where M = placement month (1=Jan … 12=Dec). August (M=8): `9/24 = 37.5%` of the annual rate. IRS Pub 946 Table A-1 confirms 1.364% for Aug residential 27.5-yr property (`3.636% × 9/24`). Never use a straight half-year fraction for real property.
+- **RV = personal property (5-yr MACRS §1245)**: An RV is NOT real property. It depreciates over 5 years under §168, not 27.5/39 years. Pre-service capitalized costs (repairs, improvements before rental start) are §1.263(a)-1 capital expenditures added to the depreciable basis — not current-year expenses.
+- **RV activity type test**: Average rental period ≤ 7 days → NOT a passive activity under §469(j)(8). This affects whether losses are deductible against ordinary income. Track average rental days per year in the asset record to support this classification.
+- **Multi-member LLC K-1 capital tracking**: IRS requires per-member capital account tracking on K-1 Item L. Use `acctOwner=oID` on equity records rather than creating separate COA accounts per member. The same COA account (`Acct.Equity.Owner.Capital.Funds`) with `acctOwner` set identifies the member. The `acctMinor` column in ViewBy=All surfaces this split on the Balance Sheet.
+
+### Software Engineering
+- **Depreciation discrepancy detection at YE**: When re-running YE closing, check the existing depreciation entries against the recomputed schedule before posting. If a discrepancy exists, replace the old entry rather than appending a second one — double-posting depreciation silently inflates expense and distorts the BS.
+- **Single DB across years — filter at query time**: Storing all years in one `Accts/` DB (rather than per-year directories) requires year filtering in `llcReportEngine._load_source` and `utilWorkingDB.load` using the `dt` (date) prefix. IRS Forms/ and BankStmts/ remain year-specific because they are filed artifacts, not accounting records.
+
+---
+
 #### Util Services
 
 - eSession: Manages "Working" data.

@@ -162,3 +162,17 @@ for size in range(1, len(rows)+1):
 
 This guarantees the *smallest* set of rows whose signed amounts explain the diff exactly.
 For sets >20 rows, falls back to showing all candidate rows.
+
+---
+
+## Lessons Learned — Session 2026-06-02
+
+### Accounting
+- **Open-period BS equation is A = L + E + NI**: Revenue/Expense accounts remain open for K-1 detail in LLC partnerships. The `A − (L+E) = NI` gap on the Balance Sheet is expected and correct — not a bug. Only flag it as an error if the gap does NOT equal the Income Statement net income.
+- **BSAuditAgent verdict `open_period_ni`**: When the BS gap exactly matches NI from the income statement, the correct audit verdict is `open_period_ni` (informational), not an equity error. This distinction avoids false-positive alerts for operators.
+- **YE closing entries break the open-period equation**: After posting `Dr Acct.Equity.Earnings.PnL / Cr Acct.Equity.Owner.Capital.Funds`, the income/expense accounts zero out and the standard `A = L + E` equation holds. The audit engine should detect which regime it's in (open vs closed) and apply the matching equation.
+
+### Software Engineering
+- **BSAuditAgent belongs in the Actions menu, not the GL view**: The Balance Sheet audit is a separate action triggered by the user, not an inline GL warning. Surfacing it in the Actions menu (alongside YE Closing) keeps the GL view focused on transaction-level findings.
+- **Extended equation must tolerate acctType=Staging**: Escrow and clearing accounts tagged `Staging` must be excluded from all five sides of the accounting equation (`A, L, E, Inc, Exp`) or the equation will appear to fail for correct ledgers with active escrow balances.
+- **`_subset_summing_to` performance cap at 20 rows is correct**: Above that threshold the combinations count is O(2^N); returning all candidate rows is the right fallback rather than blocking the UI with a long computation.

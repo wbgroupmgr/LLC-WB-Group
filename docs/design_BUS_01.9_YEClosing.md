@@ -1,5 +1,16 @@
 # Accounting Best Practices - YE Closing
 
+## Session Summary — 2026-06-02
+
+**Implemented this session:**
+- Fixed MACRS year-1 formula to use mid-month convention: `(25 − 2M) / 24` (was incorrectly using `5/24` for August; correct is `9/24`).
+- Fixed YE retained earnings (RE) closing entries to be proper double-entry: `Dr Acct.Equity.Earnings.PnL / Cr Acct.Equity.Owner.Capital.Funds`. Previously `Ledger` field was `nan`, breaking GL equation.
+- Fixed NI sequencing: net income must be computed from posted income/expense records before RE closing entries are generated.
+- Added depreciation replacement logic: if a depreciation entry already exists and the recomputed amount differs, replace it rather than appending a second entry.
+- Added `BSAuditAgent` service: audits the Balance Sheet equation, classifies verdict as `open_period_ni` (normal), `equity_error` (bad), or `balanced` (post-close). Surfaced in the Actions menu.
+
+---
+
 ## Learn: Why Your Balance Sheet is Imbalanced After YE Closing 
 
 The accounting system, audit agents, is currently looking at two different timeframes simultaneously before YE and New Fiscal Period.

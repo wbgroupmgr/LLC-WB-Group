@@ -117,6 +117,19 @@ This is the **dead shim** — the pre-split monorepo. Confirm:
 
 ---
 
+## Lessons Learned — Session 2026-06-02
+
+### Operations / Deployment
+- **PA = master host, local = pull-only**: PythonAnywhere is the sole host that pushes to `LLC-WBGroup`. Local machines and any other hosts pull only and never push data files. This enforces a single authoritative `pw.json.gpg` encrypted with a shared `LLC_GPG_PASSPHRASE` that works everywhere.
+- **`keys.json.gpg` as secrets bootstrap**: Per-host setup: `~/.llcRentalTracker/config.json` holds MASTER passphrase → `keys.json.gpg` decrypts to `{LLC_GPG_PASSPHRASE, LLC_SECRET_KEY}` → injected as env vars at app startup. Only the MASTER passphrase is host-specific; all other secrets are repo-committed (encrypted) and shared.
+- **`wsCmd --newBus` for new LLC provisioning**: Bootstrap sequence for a new business: `--newBus <LLC-WBGroup-path>` creates repo skeleton and JSONs, then `--setup` seeds `pw.json.gpg` with default user and writes `MultiTaskWS_Config` stanza to `llcProfile`. Must run on PA first so it commits the canonical `pw.json.gpg`.
+
+### Software Engineering
+- **Single DB across years requires explicit year scoping at query time**: Moving `Accts/` out of year subdirectories (Phase 3) means every query that was previously year-isolated by directory is now year-filtered by `dt` prefix in `llcReportEngine` and `utilWorkingDB`. All new query paths must pass `year` as a filter parameter, not rely on file location.
+- **New Year setup checklist** (updated for Phase 3 single-DB): No need to copy Accts/ JSONs to a new year directory. Steps are: (1) create `books/<year>/BankStmts/` and `books/<year>/YE_Tax_Records/Forms_IRS/`, (2) update `llcProfile` fiscal year, (3) run `wsCmd --newYear <year>` (future: not yet implemented). The single `Accts/` DB accumulates all years.
+
+---
+
 ## Priority Order for Next Session
 
 1. **Bookkeeping first** — reconcile 2025 bank statements, enter transactions

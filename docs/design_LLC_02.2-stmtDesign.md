@@ -40,6 +40,19 @@ The design for stmt objects has gone thru several iterations as there are differ
     - some stmtOBJ need to be propagated X properties
     - some stmtOBJ needs to be propagated X customers
 
+## Lessons Learned — Session 2026-06-02
+
+### Accounting
+- **BS open-period gap is structural, not a bug**: In an open period, the Balance Sheet will show `Assets ≠ Liabilities + Equity` by exactly the Net Income amount. This is correct for a partnership LLC: income/expense accounts remain open for K-1 allocation detail and have not been closed to Equity. The gap disappears after YE closing entries post. `stmtBalanceSheet.stats()` should expose this gap and label it `open_period_ni` when it matches the income statement NI.
+- **`acctMinor` column in ViewBy=All**: The BS aggregation layer adds `acctMinor` to each equity row derived from `acctOwner` on the GL records. This allows the BS to display per-member capital splits without changing the COA structure. The column is present only in `view_by='All'` mode; property/liability views omit it.
+
+### Software Engineering
+- **`stmt` objects are immutable — bypass via `object.__setattr__`**: When lazy-computing derived attributes (e.g., `taxAggregates`) after construction, use `object.__setattr__(self, '_cache_key', value)` to bypass the freeze. Do NOT override `__setattr__` logic to allow selective mutation — the freeze must apply to all user-visible attributes.
+- **Pipeline filter order matters for BS**: `AggBy` must run before `ViewBy` because `acctMinor` is derived during aggregation. If `ViewBy` is applied first (filtering rows), the aggregation loses context for per-owner equity grouping. The correct order is: `_build → AggBy → ViewBy → GroupBy → SortBy → _finalize`.
+- **`check` dict from aggregator is metadata, not a row**: The `check` dict (`asset, liability, equity, equation_diff, balanced`) is stored in `self._meta['check']` and exposed via `last_check()` / `stats()`. It must NOT appear in `load()` output — downstream consumers (UI tables, IRS mappers) iterate over rows and will fail if a non-row dict is mixed in.
+
+---
+
 ## ledger.stmtDB Overview
 
 stmtDB — base class for all `stmt*` object, ie. Constructed Financial Data Objects.
