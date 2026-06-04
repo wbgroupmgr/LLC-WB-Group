@@ -236,11 +236,13 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
 
 {# ── Page body ──────────────────────────────────────────────────────────── #}
 <div class="panel">
-    {# ── Form 1065 Agent Status Strip ──────────────────────────────────── #}
-    {% if meta.formId == 'Form1065' %}
+    {# ── Form Agent Status Strip — shown for any form with agent_enabled ── #}
+    {% if meta.get('agent_enabled') or meta.formId == 'Form1065' %}
+    {% set _agent_key = meta.get('agent_key', 'form1065') %}
+    {% set _agent_label = meta.get('agent_strip_label', '📋 ' + (meta.formId or 'Form') + ' — Section Status') %}
     <div class="agent-strip" id="agentStrip">
         <div class="agent-strip-header" onclick="agentStripToggle()">
-            <span class="agent-strip-title">📋 Form 1065 — Section Status</span>
+            <span class="agent-strip-title">📋 {{ _agent_label }}</span>
             <span class="agent-badge-bar" id="agentBadgeBar">
                 <span class="agent-badge badge-ns">Loading…</span>
             </span>
@@ -262,7 +264,7 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
             <div class="agent-strip-actions">
                 <button type="button" class="btn btn-sm btn-primary" onclick="agentRunStart()"
                         id="agentRunBtn">▶ Run Form Agent</button>
-                <a href="{{ url_for('agent_form1065_view') }}" class="btn btn-sm btn-outline-secondary"
+                <a href="#" class="btn btn-sm btn-outline-secondary"
                    id="agentReviewBtn" style="display:none">📋 Open Guided Review →</a>
                 <span id="agentStaleWarn" style="display:none;font-size:11px;color:#92400e;
                       background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 8px;">
@@ -503,13 +505,24 @@ function cpaReviewOpen() {
 </script>
 {% endif %}
 
-{% if meta.formId == 'Form1065' %}
+{% if meta.get('agent_enabled') or meta.formId == 'Form1065' %}
+{% set _ak = meta.get('agent_key', 'form1065') %}
 <script>
-// url_for() includes SCRIPT_NAME prefix automatically
-const _AGENT_STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
-const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
-// ── Form 1065 Agent Status Strip ─────────────────────────────────────────
+// ── Form Agent Status Strip — generic for all forms ───────────────────────
 (function () {
+    // URL construction: Form1065 uses named routes; all others use /api/agent/<key>/
+    {% if meta.formId == 'Form1065' %}
+    const _AGENT_STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
+    const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
+    const _AGENT_REVIEW_URL = {{ url_for('agent_form1065_view') | tojson }};
+    {% else %}
+    const _ak = {{ _ak | tojson }};
+    const _AGENT_STATUS_URL = _SCRIPT_ROOT + '/api/agent/' + _ak + '/status';
+    const _AGENT_START_URL  = _SCRIPT_ROOT + '/api/agent/' + _ak + '/start';
+    const _AGENT_REVIEW_URL = _SCRIPT_ROOT + '/view/agent/' + _ak;
+    {% endif %}
+    const _STRIP_KEY = 'agent_strip_{{ _ak }}_collapsed';
+
     const STATE_LABEL = {
         'GO':           ['● GO',          'agent-state-go'],
         'NEEDS_FIXING': ['✗ Needs Fixing', 'agent-state-fix'],
@@ -518,11 +531,11 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
     };
 
     function renderStrip(summary) {
-        const sections  = summary.sections || [];
+        const sections  = Array.isArray(summary.sections) ? summary.sections
+                          : Object.values(summary.sections || {});
         const extAdvice = summary.ext_advice || '';
         const lastRun   = summary.last_run;
 
-        // Badge bar summary
         const goCount  = sections.filter(s => s.state === 'GO').length;
         const fixCount = sections.filter(s => s.state === 'NEEDS_FIXING').length;
         const nsCount  = sections.filter(s => s.state === 'NOT_STARTED').length;
@@ -535,7 +548,6 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
         }
         document.getElementById('agentBadgeBar').innerHTML = badgeHtml;
 
-        // Section rows
         let rowsHtml = '';
         sections.forEach(s => {
             const [stateText, stateCls] = STATE_LABEL[s.state] || ['?', ''];
@@ -548,34 +560,31 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
         });
         if (extAdvice) {
             rowsHtml += `<tr class="agent-ext-row">
-                <td>Next Steps</td>
-                <td class="agent-state-ns">ℹ Advice</td>
+                <td>Next Steps</td><td class="agent-state-ns">ℹ Advice</td>
                 <td class="agent-summary-text">${extAdvice}</td>
             </tr>`;
         }
         document.getElementById('agentStripRows').innerHTML =
             rowsHtml || '<tr><td colspan="3">No data</td></tr>';
 
-        // Last-run timestamp + stale warning
         const staleEl   = document.getElementById('agentStaleWarn');
         const reviewBtn = document.getElementById('agentReviewBtn');
         if (lastRun) {
-            const d       = new Date(lastRun);
-            const ageHrs  = (Date.now() - d.getTime()) / 3600000;
-            document.getElementById('agentLastRun').textContent =
-                'Last run: ' + d.toLocaleString();
-            // Warn if results are more than 1 hour old
+            const d = new Date(lastRun);
+            const ageHrs = (Date.now() - d.getTime()) / 3600000;
+            document.getElementById('agentLastRun').textContent = 'Last run: ' + d.toLocaleString();
             if (staleEl) staleEl.style.display = ageHrs > 1 ? '' : 'none';
         } else {
             if (staleEl) staleEl.style.display = 'none';
         }
 
-        // Show Guided Review button if any section has run
         const hasRun = sections.some(s => s.state !== 'NOT_STARTED');
-        reviewBtn.style.display = hasRun ? '' : 'none';
+        if (reviewBtn) {
+            reviewBtn.style.display = hasRun ? '' : 'none';
+            reviewBtn.href = _AGENT_REVIEW_URL;
+        }
 
-        // Restore collapsed preference
-        if (localStorage.getItem('form1065_strip_collapsed') !== '1') agentStripOpen();
+        if (localStorage.getItem(_STRIP_KEY) !== '1') agentStripOpen();
     }
 
     function agentStripOpen() {
@@ -587,14 +596,13 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
         const body = document.getElementById('agentStripBody');
         const open = body.classList.toggle('open');
         document.getElementById('agentStripToggle').textContent = open ? '▲' : '▼';
-        localStorage.setItem('form1065_strip_collapsed', open ? '0' : '1');
+        localStorage.setItem(_STRIP_KEY, open ? '0' : '1');
     };
 
     window.agentRunStart = function () {
         const btn = document.getElementById('agentRunBtn');
         btn.disabled = true; btn.textContent = '⏳ Running…';
-        fetch(_AGENT_START_URL, {method: 'POST',
-              headers: {'Content-Type': 'application/json'}, body: '{}'})
+        fetch(_AGENT_START_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
           .then(r => r.json())
           .then(data => {
               btn.disabled = false; btn.textContent = '▶ Run Form Agent';
@@ -605,27 +613,20 @@ const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
     };
 
     function stripError(msg) {
-        document.getElementById('agentBadgeBar').innerHTML =
-            '<span class="agent-badge badge-fix">⚠ Error</span>';
+        document.getElementById('agentBadgeBar').innerHTML = '<span class="agent-badge badge-fix">⚠ Error</span>';
         document.getElementById('agentStripRows').innerHTML =
             `<tr><td colspan="3" style="color:#991b1b;font-size:12px">Agent error: ${msg}</td></tr>`;
         agentStripOpen();
     }
 
-    // Auto-open Aid dialog if ?aid_fid=<logical_key> is in the URL
+    // Auto-open Aid dialog if ?aid_fid=<key> is in the URL
     (function () {
         const params = new URLSearchParams(window.location.search);
         const aidFid = params.get('aid_fid');
-        if (aidFid && typeof window.aidOpen === 'function') {
-            // aidOpen may not be ready yet — defer until dialog script loads
-            setTimeout(() => window.aidOpen(aidFid), 300);
-        } else if (aidFid) {
-            // aidOpen not yet defined — wait for it
-            const iv = setInterval(() => {
-                if (typeof window.aidOpen === 'function') {
-                    clearInterval(iv); window.aidOpen(aidFid);
-                }
-            }, 100);
+        if (aidFid) {
+            const tryOpen = () => { if (typeof window.aidOpen === 'function') window.aidOpen(aidFid); };
+            setTimeout(tryOpen, 300);
+            const iv = setInterval(() => { if (typeof window.aidOpen === 'function') { clearInterval(iv); window.aidOpen(aidFid); } }, 100);
             setTimeout(() => clearInterval(iv), 3000);
         }
     })();

@@ -161,12 +161,15 @@ class llcFormK1:
         irs_dir = self._irs_dir()
         ns_present = bool(irs_dir and (irs_dir / f"{self.FORM_ID}_namespace.pdf").exists())
         return {
-            'objectName':   self.object_name(),
-            'formId':       self.FORM_ID,
-            'pdfPath':      str(pdf) if pdf else '',
-            'pdfPresent':   pdf is not None,
-            'owners':       owners,        # per-partner K-1 selector data
-            'nsPdfPresent': ns_present,
+            'objectName':       self.object_name(),
+            'formId':           self.FORM_ID,
+            'pdfPath':          str(pdf) if pdf else '',
+            'pdfPresent':       pdf is not None,
+            'owners':           owners,
+            'nsPdfPresent':     ns_present,
+            'agent_enabled':    True,
+            'agent_key':        'schk1',
+            'agent_strip_label': 'Schedule K-1 — Section Status (per Partner)',
             'sources': {
                 'pdf':     'irs.Sch_K1.saveFILL() → Forms_IRS/Sch_K1_FILL.pdf',
                 'stats':   'ledger.stmtIncomeStmt + ledger.stmtProfile',

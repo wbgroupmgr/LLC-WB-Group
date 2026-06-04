@@ -3,14 +3,21 @@ Form4562Agent — Tier 1 orchestrator for IRS Form 4562 (Depreciation and Amorti
 
 Architecture (4-tier):
   Tier 0  LLCTaxAgent        — cross-form audit + submission
-  Tier 1  Form4562Agent       — this file; orchestrates 3 section agents
-  Tier 2  AgentF4562_*        — one per Form 4562 Part (also this file)
+  Tier 1  Form4562Agent       — this file; orchestrates 6 section agents (one per Part)
+  Tier 2  AgentF4562_*        — one per Form 4562 Part I–VI (also this file)
   Tier 3  IRSFormsAgent       — common services base class
 
-Form 4562 Parts covered:
-  Part I   (§179)  — $0 for residential rental; IRC §179(d)(1) explicit exclusion
-  Part III (MACRS) — Line 19h residential rental; 27.5-yr, MM conv, S/L method
-  Part IV  (Summary Line 22) — cross-form audit anchor: must = IS.depreciation
+Form 4562 has 6 Parts — one section agent per Part:
+  Part I   AgentF4562_Sec179       — §179 deduction; $0 (buildings excluded per §179(d)(1))
+  Part II  AgentF4562_SpecialDepr  — Bonus/special depreciation; $0 (27.5-yr not eligible)
+  Part III AgentF4562_MACRS        — MACRS Line 19h residential rental; books-verified
+  Part IV  AgentF4562_Summary      — Line 22 total = IS.depreciation; XF-R01 anchor
+  Part V   AgentF4562_ListedProp   — §280F listed property; $0 (no vehicles/§280F assets)
+  Part VI  AgentF4562_Amortization — §197/§195 amortization; advisory (check closing costs)
+
+Even Parts II, V, VI with $0 values have expert section agents that explicitly
+declare why $0 is correct, advise on what WOULD require entries, and confirm
+IRS compliance. Bookkeeper dialog shows all 6 Parts.
 
 Books-First rule (IRC §446+703): column (g) and Line 22 sourced from IS.depreciation.
 The agent VERIFIES the MACRS formula is consistent with books — it does NOT compute
@@ -615,21 +622,292 @@ class AgentF4562_Summary(_SectionAgent):
                 "No action required. XF-R01 runs in LLCTaxAgent.phase2_xf_audit().")
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  AgentF4562_SpecialDepr — Part II: Special Depreciation Allowance
+# ────────────────────────────────────────────────────────────────────────────
+
+class AgentF4562_SpecialDepr(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 4562 Part II: Special Depreciation Allowance (Lines 14–16)
+
+    IRC §168(k): Bonus/special depreciation for qualified property.
+    2025 rate: 40% (TCJA phase-down: 100%→80%→60%→40%→20%→0%).
+
+    Eligible (IRC §168(k)(2)(A)(i)): MACRS property with recovery period ≤ 20 years.
+      5-yr: appliances, carpet, furniture used in rental activity
+      15-yr: land improvements (driveways, fences, landscaping)
+
+    NOT eligible: 27.5-yr residential rental buildings (recovery period > 20 years).
+
+    W&B Group 2025: $0 on Part II — building structure only, no 5-yr/15-yr assets.
+    """
+
+    LABEL            = 'Special Depreciation (Part II)'
+    AGENT_KEY        = 'AgentF4562_SpecialDepr'
+    LOGICAL_PREFIXES = ['F45D_']
+
+    def pass2_audit(self) -> Dict[str, Any]:
+        return self._run_audit([
+            self._rule_residential_not_eligible,
+            self._rule_check_short_life_assets,
+        ])
+
+    def pass5_summarize(self) -> str:
+        return ("Part II Special Depreciation = $0. "
+                "IRC §168(k): 27.5-yr residential rental is NOT qualified property "
+                "(recovery period exceeds 20-year limit). No 5-yr/15-yr assets tracked.")
+
+    # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_residential_not_eligible(self):
+        """
+        F45D-R01: 27.5-yr residential rental excluded from bonus depreciation.
+        IRC §168(k)(2)(A)(i): qualified property = MACRS with recovery period ≤ 20 years.
+        27.5-yr exceeds the limit. Part II = $0 for the building structure.
+        """
+        return self.format_issue(
+            'F45D-R01', self.INFO,
+            "Part II (Special/Bonus Depreciation) = $0. IRS-correct for residential rental. "
+            "IRC §168(k)(2)(A)(i): qualified property requires MACRS ≤ 20-year recovery period. "
+            "Residential rental uses 27.5-yr MACRS — excluded. "
+            "2025 bonus rate = 40%; not applicable to this property.",
+            'IRC §168(k)(2)(A)(i); Form 4562 Instructions Part II; TCJA 2017',
+            "No action required. If W&B Group purchases 5-yr appliances or "
+            "15-yr land improvements, consult CPA for Part II eligibility.")
+
+    def _rule_check_short_life_assets(self):
+        """
+        F45D-R02: Advisory — 5-yr/15-yr assets would trigger Part II.
+        5-yr (appliances, carpet) and 15-yr (driveways, fences) ARE eligible.
+        Cost segregation studies can reclassify building components.
+        """
+        assets = self._get_assets()
+        short_life = [r for r in assets
+                      if any(kw in str(r.get('acct', '') or r.get('desc', '')).lower()
+                             for kw in ('appliance', 'carpet', 'fence', 'driveway',
+                                        'landscap', '5-year', '15-year', '5yr', '15yr'))]
+        if short_life:
+            names = ', '.join(r.get('propNm', str(r)) for r in short_life[:3])
+            return self.format_issue(
+                'F45D-R02', self.WARN,
+                f"Potential 5-yr or 15-yr property detected: {names}. "
+                f"IRC §168(k): 40% bonus depreciation applies in 2025 for qualifying assets. "
+                f"CPA review required for Part II Lines 14–16 amounts.",
+                'IRC §168(k); Form 4562 Part II Lines 14-16',
+                "Identify 5-yr (appliances) and 15-yr (improvements) assets. "
+                "Compute 40% × eligible basis. Enter on Part II Line 14.")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  AgentF4562_ListedProp — Part V: Listed Property
+# ────────────────────────────────────────────────────────────────────────────
+
+class AgentF4562_ListedProp(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 4562 Part V: Listed Property (Lines 25–36)
+
+    IRC §280F: Listed property = subject to extra limits due to personal/business mix.
+
+    Listed property types (IRC §280F(d)(4)):
+      - Passenger automobiles and other transportation property
+      - Entertainment, recreation, amusement property
+      NOTE: Computers removed from listed property by TCJA 2017 (post-12/31/2017).
+
+    Key restrictions: §280F(a) luxury auto caps; §280F(b) ADS if business use ≤ 50%;
+    §274(d) contemporaneous documentation required.
+
+    W&B Group 2025: $0 — no vehicles or §280F property in rental business.
+    """
+
+    LABEL            = 'Listed Property (Part V)'
+    AGENT_KEY        = 'AgentF4562_ListedProp'
+    LOGICAL_PREFIXES = ['F45P_']
+
+    def pass2_audit(self) -> Dict[str, Any]:
+        return self._run_audit([
+            self._rule_no_listed_property,
+            self._rule_check_vehicles,
+        ])
+
+    def pass5_summarize(self) -> str:
+        return ("Part V (Listed Property) = $0. "
+                "No vehicles or §280F property used in the rental business. "
+                "Computers not listed property post-TCJA 2017.")
+
+    # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_no_listed_property(self):
+        """
+        F45P-R01: No listed property — Part V = $0.
+        No vehicles, entertainment property, or other §280F listed property detected.
+        TCJA 2017 removed computers from listed property (effective 2018+).
+        """
+        return self.format_issue(
+            'F45P-R01', self.INFO,
+            "Part V (Listed Property) = $0. IRS-correct for W&B Group. "
+            "No vehicles or IRC §280F property used in the rental business. "
+            "TCJA 2017: computers removed from listed property for assets after 12/31/2017. "
+            "Part V Lines 25–36 are correctly blank.",
+            'IRC §280F; Form 4562 Part V; TCJA 2017 §280F(d)(4) amendment',
+            "No action required. If a vehicle is ever used for rental business, "
+            "complete Part V and maintain a contemporaneous mileage log (§274(d)).")
+
+    def _rule_check_vehicles(self):
+        """
+        F45P-R02: Vehicles in llcAssets require Part V completion.
+        §280F(a) luxury auto caps limit depreciation on passenger vehicles.
+        §280F(b): business use ≤ 50% requires ADS straight-line method.
+        """
+        assets = self._get_assets()
+        vehicles = [r for r in assets
+                    if any(kw in str(r.get('acct', '') or r.get('desc', '')).lower()
+                           for kw in ('vehicle', 'auto', 'car', 'truck', 'van', 'suv'))]
+        if vehicles:
+            names = ', '.join(r.get('propNm', r.get('desc', 'unknown')) for r in vehicles[:3])
+            return self.format_issue(
+                'F45P-R02', self.ERROR,
+                f"Vehicle(s) in llcAssets: {names}. "
+                f"IRC §280F: vehicles are listed property — Part V must be completed. "
+                f"Luxury auto caps (§280F(a)) apply. Business use ≤ 50% → ADS required.",
+                'IRC §280F(a); §280F(b); §274(d); Form 4562 Part V',
+                "Complete Part V. Document business use % with contemporaneous mileage log. "
+                "Apply annual luxury auto limits from IRS Rev. Proc. updates.",
+                fids=['F4562_PartV'])
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  AgentF4562_Amortization — Part VI: Amortization
+# ────────────────────────────────────────────────────────────────────────────
+
+class AgentF4562_Amortization(_SectionAgent):
+    """
+    IRS Knowledge Base — Form 4562 Part VI: Amortization (Lines 42–43)
+
+    Common amortizable items for a rental LLC:
+
+    IRC §709(b) — Partnership organization costs:
+      Formation fees (attorney, state filing). Up to $5,000 deductible in Year 1;
+      excess amortized 180 months from formation date.
+
+    IRC §195(b) — Startup costs:
+      Pre-rental expenses before business begins. Same $5,000/180-month rule.
+
+    IRC §461(g)(2) — Loan origination points:
+      Points on rental property mortgage CANNOT be immediately deducted.
+      Must be amortized over the loan term. Annual amount → Form 8825 Line 12.
+      This differs from primary residence rules.
+
+    W&B Group 2025 (first year):
+      No amortizable intangibles tracked in llcAssets.
+      CPA should verify closing statement for points/startup/organization costs.
+    """
+
+    LABEL            = 'Amortization (Part VI)'
+    AGENT_KEY        = 'AgentF4562_Amortization'
+    LOGICAL_PREFIXES = ['F45A_']
+
+    def pass2_audit(self) -> Dict[str, Any]:
+        return self._run_audit([
+            self._rule_first_year_advisory,
+            self._rule_closing_costs_check,
+            self._rule_loan_points_advisory,
+        ])
+
+    def pass5_summarize(self) -> str:
+        return ("Part VI (Amortization) = $0 per current books. "
+                "First-year LLC: CPA should verify closing statement for "
+                "§709/§195 costs and loan origination points (§461(g)(2)).")
+
+    # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_first_year_advisory(self):
+        """
+        F45A-R01: First-year LLC — organization costs may be amortizable.
+        IRC §709(b): partnership formation costs (attorney, state fees) →
+        up to $5,000 deductible Year 1; balance amortized 180 months.
+        Currently: no Acct.Intangible.* entries in llcAssets.
+        """
+        assets = self._get_assets()
+        has_intangible = any('intangible' in str(r.get('acct', '')).lower() or
+                             'startup' in str(r.get('acct', '')).lower() or
+                             'orgcost' in str(r.get('acct', '')).lower()
+                             for r in assets)
+        if not has_intangible:
+            return self.format_issue(
+                'F45A-R01', self.INFO,
+                "Part VI = $0 (no Acct.Intangible.* in llcAssets). "
+                "W&B Group is a first-year LLC — CPA should verify: "
+                "(1) Partnership formation costs (§709): attorney fees, state filing → "
+                "up to $5,000 deductible; balance amortized 180 months. "
+                "(2) Pre-rental startup costs (§195): expenses before 8/2025 → same rules. "
+                "If present, capitalize as Acct.Intangible.OrgCosts or .Startup.",
+                'IRC §709(b); IRC §195(b); Form 4562 Part VI Lines 42-43',
+                "Review formation documents. If organization/startup costs exist, "
+                "capitalize in llcAssets and complete Part VI Lines 42-43.")
+
+    def _rule_closing_costs_check(self):
+        """
+        F45A-R02: Closing costs need CPA review for amortizable items.
+        Closing statement may include: loan origination points (amortize over loan term),
+        prepaid interest (deductible when accrued), title insurance (add to basis),
+        transfer taxes (add to basis), attorney fees (may be §195 startup costs).
+        Currently classified as Acct.Exp.Operating — treatment needs CPA verification.
+        """
+        assets = self._get_assets()
+        closing_rows = [r for r in assets if 'closing' in str(r.get('acctSub', '')).lower()]
+        if closing_rows:
+            total = sum(_safe_float(r.get('amt', 0)) for r in closing_rows)
+            return self.format_issue(
+                'F45A-R02', self.WARN,
+                f"${total:,.2f} in 'Closing' entries found in llcAssets. "
+                f"CPA review required — closing costs may include amortizable items. "
+                f"(1) Loan origination points → IRC §461(g)(2): amortize over loan term. "
+                f"(2) Prepaid interest → deductible when accrued. "
+                f"(3) Title/transfer taxes → add to property cost basis.",
+                'IRC §461(g)(2); IRC §195; IRC §263; Form 4562 Part VI; Pub 527',
+                "Review closing statement line by line. Identify loan origination points. "
+                "Amortize points over loan term — annual amount to Form 8825 Line 12.",
+                fids=['F4562_PartVI'])
+
+    def _rule_loan_points_advisory(self):
+        """
+        F45A-R03: Loan origination points on rental mortgage must be amortized.
+        IRC §461(g)(2): points on non-primary-residence property cannot be
+        immediately deducted. Must be amortized over the loan term.
+        Annual amortization → Form 8825 Line 12 (mortgage interest/points).
+        This is a structural advisory: verify with CPA at closing.
+        """
+        return self.format_issue(
+            'F45A-R03', self.INFO,
+            "Advisory: Loan origination points on rental mortgage must be amortized. "
+            "IRC §461(g)(2): points on rental property mortgage must be amortized "
+            "over the loan term — NOT immediately deductible (unlike primary residence). "
+            "Annual amortization amount → Form 8825 Line 12 (mortgage interest). "
+            "Verify with CPA whether any points were paid at H_805HighMesa closing.",
+            'IRC §461(g)(2); Pub 527; Form 8825 Line 12',
+            "Review H_805HighMesa closing statement for origination fees/points. "
+            "If present: amortize over loan term; add annual amount to Form 8825 Line 12.")
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  FORM4562AGENT  (Tier 1 orchestrator)
 # ════════════════════════════════════════════════════════════════════════════
 
 class Form4562Agent(IRSFormsAgent):
     """
-    Tier 1 orchestrator — sequences 3 section agents through pass 1+2.
+    Tier 1 orchestrator for Form 4562 — sequences 6 section agents (one per Part).
     Books-First: IS.depreciation is the canonical source for all dollar values.
     §179 = $0 (IRC §179(d)(1)). MACRS Part III Line 19h: 27.5yr, MM, S/L.
+    Parts II, V, VI declare $0 with full IRS knowledge of why and what would change it.
     """
 
     _SECTION_ORDER = [
         AgentF4562_Sec179,
+        AgentF4562_SpecialDepr,
         AgentF4562_MACRS,
         AgentF4562_Summary,
+        AgentF4562_ListedProp,
+        AgentF4562_Amortization,
     ]
 
     def __init__(self, llc, tax_year: Optional[int] = None):

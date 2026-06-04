@@ -129,10 +129,13 @@ class llcForm8825:
         prof = self._stmt_profile()
         pdf  = self.pdf_path()
         return {
-            'objectName': self.object_name(),
-            'formId':     self.FORM_ID,
-            'pdfPath':    str(pdf) if pdf else '',
-            'pdfPresent': pdf is not None,
+            'objectName':       self.object_name(),
+            'formId':           self.FORM_ID,
+            'pdfPath':          str(pdf) if pdf else '',
+            'pdfPresent':       pdf is not None,
+            'agent_enabled':    True,
+            'agent_key':        'form8825',
+            'agent_strip_label': 'Form 8825 — Section Status',
             'sources': {
                 'pdf':     'irs.Form8825 + BookToIRS pipeline → Forms_IRS/Form8825_FILL.pdf',
                 'stats':   'ledger.stmtIncomeStmt',

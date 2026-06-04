@@ -1605,6 +1605,120 @@ class llcMgmt:
                 app.logger.exception("agent/start failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
+        # ── Generic Form Agent routes (Form8825, Form4562, SchK1) ─────────────
+        # Route pattern: /view/agent/<form_key>  and  /api/agent/<form_key>/status|start
+        # form_key values: 'form8825', 'form4562', 'schk1'
+        # Form1065 keeps its own named routes (backward compat); these handle the rest.
+
+        _AGENT_REGISTRY = {}
+        try:
+            from irs.taxAgents.Form8825Agent  import Form8825Agent  as _F8825Agent
+            from irs.taxAgents.Form4562Agent  import Form4562Agent  as _F4562Agent
+            from irs.taxAgents.FormSchK1Agent import FormSchK1Agent as _FSchK1Agent
+            _AGENT_REGISTRY = {
+                'form8825': (_F8825Agent,  'Form 8825 — Rental Real Estate',    'llcForm8825'),
+                'form4562': (_F4562Agent,  'Form 4562 — Depreciation',          'llcForm4562'),
+                'schk1':    (_FSchK1Agent, 'Schedule K-1 — Partners\' Share',   'llcFormK1'),
+            }
+            app.logger.info("Generic form agents loaded: %s", list(_AGENT_REGISTRY.keys()))
+        except Exception as _ae:
+            app.logger.error("Generic form agent import failed: %s", _ae)
+
+        @app.route("/view/agent/<form_key>")
+        def agent_generic_view(form_key):
+            """Guided Tax Review page for Form8825, Form4562, or SchK1."""
+            entry = _AGENT_REGISTRY.get(form_key)
+            if not entry:
+                return render_template("construction.html",
+                                       obj_type=f"{form_key} Agent",
+                                       meta={"error": f"Unknown form key: {form_key}"})
+            AgentCls, form_label, back_obj = entry
+            try:
+                agent   = AgentCls(self.eSession.llc)
+                summary = agent.getSummary()
+                # Normalize sections to a list (FormSchK1Agent uses 'partners' key)
+                if 'partners' in summary and 'sections' not in summary:
+                    # Flatten partner data into sections list for the generic template
+                    sections = []
+                    for pid, pdata in summary.get('partners', {}).items():
+                        for sec_key, sec in pdata.get('sections', {}).items():
+                            sec_copy = dict(sec)
+                            sec_copy['label'] = f"{pid} — {sec.get('label', sec_key)}"
+                            sections.append(sec_copy)
+                    summary = dict(summary)
+                    summary['sections'] = sections
+                return render_template(
+                    "agent_generic_review.html",
+                    summary=summary,
+                    form_key=form_key,
+                    form_label=form_label,
+                    back_obj=back_obj,
+                    app_title=self.app.config.get("_llc_name", "LLC Editor"),
+                    view_title=f"{form_label} — Guided Tax Review",
+                )
+            except Exception as err:
+                app.logger.exception("agent_generic_view(%s) failed", form_key)
+                return render_template("construction.html",
+                                       obj_type=f"{form_key} Agent",
+                                       meta={"error": str(err)})
+
+        @app.route("/api/agent/<form_key>/status")
+        def agent_generic_status(form_key):
+            """Return SectionSummary for the agent status strip."""
+            entry = _AGENT_REGISTRY.get(form_key)
+            if not entry:
+                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+            AgentCls, _, _ = entry
+            try:
+                agent   = AgentCls(self.eSession.llc)
+                summary = agent.getSummary()
+                # Ensure sections is always a list for the UI
+                if 'sections' not in summary or not isinstance(summary.get('sections'), list):
+                    raw_secs = summary.get('sections', {})
+                    if isinstance(raw_secs, dict):
+                        summary = dict(summary)
+                        summary['sections'] = [
+                            {'agent': k, 'label': v.get('label', k),
+                             'state': v.get('state', 'NOT_STARTED'),
+                             'summary': v.get('summary', ''),
+                             'halt_count': v.get('halt_count', 0),
+                             'resolve_count': v.get('resolve_count', 0),
+                             'review_count': v.get('review_count', 0)}
+                            for k, v in raw_secs.items()
+                        ]
+                return jsonify({'ok': True, 'summary': summary})
+            except Exception as err:
+                app.logger.exception("agent_generic_status(%s) failed", form_key)
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/agent/<form_key>/start", methods=["POST"])
+        def agent_generic_start(form_key):
+            """Run Passes 1+2 for all section agents; write session state."""
+            entry = _AGENT_REGISTRY.get(form_key)
+            if not entry:
+                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+            AgentCls, _, _ = entry
+            try:
+                agent  = AgentCls(self.eSession.llc)
+                result = agent.run_phases_1_2()
+                # Normalize sections to list
+                raw_secs = result.get('sections', {})
+                if isinstance(raw_secs, dict):
+                    result = dict(result)
+                    result['sections'] = [
+                        {'agent': k, 'label': v.get('label', k),
+                         'state': v.get('state', 'NOT_STARTED'),
+                         'summary': v.get('summary', ''),
+                         'halt_count': v.get('halt_count', 0),
+                         'resolve_count': v.get('resolve_count', 0),
+                         'review_count': v.get('review_count', 0)}
+                        for k, v in raw_secs.items()
+                    ]
+                return jsonify({'ok': True, 'summary': result})
+            except Exception as err:
+                app.logger.exception("agent_generic_start(%s) failed", form_key)
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         # ── GL Audit routes ────────────────────────────────────────────────────
 
         @app.route("/api/debug/sources")
