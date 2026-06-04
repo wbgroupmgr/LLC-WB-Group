@@ -211,6 +211,10 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
                             ⬇ Download
                         </a>
                         {% endif %}
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open');
+                                         refreshFillPdf()">
+                            ⟳ Refresh FILL.pdf
+                        </button>
                         <button class="act-danger"
                                 onclick="document.getElementById('actionsMenu').removeAttribute('open');
                                          window.location.href='/logout'">
@@ -296,8 +300,11 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
     </div>
     {% endif %}
 
-    {# Toolbar — Aid + Review remain here #}
+    {# Toolbar — Refresh + Aid + Review #}
     <div class="pdf-toolbar">
+        <button type="button" class="btn btn-success" id="refreshPdfBtn"
+                onclick="refreshFillPdf()"
+                title="Re-run the FILL.pdf generation pipeline from current books">⟳ Refresh FILL.pdf</button>
         <button type="button" class="btn btn-warning" onclick="aidOpen()"
                 title="Open the Book→IRS Mapping Aid">🛠 Aid</button>
         <button type="button" class="btn btn-outline-danger" id="cpaReviewBtn"
@@ -337,6 +344,48 @@ const _SCRIPT_ROOT = {{ request.script_root | tojson }};
 
 {# Book→IRS Aid inline modal (v0.1) — see ui/templates/_aid_dialog.html. #}
 {% include '_aid_dialog.html' %}
+
+{# ── Refresh FILL.pdf — available on every IRS form view ──────────────── #}
+<script>
+(function () {
+    const _FORM_NM   = {{ meta.formId | tojson }};
+    const _REGEN_URL = _SCRIPT_ROOT + '/api/aid/regenerate';
+
+    window.refreshFillPdf = async function () {
+        const btn  = document.getElementById('refreshPdfBtn');
+        const orig = btn ? btn.textContent : '⟳ Refresh FILL.pdf';
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Refreshing…'; }
+        try {
+            // aidRegenerate (defined by _aid_dialog.html) sends the correct
+            // AID_FORM in the request body and handles iframe + flash banner.
+            if (typeof window.aidRegenerate === 'function') {
+                await window.aidRegenerate();
+            } else {
+                // Fallback: direct fetch with explicit formNm.
+                const r = await fetch(_REGEN_URL, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ formNm: _FORM_NM }),
+                });
+                const d = await r.json();
+                if (d.ok) {
+                    const frame = document.getElementById('pdfFrame');
+                    if (frame) {
+                        const base = frame.src.split('?')[0];
+                        frame.src  = base + '?ts=' + Date.now();
+                    }
+                } else {
+                    alert('Refresh failed: ' + (d.error || 'unknown'));
+                }
+            }
+        } catch (err) {
+            alert('Refresh error: ' + err);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = orig; }
+        }
+    };
+})();
+</script>
 
 {# CPA Review modal — lists _CPA_NOTES fields flagged for accountant review. #}
 <div class="modal fade" id="cpaReviewModal" tabindex="-1" aria-labelledby="cpaReviewLabel" aria-hidden="true">

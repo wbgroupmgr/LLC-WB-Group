@@ -1,7 +1,47 @@
 # Tax Preparation — High-Level Design & Workflow
 
-**Status:** v1.0 — 2026-06-04 (created per GitHub issue #17; Steps 1–3)
+**Status:** v1.1 — 2026-06-04 (terminology, 11-step workflow, propNm rule added)
 **Owner:** Francisco Rojas (W&B Group, LLC)
+
+---
+
+## 0. Terminology
+
+Two terms are used precisely throughout all `design_BUS_04.*` documents:
+
+| Term | Definition |
+|---|---|
+| **Workflow** | The end-to-end user scenario — everything the bookkeeper does from opening the app to filing. Described in §1 as an 11-step sequence. |
+| **Pipeline** | A specific technical execution path within one step of the workflow. Examples: the *FILL.pdf pipeline* (§1 steps 4/10), the *audit pipeline* (§1 step 7), the *LLCTaxAgent pipeline* (§3.2). |
+
+A **pipeline** is always subordinate to the **workflow**. The workflow calls pipelines; pipelines never define the workflow.
+
+---
+
+## 0.1 propNm Rule — Every Transaction Must Carry a Property Name
+
+**This is a ledger data-integrity invariant for a rental LLC.** Every transaction in
+every source DB (`llcAssets`, `llcExpRev`, `llcPayables`, `llcReceivables`) must have
+a non-empty `propNm` field. Two values are allowed:
+
+| Transaction type | `propNm` value | `propOwner` value |
+|---|---|---|
+| **Rental operations** — income, expenses, depreciation, or assets tied to a specific rental property | Property identifier (e.g., `"H_805HighMesa"`) | Property owner(s) identifier |
+| **LLC ordinary operations** — entity-level expenses/revenue not attributable to a specific rental property (e.g., filing fees, bank charges) | `"LLC"` | `"LLC"` |
+
+**Why this matters for IRS forms:** The Form 8825 FILL.pdf pipeline aggregates
+transactions by `propNm` to build per-property columns (one column per property on the
+form). Any transaction with `propNm = ""` or `null` is silently dropped from the Form
+8825 fill dict — it does not appear on the form — even though it correctly appears in
+the authoritative `stmtIS`/`stmtBS` views that aggregate without a propNm filter.
+
+**The propNm rule prevents the two-path divergence problem** (see §4.1): if every
+transaction has a valid `propNm`, the per-property pipeline and the aggregate pipeline
+always produce consistent totals.
+
+**Enforcement:** All ledger entry UI forms must require `propNm`. The `Form8825Agent`
+audit rules check for missing `propNm` on depreciation entries (rule F8EX-R01 fires
+when `fill_dict['F079']` is blank but `IS.depreciation > 0`).
 
 ---
 
@@ -82,40 +122,112 @@ independently books-derived values agree after the fact.
 
 ---
 
-## 3. TO-BE Tax Preparation Workflow
+## 3. Tax Preparation Workflow — End-to-End
 
-### 3.1 Books-to-PDF Pipeline (single form)
-
-The intended end-to-end flow for any form (e.g., Form 8825):
+The **Tax Preparation Workflow** is the complete user scenario from app start to a
+correct, filed FILL.pdf. It consists of 11 steps. Steps 4, 7, and 10 each invoke a
+distinct **pipeline** (a technical execution path). All other steps are UI interactions
+or state transitions.
 
 ```
-Books (Accts/*.json)
-        │
-        ▼  stmtIS(llc).taxAggregates()
-Books values available: IS.depreciation=$1903, IS.rent_income=$4000, ...
-        │
-        ▼  FormXXXXAgent.run_phases_1_2()
-  Pass 0: inventory (active properties, partner count, etc.)
-  Pass 1: auto-fill — stmtIS_Tax.loadFillDict('FormXXXX')
-          → _build_f8825_filldict() reads GL records per property
-          → fill_dict built from Acct.Exp.Depreciation, Acct.Rev.Rent, ...
-  Pass 2: audit — IRS compliance rules per section agent
-          → F8EX-R02: fill_dict['F079'] == IS.depreciation?  ← BOOKS CHECK
-          → F45M-R05: MACRS formula amount == IS.depreciation? ← FORMULA CHECK
-          → issues: [{rule_id, severity, message, suggested_mapping}]
-  ──► If all ERRORs resolved: session_state = GO
-        │
-        ▼  [TO-BE GAP: this step must be added]
-  Pass 4: generate FILL.pdf — BookToIRS.regenerate('FormXXXX')
-          → stmtIS_Tax.loadFillDict('FormXXXX')  [same books, fresh read]
-          → form.saveFILL_FromDF(df) → Form8825_FILL.pdf
-  Pass 5: verify — read back FILL.pdf field values
-          → confirm F079 == IS.depreciation
-          → if match: DONE; if not: NEEDS_FIXING (re-audit)
-        │
-        ▼
-  Form8825_FILL.pdf on disk with correct books values
+STEP 1  Start App
+          → Flask app starts; eSession initialised with LLC data
+
+STEP 2  User Edit / New Transaction
+          → User enters or edits a transaction via the editor UI
+          → DB updated (llcAssets / llcExpRev / llcPayables / llcReceivables)
+          → GL re-derives from updated DB; stmtIS / stmtBS reflect new state
+          ⚠ propNm MUST be set on every transaction (see §0.1)
+
+STEP 3  Select IRS FormXXXX View
+          → User navigates to /view/llcForm8825 (or 4562, 1065, K-1)
+          → View loads: displays existing FILL.pdf (may be stale after step 2)
+
+STEP 4  ── FILL.pdf Pipeline ──────────────────────────────────────────────
+          → Triggered by: "⟳ Refresh FILL.pdf" button (or first page load if
+            no PDF exists yet)
+          → BookToIRS(llc, formNm).regenerate()
+              stmtIS_Tax.loadFillDict(formNm)
+                Form8825: _build_f8825_filldict() — per-property from GL records
+                Others:   bookNS_IS.json static mapping → UAS path resolution
+              → fill DataFrame → form.saveFILL_FromDF() → FormXXXX_FILL.pdf
+
+STEP 5  Display View
+          → iframe renders the freshly generated FormXXXX_FILL.pdf
+          → stat chips show IS.depreciation, IS.rent_income, IS.net_rental
+            (from taxAggregates() — ALWAYS the authoritative values)
+
+STEP 6  Select "Run Agent"
+          → User clicks "▶ Run Form Agent" button in the agent status strip
+
+STEP 7  ── Form Audit Pipeline ────────────────────────────────────────────
+          → FormXXXXAgent.run_phases_1_2()
+              Pass 0: Inventory (active properties, placed-in-service dates)
+              Pass 1: Auto-Fill — loadFillDict(formNm) — same data as step 4
+              Pass 2: Audit — IRS compliance rules per section agent
+                  e.g. F8EX-R01: fill_dict['F079'] == IS.depreciation?
+                  e.g. F45M-R05: MACRS formula amount == IS.depreciation?
+              → session_state.json written
+              → issues list: [{rule_id, severity, message, fids,
+                               suggested_mapping, action}]
+          → Agent strip shows GO / NEEDS_FIXING badges per section
+          → Guided Review page available if any issues found
+
+STEP 8  UI Interactions — Issue Resolution
+          → For each ERROR/WARN issue, bookkeeper has two correction paths:
+
+          PATH A — Books correction (propNm or amount wrong in the ledger):
+            → Open ledger editor → fix the transaction (propNm, amount, acct)
+            → DB updated → GL updated → stmtIS reflects new value
+            → Return to STEP 4 (Refresh FILL.pdf) to see corrected value
+
+          PATH B — BookToIRS mapping correction (wrong fid→UAS mapping):
+            → Click "🛠 Aid" → Aid dialog opens for the flagged fid
+            → View current mapping; edit bookNS entry or custom map
+            → Save persists to bookNS_*.json immediately
+            → "Commit" in Aid calls BookToIRS.regenerate() (same as step 4)
+
+STEP 9  Submit Bookkeeper Dialog
+          → After resolving all ERRORs, bookkeeper acknowledges the session
+          → session_state.json updated to GO
+
+STEP 10 ── FILL.pdf Pipeline (repeat) ─────────────────────────────────────
+          → Same as STEP 4: Refresh FILL.pdf after all corrections applied
+          → "⟳ Refresh FILL.pdf" button OR automatic after Aid "Done"
+
+STEP 11 Display View (corrected)
+          → iframe renders updated FormXXXX_FILL.pdf with correct values
+          → Stat chips confirm values match books
+          → LLCTaxAgent cross-form audit can now compare all completed forms
 ```
+
+### 3.1 FILL.pdf Pipeline Detail (Steps 4 and 10)
+
+Single entry point for ALL forms: `BookToIRS(llc, formNm).regenerate()`
+
+```
+BookToIRS(llc, 'Form8825').regenerate()           ← ONE entry point, any formNm
+  │
+  ├── stmtIS_Tax(llc).loadFillDict('Form8825')
+  │     └── Form8825 (special case): _build_f8825_filldict()
+  │           → _aggregate_by_property(gl_records)   ← per-property layout
+  │           ⚠ REQUIRES propNm on each GL record (see §0.1 propNm rule)
+  │           ⚠ Silent-drop bug: entries with propNm='' are skipped (see G8)
+  │     └── Other forms: bookNS_*.json → UAS path resolution
+  │           → taxAggregates() or acct_balance() via _resolve_acct()
+  │
+  ├── stmtBS_Tax / stmtProfile / stmtGL_Tax (via BookToIRS priority resolver)
+  │
+  ├── Build fill DataFrame → form.saveFILL_FromDF(df) → FormXXXX_FILL.pdf
+  │
+  └── Returns: { fill_path, filled, check, complex, blank, ts }
+```
+
+**Two-path problem (to be resolved — see G9):** The Form8825 path uses
+`_aggregate_by_property()` which groups by `propNm` and can produce values that
+diverge from `taxAggregates()` (the authoritative source). All other forms resolve
+dollar values through `taxAggregates()` or direct UAS path lookup — both of which
+are propNm-agnostic. The fix (G8 fallback + G9 unification) is described in §4.3.
 
 ### 3.2 Full LLCTaxAgent Cycle (all forms)
 
@@ -232,6 +344,8 @@ mechanism to detect staleness or trigger regeneration when books change.
 | **G6** | MACRS formula check is INFO, not ERROR | `F45M-R05` allows $10 discrepancy as INFO | If formula vs books > $10 AND books > $100: raise ERROR | P2 |
 | **G7** | LLCTaxAgent.phase1_prepare() not wired to Form agents | Method stub; FormXXXXAgent.run_phases_1_2() not called | Wire phase1_prepare() to call all four FormXXXXAgent.run_agent() | P2 |
 | **G8** | `_build_f8825_filldict()` propNm-filter has no fallback | Silent zero when propNm missing — no warning, no fallback | Add fallback: if no per-property depr found, use IS.depreciation across single property | P1 |
+| **G9** | Two aggregation paths can diverge: `_build_f8825_filldict()` vs `taxAggregates()` | Form8825 uses propNm-keyed aggregation; all other forms use propNm-agnostic UAS resolution | Unify: `_build_f8825_filldict()` must get dollar values from `taxAggregates()` (authoritative); only use `_aggregate_by_property` for column PLACEMENT (which property in which column) | P1 |
+| **G10** | Refresh FILL.pdf button missing from all IRS form views | Bookkeeper must open Aid dialog and click "Commit" to regenerate | ✅ DONE 2026-06-04: "⟳ Refresh FILL.pdf" added to pdf-toolbar and Actions menu in `irs_pdf_view.html` | DONE |
 
 ### 4.3 Gap Details
 
@@ -297,6 +411,7 @@ In priority order, pending bookkeeper review and GO authorization:
 | **A0** | **Diagnose + data fix**: inspect `llcAssets_WBGroupLLC.json` depreciation entry; set `propNm: "H_805HighMesa"` if missing | LLC editor or direct JSON edit | ~15 min |
 | **A1** | Fix F8EX-R01 action text: replace "bookNS_IS.json" with "check propNm on depreciation entry" | `irs/taxAgents/Form8825Agent.py` | 0.5hr |
 | **A2** | Add fallback in `_build_f8825_filldict()`: if no per-property depr found and single property, use `taxAggregates()['depreciation']` | `ledger/stmtIS.py` | 1hr |
+| **A2b** | Unify paths (G9): refactor `_build_f8825_filldict()` to use `taxAggregates()` for dollar values; `_aggregate_by_property()` for column assignment only | `ledger/stmtIS.py` | 2hr |
 | **A3** | Add `run_agent()` to Form8825Agent and Form4562Agent (audit + BookToIRS.regenerate) | `irs/taxAgents/Form8825Agent.py`, `Form4562Agent.py` | 1hr |
 | **A4** | Add `/api/tax/form8825/generate` and `/api/tax/form4562/generate` routes | `ui/llcMgmt.py` | 0.5hr |
 | **A5** | Elevate Form4562Agent F45M-R05 to ERROR when formula vs books discrepancy > $10 | `irs/taxAgents/Form4562Agent.py` | 0.5hr |
