@@ -97,25 +97,48 @@ class _SectionAgent(IRSFormsAgent):
         return self._assets
 
     def _active_property_rows(self) -> List[Dict]:
+        """Return one representative row per active rental property from llcAssets.
+        Active = has Acct.Fixed.Tangible.InService entry (placed in service).
+        """
         rows = self._get_assets()
-        return [r for r in rows
-                if str(r.get('acctSub', r.get('acctType', ''))).lower()
-                   in ('acct.fixed.tangible.inservice', 'tangible.inservice',
-                       'inservice', 'in_service', 'active', 'placed_in_service')
-                or str(r.get('status', '')).lower()
-                   in ('active', 'in_service', 'placed_in_service')]
+        seen_props: set = set()
+        result = []
+        for r in rows:
+            acct = str(r.get('acct', '')).lower()
+            prop = r.get('propNm', '')
+            if ('tangible.inservice' in acct or 'fixed.tangible' in acct) and prop:
+                if prop not in seen_props:
+                    seen_props.add(prop)
+                    result.append(r)
+        # Also include any row whose propNm appears in IS rent_income mapping
+        if not result and self._get_is_agg('rent_income') > 0:
+            # Fallback: return unique propNm rows from any Fixed account
+            for r in rows:
+                acct = str(r.get('acct', '')).lower()
+                prop = r.get('propNm', '')
+                if 'fixed' in acct and prop and prop not in seen_props:
+                    seen_props.add(prop)
+                    result.append(r)
+        return result
 
     def _load_fill_dict(self) -> Dict[str, Any]:
-        """Load Form 8825 fill dict via stmtIS_Tax if available; else empty."""
+        """Load Form 8825 fill dict from stmtIS_Tax. Keys are fids like F023, F079, F113."""
         if self._fill_cache is not None:
             return self._fill_cache
         try:
-            from stmt.stmtIS_Tax import stmtIS_Tax
+            from ledger.stmtIS import stmtIS_Tax
             tax = stmtIS_Tax(self.llc)
             self._fill_cache = tax.loadFillDict('Form8825') or {}
         except Exception:
             self._fill_cache = {}
         return self._fill_cache
+
+    # Form 8825 canonical fid constants (from stmtIS._build_f8825_filldict _P1 + totals)
+    _FID_GROSS_RENTS  = 'F023'   # Line 2a col A
+    _FID_OTHER_INCOME = 'F027'   # Line 2b col A
+    _FID_DEPR         = 'F079'   # Line 14 col A  (depreciation)
+    _FID_EXP_TOTAL    = 'F104'   # Line 18 total expenses (all columns summed)
+    _FID_NET_TOTAL    = 'F113'   # Line 21 total net income/loss (all columns)
 
     # ── Pass interface ────────────────────────────────────────────────────────
 
@@ -263,7 +286,7 @@ class AgentF8825_Properties(_SectionAgent):
         active = self._active_property_rows()
         missing = [r for r in active
                    if not (r.get('dateInService') or r.get('placed_in_service')
-                           or r.get('acqDate') or r.get('date'))]
+                           or r.get('acqDate') or r.get('date') or r.get('dt'))]
         for row in missing:
             nm = row.get('propNm', row.get('acctNm', 'Unknown property'))
             return self.format_issue(
@@ -350,44 +373,39 @@ class AgentF8825_Income(_SectionAgent):
         income. A blank Line 2a with non-zero books rent_income means the income
         is not flowing to the form — an IRS reporting violation.
         IRC §61: all rental income must be reported.
+        Fill dict fid: F023 (col A gross rents).
         """
-        fill = self._load_fill_dict()
-        rent = self._get_is_agg('rent_income')
-        # Line 2a fill fields vary by column; check the aggregate field first
-        line2a = _safe_float(fill.get('F8825_Line2a') or fill.get('F8825_2a')
-                             or fill.get('Line2a') or 0)
+        fill   = self._load_fill_dict()
+        rent   = self._get_is_agg('rent_income')
+        line2a = _safe_float(fill.get(self._FID_GROSS_RENTS, 0))
         if rent > 0.01 and line2a < 0.01:
             return self.format_issue(
                 'F8IN-R01', self.ERROR,
-                f"Form 8825 Line 2a (Gross rents) appears blank but IS.rent_income = ${rent:,.2f}. "
+                f"Form 8825 Line 2a (Gross rents, fid {self._FID_GROSS_RENTS}) is blank "
+                f"but IS.rent_income = ${rent:,.2f}. "
                 f"IRC §61: all gross rents must be reported. "
-                f"Books source: Acct.Rev.Rent.H_805HighMesa → Form 8825 Line 2a Col A.",
+                f"Books source: Acct.Rev.Rent.* → Form 8825 Line 2a.",
                 'IRC §61; Form 8825 Instructions Line 2a; Pub 527 §1',
-                "Verify bookNS_IS.json maps IS.rent_income → Form 8825 Line 2a Col A. "
-                "Re-run BookToIRS pipeline.",
-                fids=['F8825_Line2a'])
+                "Re-run BookToIRS pipeline (BookToIRS.regenerate('Form8825')).")
 
     def _rule_gross_rent_mismatch(self):
         """
         F8IN-R02: Line 2a ≠ IS.rent_income — Books-First violation.
-        If the fill dict has a value for Line 2a that differs from IS.rent_income,
-        the form was not populated from books. IRC §446: books are the authoritative
-        source; IRS may disallow deductions if income is under-reported.
+        IRC §446: books are the authoritative source.
+        Fill dict fid F023 must equal IS.rent_income.
         """
-        fill = self._load_fill_dict()
-        rent = self._get_is_agg('rent_income')
-        line2a = _safe_float(fill.get('F8825_Line2a') or fill.get('F8825_2a')
-                             or fill.get('Line2a') or 0)
+        fill   = self._load_fill_dict()
+        rent   = self._get_is_agg('rent_income')
+        line2a = _safe_float(fill.get(self._FID_GROSS_RENTS, 0))
         if line2a > 0.01 and abs(line2a - rent) > 1.00:
             return self.format_issue(
                 'F8IN-R02', self.WARN,
-                f"Form 8825 Line 2a = ${line2a:,.2f} but IS.rent_income = ${rent:,.2f}. "
+                f"Form 8825 Line 2a ({self._FID_GROSS_RENTS}) = ${line2a:,.2f} "
+                f"but IS.rent_income = ${rent:,.2f}. "
                 f"Discrepancy: ${abs(line2a - rent):,.2f}. "
                 f"Books-First (IRC §446): Line 2a must equal IS.rent_income from books.",
                 'IRC §446; Form 8825 Line 2a',
-                "Verify bookNS_IS.json maps IS.rent_income → Line 2a, not a stale value. "
-                "Re-run BookToIRS pipeline.",
-                fids=['F8825_Line2a'])
+                "Re-run BookToIRS pipeline.")
 
     def _rule_other_income_note(self):
         """

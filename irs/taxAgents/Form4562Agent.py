@@ -90,29 +90,26 @@ class _SectionAgent(IRSFormsAgent):
         return self._assets_raw
 
     def _get_tangible_inservice(self) -> List[Dict]:
-        """Return asset rows for Acct.Fixed.Tangible.InService (depreciable property)."""
+        """Return rows where acct = Acct.Fixed.Tangible.InService."""
         rows = self._get_assets()
         return [r for r in rows
-                if str(r.get('acctSub', '')).lower()
-                   in ('acct.fixed.tangible.inservice', 'tangible.inservice',
-                       'inservice', 'in_service')
-                or str(r.get('acctType', '')).lower()
-                   in ('acct.fixed.tangible.inservice', 'tangible.inservice')]
+                if 'tangible.inservice' in str(r.get('acct', '')).lower()
+                or 'tangible.inservice' in str(r.get('acctSub', '')).lower()]
 
     def _get_land_rows(self) -> List[Dict]:
-        """Return asset rows for Acct.Fixed.Land (non-depreciable; excluded from basis)."""
+        """Return rows where acct = Acct.Fixed.Land (excluded from depreciable basis)."""
         rows = self._get_assets()
         return [r for r in rows
-                if str(r.get('acctSub', '')).lower()
-                   in ('acct.fixed.land', 'fixed.land', 'land')
-                or str(r.get('acctType', '')).lower()
-                   in ('acct.fixed.land', 'fixed.land', 'land')]
+                if str(r.get('acct', '')).lower() == 'acct.fixed.land'
+                or 'fixed.land' in str(r.get('acct', '')).lower()]
 
     def _get_placed_in_service(self) -> Optional[str]:
-        """Return placed-in-service date string from llcAssets tangible rows."""
+        """Return placed-in-service date from llcAssets tangible rows.
+        Checks dateInService, placed_in_service, acqDate, date, and dt fields.
+        """
         for row in self._get_tangible_inservice():
             d = (row.get('dateInService') or row.get('placed_in_service')
-                 or row.get('acqDate') or row.get('date') or '')
+                 or row.get('acqDate') or row.get('date') or row.get('dt') or '')
             if d:
                 return str(d)
         return None
@@ -151,7 +148,7 @@ class _SectionAgent(IRSFormsAgent):
         if self._fill_cache is not None:
             return self._fill_cache
         try:
-            from stmt.stmtIS_Tax import stmtIS_Tax
+            from ledger.stmtIS import stmtIS_Tax
             tax = stmtIS_Tax(self.llc)
             self._fill_cache = tax.loadFillDict('Form4562') or {}
         except Exception:
@@ -556,14 +553,15 @@ class AgentF4562_Summary(_SectionAgent):
         in later years — the basis must be reduced by the amount allowable
         even if not claimed (IRC §1016(a)(2)).
         """
-        fill = self._load_fill_dict()
-        depr = self._get_is_agg('depreciation')
-        line22 = _safe_float(fill.get('F4562_L22') or fill.get('F4562_Line22')
-                             or fill.get('Total_depr') or 0)
+        fill   = self._load_fill_dict()
+        depr   = self._get_is_agg('depreciation')
+        # F153 = bookNS Form4562 fid for Line 22 (Acct.Exp.Depreciation)
+        # F074 = Col (g) for Line 19h; both should equal IS.depreciation
+        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
         if depr > 0.01 and line22 < 0.01:
             return self.format_issue(
                 'F45L-R01', self.ERROR,
-                f"Form 4562 Part IV Line 22 is blank but IS.depreciation = ${depr:,.2f}. "
+                f"Form 4562 Part IV Line 22 (F153) is blank but IS.depreciation = ${depr:,.2f}. "
                 f"Line 22 must equal IS.depreciation (Books-First: IRC §446). "
                 f"CAUTION: IRC §1016(a)(2) requires basis reduction by the amount ALLOWABLE "
                 f"even if not claimed — failing to report depreciation now causes a double "
@@ -585,33 +583,28 @@ class AgentF4562_Summary(_SectionAgent):
         """
         fill   = self._load_fill_dict()
         depr   = self._get_is_agg('depreciation')
-        line22 = _safe_float(fill.get('F4562_L22') or fill.get('F4562_Line22')
-                             or fill.get('Total_depr') or 0)
+        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
         if line22 > 0.01 and abs(line22 - depr) > 1.00:
             return self.format_issue(
                 'F45L-R02', self.ERROR,
-                f"Form 4562 Line 22 = ${line22:,.2f} but IS.depreciation = ${depr:,.2f}. "
+                f"Form 4562 Line 22 (F153) = ${line22:,.2f} but IS.depreciation = ${depr:,.2f}. "
                 f"Discrepancy: ${abs(line22 - depr):,.2f}. Books-First violation (IRC §446). "
                 f"Line 22 is the XF-R01 cross-form audit anchor — if it doesn't match "
                 f"IS.depreciation, the cross-form audit will flag an inconsistency with "
                 f"Form 8825 Line 14 (also sourced from IS.depreciation).",
                 'IRC §446; IRC §703; Form 4562 Line 22; LLCTaxAgent XF-R01',
-                "Fix bookNS_IS.json: Form 4562 Line 22 must map to IS.depreciation. "
-                "Do not manually override. Re-run BookToIRS pipeline.",
-                fids=['F4562_L22'])
+                "Fix bookNS_IS.json Form4562 section: f153 must map to Acct.Exp.Depreciation. "
+                "Re-run BookToIRS pipeline.")
 
     def _rule_line22_confirmed(self):
         """
         F45L-R03: Line 22 = IS.depreciation confirmed — XF-R01 anchor is set.
-        This informational rule confirms the critical value is correct.
-        The next step is LLCTaxAgent XF-R01 which compares this value
-        against Form 8825 Line 14. Both should equal IS.depreciation.
-        W&B Group 2025: IS.depreciation = $1,903.13.
+        F153 (Line 22) and F074 (Col g) both = IS.depreciation.
+        LLCTaxAgent XF-R01 will cross-check: F4562 F153 == Form 8825 F079 == IS.depreciation.
         """
         fill   = self._load_fill_dict()
         depr   = self._get_is_agg('depreciation')
-        line22 = _safe_float(fill.get('F4562_L22') or fill.get('F4562_Line22')
-                             or fill.get('Total_depr') or 0)
+        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
         if depr > 0.01 and abs(line22 - depr) <= 1.00:
             return self.format_issue(
                 'F45L-R03', self.INFO,

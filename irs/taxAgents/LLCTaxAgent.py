@@ -134,9 +134,9 @@ class LLCTaxAgent(IRSFormsAgent):
                 return result
             except Exception:
                 return {}
-        # Form 8825 / Form 4562: use stmtIS_Tax.loadFillDict
+        # Form 8825 / Form 4562: use stmtIS_Tax.loadFillDict (live from bookNS_IS.json)
         try:
-            from stmt.stmtIS_Tax import stmtIS_Tax
+            from ledger.stmtIS import stmtIS_Tax
             tax = stmtIS_Tax(self.llc)
             return tax.loadFillDict(form_name) or {}
         except Exception:
@@ -269,8 +269,9 @@ class LLCTaxAgent(IRSFormsAgent):
         fill_4562 = self._load_form_fill_dict('Form4562')
         fill_8825 = self._load_form_fill_dict('Form8825')
 
-        f4562_l22 = _safe_float(fill_4562.get('F4562_L22') or fill_4562.get('Total_depr') or 0)
-        f8825_l14 = _safe_float(fill_8825.get('F079') or fill_8825.get('F8825_Line14') or 0)
+        # F153 = Form4562 Line 22 fid; F074 = Line 19h col(g). F079 = Form8825 Line 14.
+        f4562_l22 = _safe_float(fill_4562.get('F153') or fill_4562.get('F074') or 0)
+        f8825_l14 = _safe_float(fill_8825.get('F079') or 0)
 
         # Check F4562 L22 vs IS.depreciation
         if f4562_l22 > 0.01 and abs(f4562_l22 - is_depr) > 1.00:
@@ -327,10 +328,15 @@ class LLCTaxAgent(IRSFormsAgent):
         issues    = []
         net       = self._get_is_agg('net_rental')
         fill_8825 = self._load_form_fill_dict('Form8825')
-        fill_1065 = self._load_form_fill_dict('Form1065')
-
-        f8825_l21 = _safe_float(fill_8825.get('F113') or fill_8825.get('F8825_Line21') or 0)
-        sched_k_l2 = _safe_float(fill_1065.get('K_2') or 0)
+        f8825_l21 = _safe_float(fill_8825.get('F113') or 0)
+        # Schedule K Line 2 (K_2): read from bookNS_IS Form1065 live mapping
+        # F230 maps to IS.net_rental in bookNS_IS.json Form1065 section.
+        try:
+            from ledger.stmtIS import stmtIS_Tax as _stmtIS_Tax
+            _f1065_live = _stmtIS_Tax(self.llc).loadFillDict('Form1065') or {}
+            sched_k_l2 = _safe_float(_f1065_live.get('F230') or 0)
+        except Exception:
+            sched_k_l2 = 0.0
 
         if abs(net) > 0.01:
             if abs(f8825_l21 - net) > 1.00:
