@@ -1871,6 +1871,33 @@ class llcMgmt:
                 import traceback as _tb2
                 out["steps"]["4_namespace"] = {"error": str(e), "traceback": _tb2.format_exc()}
 
+            # ── Step 4b: post-refresh fill check (isolates _refreshStmtInstances bug) ──
+            try:
+                import os as _os4b
+                aid._refreshStmtInstances()   # mirrors what regenerate() does first
+                post_refresh = {}
+                for _src in ["Profile", "BS", "IS", "GL"]:
+                    _d = aid._stmtInstance(_src)
+                    if _d is None:
+                        post_refresh[_src] = {"error": "no stmt instance after refresh"}
+                        continue
+                    bkns_p = _d._bkNS_path() if hasattr(_d, '_bkNS_path') else None
+                    try:
+                        _fd = _d.loadFillDict(form_nm) or {}
+                        post_refresh[_src] = {
+                            "count":     len(_fd),
+                            "bkNS_path": bkns_p,
+                            "bkNS_exists": _os4b.path.exists(bkns_p) if bkns_p else False,
+                            "filled": {k: str(v) for k, v in _fd.items()
+                                       if v is not None and v != ""},
+                        }
+                    except Exception as _ex:
+                        post_refresh[_src] = {"error": str(_ex), "bkNS_path": bkns_p}
+                out["steps"]["4b_post_refresh"] = post_refresh
+            except Exception as e:
+                import traceback as _tb3
+                out["steps"]["4b_post_refresh"] = {"error": str(e), "traceback": _tb3.format_exc()}
+
             # ── Step 5: full regenerate ──────────────────────────────────
             try:
                 result = aid.regenerate()

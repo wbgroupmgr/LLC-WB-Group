@@ -807,9 +807,13 @@ class BookToIRS:
         for src in AID_SOURCES:
             stmt = self._stmtInstance(src)
             if stmt is None:
-                _logger.warning("  src=%s: no stmt instance", src)
+                _logger.warning("  src=%s: no stmt instance (constructor failed)", src)
                 sources_data.append((src, {}))
                 continue
+            # Log bookNS path so we can detect if _refreshStmtInstances() broke the path
+            bkns_p = stmt._bkNS_path() if hasattr(stmt, '_bkNS_path') else '?'
+            bkns_exists = os.path.exists(bkns_p) if bkns_p and bkns_p != '?' else False
+            _logger.info("  src=%-8s  bkNS=%s  exists=%s", src, bkns_p, bkns_exists)
             try:
                 d = stmt.loadFillDict(self.formNm) or {}
                 filled_keys = [k for k, v in d.items() if v is not None and v != ""]

@@ -497,12 +497,21 @@ class stmtIS_Tax(stmtIS):
     BKNS_FN = "bookNS_IS.json"
 
     def _bkNS_path(self) -> str:
+        # Primary: setup_paths.IRS_FORMS_DIR is a module-level constant set at
+        # startup and never mutated.  Using it avoids dependence on llc.YEAR
+        # which can be reset by llc._Profile() mid-session.
+        try:
+            from ledger import setup_paths as _sp
+            if _sp.IRS_FORMS_DIR:
+                return _os.path.join(str(_sp.IRS_FORMS_DIR), self.BKNS_FN)
+        except Exception:
+            pass
+        # Fallback: derive from llc attributes (may be unreliable after _Profile())
         try:
             top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
             acct = getattr(self.llc, 'dirAccounting', '') or ''
             yr   = getattr(self.llc, 'YEAR', None) or getattr(self.llc, 'yr', None)
             yr   = str(int(yr)) if yr else ''
-            # bookNS files live in books/{year}/Forms/ (IRS forms directory)
             if yr:
                 p = _os.path.join(top, acct, yr, 'Forms', self.BKNS_FN)
                 if _os.path.exists(p):

@@ -509,10 +509,12 @@ class stmtGL_Tax(stmtGL):
     BKNS_FN = "bookNS_GL.json"
 
     def _bkNS_path(self) -> str:
-        '''
-        Best-effort path resolution under <TOP>/<dirAccounting>/<YEAR>/.
-        Falls back to a relative search if llc.TOP / llc.YEAR are missing.
-        '''
+        try:
+            from ledger import setup_paths as _sp
+            if _sp.IRS_FORMS_DIR:
+                return _os.path.join(str(_sp.IRS_FORMS_DIR), self.BKNS_FN)
+        except Exception:
+            pass
         try:
             top  = _os.path.expanduser(getattr(self.llc, 'TOP', '') or '')
             acct = getattr(self.llc, 'dirAccounting', '') or ''
