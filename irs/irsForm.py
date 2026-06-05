@@ -871,11 +871,14 @@ class irsForm:
         import pandas as pd
 
         ns_path = self._nspaceFN()
-        if ns_path.exists():
-            with open(ns_path, "r", encoding="utf-8") as fh:
-                ns = json.load(fh)
-        else:
-            ns = self._buildNSpace()
+        if not ns_path.exists():
+            raise FileNotFoundError(
+                f"{self.oID}_namespace.json not found at {ns_path}. "
+                "Run the form pipeline once to generate it, or call "
+                "form._buildNSpace() + form.saveNSpace() explicitly."
+            )
+        with open(ns_path, "r", encoding="utf-8") as fh:
+            ns = json.load(fh)
 
         # Underlying AcroForm /FT — only available by reading the PDF.
         irs_path = Path(self.FN())

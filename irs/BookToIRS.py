@@ -70,7 +70,13 @@ class BookToIRS:
         return (base / yr) if yr else base
 
     def _bookNSPath(self, src: str) -> Path:
-        return self._accountingDir() / f"bookNS_{src}.json"
+        """Return the canonical bookNS path: books/{year}/Forms/bookNS_{src}.json.
+        Matches stmtIS_Tax._bkNS_path() priority so diagnostics and readers agree."""
+        base = self._accountingDir()
+        forms_path = base / "Forms" / f"bookNS_{src}.json"
+        if forms_path.exists():
+            return forms_path
+        return base / f"bookNS_{src}.json"
 
     def loadLiterals(self, src: str) -> List[List[str]]:
         """Return ``[[key, value], …]`` rows from the ``BookVal`` section of
@@ -776,19 +782,26 @@ class BookToIRS:
 
         _logger.info("BookToIRS.regenerate(%s) start", self.formNm)
 
-        # Ensure namespace JSON exists so loadFieldsDF() uses consistent fid numbering.
-        # Without the saved namespace, _buildNSpace() may assign different sequential fids
-        # than were used when bookNS entries were authored, causing all fields to merge blank.
-        try:
-            ns_path = form._nspaceFN()
-            if not ns_path.exists():
-                _logger.warning("  %s_namespace.json missing at %s — building from PDF and saving",
-                                self.formNm, ns_path)
+        # Namespace must exist before any fid resolution.  Generate it explicitly here
+        # (at pipeline start, with full logging) rather than silently in loadFieldsDF().
+        # A freshly-built namespace may differ in fid numbering from one built previously
+        # — if that happens, all bookNS fids become stale and fills go blank.
+        # RULE: never silently fall back to building a fresh namespace mid-pipeline.
+        ns_path = form._nspaceFN()
+        if not ns_path.exists():
+            _logger.warning("  NAMESPACE MISSING: %s — building from PDF now", ns_path)
+            try:
                 nspace = form._buildNSpace()
                 form.saveNSpace(nspace)
-                _logger.info("  namespace saved: %d fields", len(nspace.get("fields", {})))
-        except Exception as _ns_exc:
-            _logger.error("  namespace build/save failed: %s", _ns_exc)
+                _logger.warning("  namespace built: %d fields at %s",
+                                len(nspace.get("fields", {})), ns_path)
+                _logger.warning("  CAUTION: bookNS fids authored against a prior namespace "
+                                "are now STALE — re-author bookNS mappings via the Aid UI.")
+            except Exception as _ns_exc:
+                raise RuntimeError(
+                    f"Cannot regenerate {self.formNm}_FILL.pdf: namespace build failed "
+                    f"({_ns_exc}).  Verify {self.formNm}_IRS.pdf exists in {form.irsDir}"
+                ) from _ns_exc
 
         sources_data = []
         for src in AID_SOURCES:
@@ -865,13 +878,24 @@ class BookToIRS:
                      len(df), n_filled, n_blank, n_check, n_complex)
 
         if n_filled == 0:
-            _logger.warning("  WARNING: all %d fields are blank — bookNS or namespace missing?",
-                            len(df))
-            # Diagnose: check bookNS paths
+            _logger.warning("  WARNING: all %d fields are blank after merge", len(df))
+            # Fid-match diagnostic: show actual fid samples from both sides
+            ns_fids   = set(df_fields["fid"].tolist()) if len(df_fields) else set()
+            book_fids = set(df_book["fid"].tolist())   if len(df_book)   else set()
+            matched   = ns_fids & book_fids
+            _logger.warning("  FID DIAGNOSTIC: ns_fields=%d  bookNS_rows=%d  matched=%d",
+                            len(ns_fids), len(book_fids), len(matched))
+            _logger.warning("  ns_fid_sample:   %s", sorted(ns_fids)[:10])
+            _logger.warning("  book_fid_sample: %s", sorted(book_fids)[:10])
+            _logger.warning("  matched_fids:    %s", sorted(matched)[:10])
+            if not matched and book_fids:
+                _logger.error("  FID MISMATCH: zero overlap — namespace was likely rebuilt "
+                              "after bookNS was authored.  Re-author bookNS via the Aid UI "
+                              "or restore the namespace JSON used when bookNS was authored.")
             for src in AID_SOURCES:
                 p = self._bookNSPath(src)
                 exists = p.exists() if p else False
-                _logger.warning("    bookNS_%s path: %s  exists=%s", src, p, exists)
+                _logger.warning("    bookNS_%s: %s  exists=%s", src, p, exists)
 
         out_path = form.saveFILL_FromDF(df)
         _logger.info("  wrote %s  (filled=%d blank=%d)", out_path, n_filled, n_blank)

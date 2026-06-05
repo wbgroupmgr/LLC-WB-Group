@@ -53,6 +53,21 @@ Every IRS form field value must be sourced from the Financial Books — never fr
 - After review and approval of a task, a GO will be given - and I expect claude to make the changes with NO PROMPTs (see permissions below).
 - With the GO, claude is authorized to make any/all changes.   NO PROMPTs. 
 
+#### No Shortcuts / No Silent Fallbacks
+
+**No shortcuts.** Code must implement the correct solution. Never use workarounds, silent fallbacks, or approximations that hide real errors.
+
+**Required artifacts must exist — never fake them.** If a required artifact (namespace JSON, bookNS JSON, config file, PDF template) is missing, the pipeline must:
+1. **Generate it explicitly at the START of the pipeline** (with logging) if it can be auto-generated from available inputs (e.g., namespace JSON from a PDF).
+2. **Fail with a clear error** if it cannot be auto-generated (e.g., operator-authored bookNS mappings).
+
+Never silently substitute an empty result, a default value, or a freshly-generated artifact mid-pipeline — this masks the real problem (the artifact is missing or stale) and produces corrupted output downstream.
+
+**Specific rules for this app:**
+- `*_namespace.json`: auto-generated from the IRS PDF. If missing when `regenerate()` starts, generate and save it ONCE at the top of the pipeline with a loud warning. Never fall back silently in `loadFieldsDF()`.
+- `bookNS_*.json` (operator-authored): if missing, return `{}` (no mappings = no fills). Do not guess or invent mappings.
+- If `filled=0` after a regenerate merge, log the fid intersection so the cause is visible, not silent.
+
 #### Fix/Test Workflow
 
 - When fixing bugs, fix the root cause — don't bypass hooks or add workarounds.

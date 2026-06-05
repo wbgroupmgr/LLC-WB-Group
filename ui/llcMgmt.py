@@ -1821,20 +1821,55 @@ class llcMgmt:
 
             # ── Step 4: namespace + merge ────────────────────────────────
             try:
+                import pandas as _pd
                 formClass = aid._formClass()
                 form      = formClass(llc=llc)
                 df_fields = form.loadFieldsDF()
                 ns_path   = getattr(form, "irsDir", None)
+                ns_file   = _Path(str(ns_path)) / f"{form_nm}_namespace.json" if ns_path else None
+
+                # Collect all fill entries across sources
+                all_rows = []
+                for _src, _d in [
+                    ("Profile", aid._stmtInstance("Profile")),
+                    ("BS",      aid._stmtInstance("BS")),
+                    ("IS",      aid._stmtInstance("IS")),
+                    ("GL",      aid._stmtInstance("GL")),
+                ]:
+                    if _d is None: continue
+                    try:
+                        for _fid, _fval in (_d.loadFillDict(form_nm) or {}).items():
+                            all_rows.append({"fid": _fid, "fval": _fval, "source": _src})
+                    except Exception: pass
+                df_book = _pd.DataFrame(all_rows, columns=["fid","fval","source"]) \
+                          if all_rows else _pd.DataFrame(columns=["fid","fval","source"])
+
+                # Intersection diagnostic
+                ns_fids   = set(df_fields["fid"].tolist()) if len(df_fields) else set()
+                book_fids = set(df_book["fid"].tolist())   if len(df_book)   else set()
+                matched   = ns_fids & book_fids
+
                 out["steps"]["4_namespace"] = {
-                    "irsDir":       str(ns_path) if ns_path else None,
-                    "ns_file":      str(_Path(str(ns_path)) / f"{form_nm}_namespace.json")
-                                    if ns_path else None,
-                    "ns_file_exists": (_Path(str(ns_path)) / f"{form_nm}_namespace.json").exists()
-                                       if ns_path else False,
-                    "field_count":  len(df_fields),
+                    "irsDir":         str(ns_path) if ns_path else None,
+                    "ns_file":        str(ns_file) if ns_file else None,
+                    "ns_file_exists": ns_file.exists() if ns_file else False,
+                    "field_count":    len(df_fields),
+                    # Fid format samples — show first 8 from each side so we can see format
+                    "ns_fid_sample":   sorted(ns_fids)[:8],
+                    "book_fid_sample": sorted(book_fids)[:8],
+                    "matched_fids":    sorted(matched),
+                    "match_count":     len(matched),
+                    "ns_fid_dtype":    str(df_fields["fid"].dtype) if len(df_fields) else "empty",
+                    "book_fid_dtype":  str(df_book["fid"].dtype)   if len(df_book)   else "empty",
+                    # Show actual filled-fid rows from bookNS so we can compare with namespace
+                    "book_filled_rows": [
+                        {"fid": r["fid"], "fval": str(r["fval"]), "src": r["source"]}
+                        for r in all_rows if r.get("fval") not in (None, "", "0", 0)
+                    ][:15],
                 }
             except Exception as e:
-                out["steps"]["4_namespace"] = {"error": str(e)}
+                import traceback as _tb2
+                out["steps"]["4_namespace"] = {"error": str(e), "traceback": _tb2.format_exc()}
 
             # ── Step 5: full regenerate ──────────────────────────────────
             try:
