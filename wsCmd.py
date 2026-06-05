@@ -70,7 +70,7 @@ def _latest_config_year(llc_name: str):
 DEPS = ["flask", "pandas", "numpy", "pypdf", "deepdiff"]
 
 _ADMIN_ID   = "wbgadminWS"
-_ADMIN_NOTE = "Config in llcProfile JSON → MultiTaskWS_Config."
+_ADMIN_NOTE = "Config in ~/.llcRentalTracker/config.json → secrets."
 
 _SEED_USER = {
     "username":   "llcgroupmgr",
@@ -285,10 +285,16 @@ class WsCmd:
     # ── internal helpers ──────────────────────────────────────────────────────
 
     def _inject_env_from_profile(self) -> None:
-        """Set LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from llcProfile if not already in env."""
-        cfg = getattr(self.llc, "MultiTaskWS_Config", None)
+        """Set LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from config.json secrets if not in env.
+
+        Reads setup_paths.SECRETS (loaded from config.json at startup).
+        Falls back to llc.MultiTaskWS_Config for installations that haven't
+        migrated yet — will emit a DeprecationWarning via LLC._Profile().
+        """
+        cfg = _sp.SECRETS or {}
         if not cfg:
-            return
+            # backward-compat: old installs store secrets in profile JSON
+            cfg = getattr(self.llc, "MultiTaskWS_Config", None) or {}
         for env_var in ("LLC_GPG_PASSPHRASE", "LLC_SECRET_KEY"):
             if not os.environ.get(env_var) and cfg.get(env_var):
                 os.environ[env_var] = cfg[env_var]
@@ -357,21 +363,21 @@ class WsCmd:
         else:
             print(f"  ✓ {', '.join(DEPS)} ready.")
 
-    def _write_profile_config(self, passphrase: str) -> str:
-        print("\n── Step 3: MultiTaskWS_Config → LLC Profile ────────────────────")
+    def _write_secrets_to_config(self, passphrase: str) -> str:
+        """Write LLC secrets to config.json (the authoritative location)."""
+        print("\n── Step 3: Secrets → ~/.llcRentalTracker/config.json ──────────")
         secret_key = secrets.token_hex(32)
         os.environ["LLC_SECRET_KEY"] = secret_key
         tag = self._webserver_tag()
 
-        profile = self._load_profile()
-        profile["MultiTaskWS_Config"] = {
+        secrets_dict = {
             "LLC_SECRET_KEY":     secret_key,
             "LLC_GPG_PASSPHRASE": passphrase,
             "WebServer":          tag,
         }
-        self._save_profile(profile)
+        _sp.write_secrets(self.llc_name, self.year, secrets_dict)
 
-        print(f"  ✓ Saved MultiTaskWS_Config → {self._profile.name}")
+        print(f"  ✓ Saved secrets → {_sp.CONFIG_FILE}")
         print(f"    LLC_SECRET_KEY    : {secret_key[:16]}…")
         print(f"    LLC_GPG_PASSPHRASE: {'*' * len(passphrase)}")
         print(f"    WebServer         : {tag}")
@@ -466,30 +472,28 @@ class WsCmd:
         self._install_deps()
         # Write profile; if we got secret_key from keys.json.gpg, use it
         if secret_key:
-            print("\n── Step 3: MultiTaskWS_Config → LLC Profile ────────────────────")
+            print("\n── Step 3: Secrets → ~/.llcRentalTracker/config.json ──────────")
             tag = self._webserver_tag()
-            profile = self._load_profile()
-            profile["MultiTaskWS_Config"] = {
+            _sp.write_secrets(self.llc_name, self.year, {
                 "LLC_SECRET_KEY":     secret_key,
                 "LLC_GPG_PASSPHRASE": passphrase,
                 "WebServer":          tag,
-            }
-            self._save_profile(profile)
-            print(f"  ✓ Saved MultiTaskWS_Config → {self._profile.name}")
+            })
+            print(f"  ✓ Saved secrets → {_sp.CONFIG_FILE}")
         else:
-            self._write_profile_config(passphrase)
+            self._write_secrets_to_config(passphrase)
         self._seed_userdb()
         self.addTracker()
 
         print()
         print("=" * 64)
         print("  Setup complete.")
-        print(f"  Credentials stored in: {self._profile.name} → MultiTaskWS_Config")
+        print(f"  Credentials stored in: {_sp.CONFIG_FILE}")
         print()
         print("  Recover credentials any time (no passphrase needed):")
-        print(f"    python3 -c \"import json; print(json.dumps(")
-        print(f"      json.load(open('{self._profile}'))['MultiTaskWS_Config'],")
-        print( "      indent=2))\"")
+        print(f"    python3 -c \"import json; cfg=json.load(open('{_sp.CONFIG_FILE}')); "
+              f"stanza=[s for s in cfg['llcList'] if s['llcName']=='{self.llc_name}'][0]; "
+              f"print(json.dumps(stanza.get('secrets',{{}}), indent=2))\"")
         print()
         print("  Start locally (passphrase loaded automatically from profile):")
         print(f"    python3 wsCmd.py --start --llcName {self.llc_name}")

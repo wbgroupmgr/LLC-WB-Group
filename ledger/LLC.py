@@ -24,46 +24,38 @@ class LLC(object):
 
     This LLC object is owned by the LLC
     '''
+    # Filesystem keys must never come from llcProfile_*.json.
+    # They are exclusively owned by ~/.llcRentalTracker/config.json → setup_paths.
+    _FILESYSTEM_KEYS = frozenset({'TOP', 'YEAR', 'dirAccounting', 'BOOKS_DIR'})
+
     def __init__(self, llc, **kwargs):
         self.oID = self.__class__.__name__
         self.debug = kwargs.get('debug', False)
         self.objName = llc
-        #super().__init__(llc, **kwargs)
-        
-        ###--- load profile ---
-        if self.debug: print(f"llc:{self.oID} init load _Profile")
 
+        # Load entity/form/config data from profile JSON (no filesystem keys).
+        if self.debug: print(f"llc:{self.oID} init load _Profile")
         self._Profile(**kwargs)
 
-        # Year resolution order: kwarg → profile YEAR attr → current year
-        if kwargs.get('year'):
-            self.yr = int(kwargs['year'])
-        else:
-            try:
-                self.yr = self.YEAR
-            except AttributeError:
-                self.yr = datetime.datetime.now().year
-
-        # setup_paths (loaded from config.json via load_config) is authoritative.
-        # Always override profile JSON values — the profile may contain stale paths.
-        if setup_paths.TOP:
-            self.TOP = setup_paths.TOP
-        elif not getattr(self, 'TOP', None):
-            self.TOP = Path('.')
-
-        if setup_paths.BOOKS_DIR:
-            self.dirAccounting = setup_paths.BOOKS_DIR
-        elif not getattr(self, 'dirAccounting', None):
-            self.dirAccounting = 'books'
-
-        # dataName is the file-suffix (e.g. WBGroupLLC) which may differ from llcName.
+        # Filesystem config: exclusively from config.json via setup_paths.
+        # These are set here, after _Profile(), so nothing in _Profile() can
+        # shadow them — and _Profile() is hardened to skip _FILESYSTEM_KEYS too.
+        self.TOP           = Path(setup_paths.TOP)   if setup_paths.TOP      else Path('.')
+        self.dirAccounting = setup_paths.BOOKS_DIR   if setup_paths.BOOKS_DIR else 'books'
         if setup_paths.DATA_NAME:
             self.objName = setup_paths.DATA_NAME
+
+        # Year: kwarg → config.json → current year
+        if kwargs.get('year'):
+            self.YEAR = self.yr = int(kwargs['year'])
+        elif setup_paths.YEAR:
+            self.YEAR = self.yr = int(setup_paths.YEAR)
+        else:
+            self.YEAR = self.yr = datetime.datetime.now().year
 
         self.coa = llccoa(self)
 
         self.debug = kwargs.get('debug', self.debug)
-
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
 
     def _path(self, p):
@@ -131,21 +123,16 @@ class LLC(object):
     def _Profile(self, **kwargs):
         pDict = self._ProfileLoad(**kwargs)
         for k, v in pDict.items():
-            if k == 'TOP':
-                # setup_paths.TOP is authoritative (set in __init__).
-                # Do not let the profile JSON override it — stale GDrive
-                # paths in the profile clobber the canonical setup_paths
-                # location and redirect all data loading to the wrong tree.
-                if setup_paths.TOP:
-                    continue
-                v = self._path(v)
-            elif k in ('BOOKS_DIR', 'dirAccounting'):
-                if setup_paths.BOOKS_DIR:
-                    continue
-            elif k == 'YEAR':
-                self.yr = v
-                if setup_paths.YEAR:
-                    continue        # keep the YEAR set by setup_paths
+            if k in self._FILESYSTEM_KEYS:
+                # Filesystem params belong in config.json, not the profile JSON.
+                # Silently drop them — __init__ sets all path/year attrs from
+                # setup_paths after this call completes.
+                import warnings
+                warnings.warn(
+                    f"llcProfile_{self.objName}.json contains filesystem key '{k}'. "
+                    "Move it to ~/.llcRentalTracker/config.json and remove it from the profile.",
+                    DeprecationWarning, stacklevel=3)
+                continue
             setattr(self, k, v)
 
     ## ----- llc objects assets, owners, customers

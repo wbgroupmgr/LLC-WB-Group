@@ -3,16 +3,29 @@ ledger/setup_paths.py
 ---------------------
 Config-driven path resolver for llcRentalTracker.
 
-All business configs live in a single file:
+All filesystem and environment config lives in ONE file:
     ~/.llcRentalTracker/config.json
 
-Format:
+The profile JSON (llcProfile_<name>.json) holds entity data ONLY —
+no paths, no year, no secrets.  Any filesystem key found in the profile
+is a migration artifact and is ignored with a DeprecationWarning.
+
+config.json format:
     {
       "default": ["<llcName>", <year>],
       "llcList": [
-        {"llcName": "...", "bus_repo": "...", "books_dir": "books",
-         "year": 2025, "dataName": "..."},
-        ...
+        {
+          "llcName": "...",
+          "bus_repo": "<absolute path to LLC-WBGroup>",
+          "books_dir": "books",
+          "year": 2025,
+          "dataName": "...",
+          "secrets": {
+            "LLC_SECRET_KEY": "...",
+            "LLC_GPG_PASSPHRASE": "...",
+            "WebServer": "..."
+          }
+        }
       ]
     }
 
@@ -30,7 +43,7 @@ TRACKER_CFG_DIR = Path.home() / ".llcRentalTracker"
 CONFIG_FILE     = TRACKER_CFG_DIR / "config.json"
 
 # ── Runtime paths — populated by load_config() ───────────────────────────────
-TOP:           Path | None = None   # business repo root
+TOP:           Path | None = None   # business repo root (bus_repo in config)
 ACCT_DATA_DIR: Path | None = None   # books/
 ACCTS_DIR:     Path | None = None   # books/Accts/  (shared across all years)
 EXPENSES_DIR:  Path | None = None   # books/<year>/Expenses/
@@ -39,6 +52,7 @@ BANK_STMTS:    Path | None = None   # books/<year>/BankStmts/
 YEAR:          int  | None = None
 BOOKS_DIR:     str  | None = None   # "books" (relative name from TOP)
 DATA_NAME:     str  | None = None   # suffix used by data files, e.g. "WBGroupLLC"
+SECRETS:       dict        = {}     # stanza["secrets"] — LLC_SECRET_KEY, passphrase, etc.
 
 
 @dataclass
@@ -65,6 +79,20 @@ def write_config(cfg: dict) -> None:
     """Write ~/.llcRentalTracker/config.json."""
     TRACKER_CFG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def write_secrets(llc_name: str, year: int, secrets_dict: dict) -> None:
+    """Write secrets into the stanza for (llc_name, year) in config.json."""
+    cfg = read_config()
+    for stanza in cfg.get("llcList", []):
+        if stanza["llcName"] == llc_name and int(stanza["year"]) == year:
+            stanza["secrets"] = secrets_dict
+            write_config(cfg)
+            return
+    raise KeyError(
+        f"No stanza for {llc_name}/{year} in {CONFIG_FILE}. "
+        "Run --newBus first to register the LLC."
+    )
 
 
 def get_default() -> tuple | None:
@@ -139,7 +167,7 @@ def load_bootstrap(llc_name: str = None) -> dict:
 
 def load_config(llcName: str, year: int) -> dict:
     """Find stanza for (llcName, year) and populate all module-level path constants."""
-    global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR, BOOKS_DIR, DATA_NAME
+    global TOP, ACCT_DATA_DIR, ACCTS_DIR, EXPENSES_DIR, IRS_FORMS_DIR, BANK_STMTS, YEAR, BOOKS_DIR, DATA_NAME, SECRETS
 
     stanza = find_stanza(llcName, year)
     if stanza is None:
@@ -170,6 +198,7 @@ def load_config(llcName: str, year: int) -> dict:
     IRS_FORMS_DIR = books / str(yr) / "Forms"
     BANK_STMTS    = books / str(yr) / "BankStmts"
     YEAR          = yr
+    SECRETS       = stanza.get("secrets", {})
 
     app_root = str(_APP_ROOT)
     if app_root not in sys.path:
