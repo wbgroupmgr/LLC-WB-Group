@@ -60,6 +60,13 @@ if not Path(_acct).exists():
         f"  Check that books_dir is correct in {_sp.CONFIG_FILE}."
     )
 
+# Wire Python root logger → stderr so BookToIRS/agent INFO logs appear in the PA server log.
+import logging as _logging
+_logging.basicConfig(
+    level=_logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+
 import traceback as _tb
 
 try:

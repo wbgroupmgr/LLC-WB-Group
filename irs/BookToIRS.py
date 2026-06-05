@@ -759,6 +759,9 @@ class BookToIRS:
         ``{ fill_path, pdf_fields, filled, check, complex, blank, ts }``
         for single-form modes, or ``{ partners, paths, ts }`` for Sch_K1.
         """
+        import logging as _log
+        _logger = _log.getLogger("BookToIRS")
+
         self._refreshStmtInstances()
         self._namespace_cache = None
 
@@ -770,15 +773,24 @@ class BookToIRS:
 
         formClass = self._formClass()
         form = formClass(llc=self.llc)
+
+        _logger.info("BookToIRS.regenerate(%s) start", self.formNm)
+
         sources_data = []
         for src in AID_SOURCES:
             stmt = self._stmtInstance(src)
             if stmt is None:
+                _logger.warning("  src=%s: no stmt instance", src)
                 sources_data.append((src, {}))
                 continue
             try:
-                sources_data.append((src, stmt.loadFillDict(self.formNm) or {}))
-            except Exception:
+                d = stmt.loadFillDict(self.formNm) or {}
+                filled_keys = [k for k, v in d.items() if v is not None and v != ""]
+                _logger.info("  src=%-8s  entries=%d  filled=%d  keys=%s",
+                             src, len(d), len(filled_keys), filled_keys[:8])
+                sources_data.append((src, d))
+            except Exception as _exc:
+                _logger.error("  src=%s: loadFillDict raised %s", src, _exc)
                 sources_data.append((src, {}))
 
         rows = []
@@ -803,6 +815,9 @@ class BookToIRS:
                    .reset_index(drop=True))
 
         df_fields = form.loadFieldsDF()
+        _logger.info("  namespace fields=%d  bookNS rows=%d",
+                     len(df_fields), len(df_book))
+
         df = df_fields.merge(df_book, on="fid", how="left")
 
         def _status(v):
@@ -827,14 +842,33 @@ class BookToIRS:
             return None
         df["value"] = df.apply(_value, axis=1)
 
+        n_filled  = int((df["status"] == "filled" ).sum())
+        n_blank   = int((df["status"] == "blank"  ).sum())
+        n_check   = int((df["status"] == "check"  ).sum())
+        n_complex = int((df["status"] == "complex").sum())
+
+        _logger.info("  merge result: total=%d filled=%d blank=%d check=%d complex=%d",
+                     len(df), n_filled, n_blank, n_check, n_complex)
+
+        if n_filled == 0:
+            _logger.warning("  WARNING: all %d fields are blank — bookNS or namespace missing?",
+                            len(df))
+            # Diagnose: check bookNS paths
+            for src in AID_SOURCES:
+                p = self._bookNSPath(src)
+                exists = p.exists() if p else False
+                _logger.warning("    bookNS_%s path: %s  exists=%s", src, p, exists)
+
         out_path = form.saveFILL_FromDF(df)
+        _logger.info("  wrote %s  (filled=%d blank=%d)", out_path, n_filled, n_blank)
+
         return {
             "fill_path":  str(out_path),
             "pdf_fields": int(len(df)),
-            "filled":     int((df["status"] == "filled" ).sum()),
-            "check":      int((df["status"] == "check"  ).sum()),
-            "complex":    int((df["status"] == "complex").sum()),
-            "blank":      int((df["status"] == "blank"  ).sum()),
+            "filled":     n_filled,
+            "check":      n_check,
+            "complex":    n_complex,
+            "blank":      n_blank,
             "ts":         int(time.time()),
         }
 

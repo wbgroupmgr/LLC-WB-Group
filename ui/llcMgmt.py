@@ -1753,6 +1753,102 @@ class llcMgmt:
                             'llc_top': str(self.eSession.llc.TOP),
                             'acct_dir': self.eSession.llc.acctDir()})
 
+        @app.route("/api/debug/tax_trace")
+        def debug_tax_trace():
+            """Trace the full Tax Prep fill pipeline for a form.
+
+            Query param: ?form=Form4562  (default Form4562)
+            Returns every step: paths, bookNS contents, fill dict per source,
+            merge result, namespace field count, and PDF output path.
+            Use from the PA browser to diagnose empty FILL.pdf issues.
+            """
+            import json as _j
+            from pathlib import Path as _Path
+            from irs.BookToIRS import BookToIRS, AID_SOURCES
+
+            form_nm = request.args.get("form", "Form4562")
+            llc     = self.eSession.llc
+            aid     = BookToIRS(llc, form_nm)
+            out     = {"form": form_nm, "steps": {}}
+
+            # ── Step 1: setup_paths globals ─────────────────────────────
+            try:
+                from ledger import setup_paths as _sp
+                out["steps"]["1_setup_paths"] = {
+                    "TOP":           str(_sp.TOP),
+                    "ACCTS_DIR":     str(_sp.ACCTS_DIR),
+                    "IRS_FORMS_DIR": str(_sp.IRS_FORMS_DIR),
+                    "YEAR":          _sp.YEAR,
+                    "BOOKS_DIR":     _sp.BOOKS_DIR,
+                }
+            except Exception as e:
+                out["steps"]["1_setup_paths"] = {"error": str(e)}
+
+            # ── Step 2: bookNS files ─────────────────────────────────────
+            bkns = {}
+            for src in AID_SOURCES:
+                p = aid._bookNSPath(src)
+                exists = p.exists() if p else False
+                entries = []
+                if exists:
+                    try:
+                        d = _j.loads(p.read_text())
+                        entries = d.get(form_nm, [])
+                    except Exception as e:
+                        entries = [f"parse error: {e}"]
+                bkns[src] = {"path": str(p), "exists": exists,
+                             "form_entries": len(entries),
+                             "entries": entries[:10]}
+            out["steps"]["2_bookNS_files"] = bkns
+
+            # ── Step 3: fill dict per source ─────────────────────────────
+            fill_by_src = {}
+            for src in AID_SOURCES:
+                stmt = aid._stmtInstance(src)
+                if stmt is None:
+                    fill_by_src[src] = {"error": "no stmt instance"}
+                    continue
+                try:
+                    d = stmt.loadFillDict(form_nm) or {}
+                    fill_by_src[src] = {
+                        "count":  len(d),
+                        "filled": {k: str(v) for k, v in d.items()
+                                   if v is not None and v != ""},
+                    }
+                except Exception as e:
+                    fill_by_src[src] = {"error": str(e)}
+            out["steps"]["3_fill_dicts"] = fill_by_src
+
+            # ── Step 4: namespace + merge ────────────────────────────────
+            try:
+                formClass = aid._formClass()
+                form      = formClass(llc=llc)
+                df_fields = form.loadFieldsDF()
+                ns_path   = getattr(form, "irsDir", None)
+                out["steps"]["4_namespace"] = {
+                    "irsDir":       str(ns_path) if ns_path else None,
+                    "ns_file":      str(_Path(str(ns_path)) / f"{form_nm}_namespace.json")
+                                    if ns_path else None,
+                    "ns_file_exists": (_Path(str(ns_path)) / f"{form_nm}_namespace.json").exists()
+                                       if ns_path else False,
+                    "field_count":  len(df_fields),
+                }
+            except Exception as e:
+                out["steps"]["4_namespace"] = {"error": str(e)}
+
+            # ── Step 5: full regenerate ──────────────────────────────────
+            try:
+                result = aid.regenerate()
+                out["steps"]["5_regenerate"] = result
+            except Exception as e:
+                import traceback as _tb
+                out["steps"]["5_regenerate"] = {
+                    "error": str(e),
+                    "traceback": _tb.format_exc()
+                }
+
+            return jsonify({"ok": True, **out})
+
         @app.route("/api/audit/gl")
         def audit_gl():
             '''Run all GL audit checks and return structured findings + equation breakdown.'''
