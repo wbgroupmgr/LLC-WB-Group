@@ -42,6 +42,24 @@ if _default is None:
 LLC_NAME, LLC_YEAR = _default
 _sp.load_config(LLC_NAME, LLC_YEAR)
 
+# Hard startup validation — fail NOW if the configured paths don't exist on disk.
+# Never serve the app with a wrong bus_repo; surface the error immediately.
+_top  = _sp.TOP
+_acct = _sp.ACCTS_DIR
+if not _top or not Path(_top).exists():
+    raise RuntimeError(
+        f"[wsgi] FATAL: bus_repo not found on disk: {_top}\n"
+        f"  Loaded from: {_sp.CONFIG_FILE}\n"
+        f"  Fix: update bus_repo in {_sp.CONFIG_FILE} to the correct path on this machine.\n"
+        f"  Then reload the web app."
+    )
+if not Path(_acct).exists():
+    raise RuntimeError(
+        f"[wsgi] FATAL: Accts/ directory not found: {_acct}\n"
+        f"  TOP={_top} exists but books/Accts/ is missing.\n"
+        f"  Check that books_dir is correct in {_sp.CONFIG_FILE}."
+    )
+
 import traceback as _tb
 
 try:

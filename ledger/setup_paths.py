@@ -143,27 +143,19 @@ def load_config(llcName: str, year: int) -> dict:
 
     stanza = find_stanza(llcName, year)
     if stanza is None:
-        # Fallback to legacy per-file config — logs a warning so the source is visible.
-        cfg_path = TRACKER_CFG_DIR / f"{llcName}_{year}_config.json"
-        if not cfg_path.exists():
-            raise FileNotFoundError(
-                f"No config for {llcName}/{year} in {CONFIG_FILE} or {cfg_path}. "
-                f"Run: python3 wsCmd.py --newBus <path> --year {year}"
-            )
-        import warnings
-        warnings.warn(
-            f"setup_paths: '{llcName}/{year}' not found in {CONFIG_FILE}. "
-            f"Falling back to legacy config: {cfg_path}. "
-            f"Add a stanza to {CONFIG_FILE} to silence this warning.",
-            stacklevel=2,
+        # No silent fallback — fail immediately with a clear diagnosis.
+        stanzas = read_config().get("llcList", [])
+        names   = [s.get("llcName") for s in stanzas]
+        years   = [s.get("year")   for s in stanzas]
+        raise FileNotFoundError(
+            f"\n[setup_paths] FATAL: '{llcName}/{year}' not found in {CONFIG_FILE}.\n"
+            f"  llcList names:  {names}\n"
+            f"  llcList years:  {years}\n"
+            f"  Fix: add a stanza with llcName='{llcName}' and year={year} to {CONFIG_FILE}.\n"
+            f"  Or run: python3 wsCmd.py --newBus <path> --year {year}"
         )
-        print(f"[setup_paths] WARNING: using legacy config {cfg_path} "
-              f"(not found in {CONFIG_FILE})")
-        with open(cfg_path, encoding="utf-8") as f:
-            stanza = json.load(f)
-    else:
-        print(f"[setup_paths] Loaded '{llcName}/{year}' from {CONFIG_FILE} "
-              f"→ bus_repo={stanza.get('bus_repo')}")
+    print(f"[setup_paths] Loaded '{llcName}/{year}' from {CONFIG_FILE} "
+          f"→ bus_repo={stanza.get('bus_repo')}")
 
     base  = Path(stanza["bus_repo"]).expanduser().resolve()
     books = base / stanza["books_dir"]
