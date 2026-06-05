@@ -776,6 +776,20 @@ class BookToIRS:
 
         _logger.info("BookToIRS.regenerate(%s) start", self.formNm)
 
+        # Ensure namespace JSON exists so loadFieldsDF() uses consistent fid numbering.
+        # Without the saved namespace, _buildNSpace() may assign different sequential fids
+        # than were used when bookNS entries were authored, causing all fields to merge blank.
+        try:
+            ns_path = form._nspaceFN()
+            if not ns_path.exists():
+                _logger.warning("  %s_namespace.json missing at %s — building from PDF and saving",
+                                self.formNm, ns_path)
+                nspace = form._buildNSpace()
+                form.saveNSpace(nspace)
+                _logger.info("  namespace saved: %d fields", len(nspace.get("fields", {})))
+        except Exception as _ns_exc:
+            _logger.error("  namespace build/save failed: %s", _ns_exc)
+
         sources_data = []
         for src in AID_SOURCES:
             stmt = self._stmtInstance(src)
