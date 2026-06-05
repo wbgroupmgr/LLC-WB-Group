@@ -130,12 +130,22 @@ class LLC(object):
 
     def _Profile(self, **kwargs):
         pDict = self._ProfileLoad(**kwargs)
-        for k, v in  pDict.items():
-            if k == 'YEAR' :
-                self.yr = v
-            elif k == 'TOP' :
-                # Handle ~ in TOP
+        for k, v in pDict.items():
+            if k == 'TOP':
+                # setup_paths.TOP is authoritative (set in __init__).
+                # Do not let the profile JSON override it — stale GDrive
+                # paths in the profile clobber the canonical setup_paths
+                # location and redirect all data loading to the wrong tree.
+                if setup_paths.TOP:
+                    continue
                 v = self._path(v)
+            elif k in ('BOOKS_DIR', 'dirAccounting'):
+                if setup_paths.BOOKS_DIR:
+                    continue
+            elif k == 'YEAR':
+                self.yr = v
+                if setup_paths.YEAR:
+                    continue        # keep the YEAR set by setup_paths
             setattr(self, k, v)
 
     ## ----- llc objects assets, owners, customers

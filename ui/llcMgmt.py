@@ -1871,6 +1871,39 @@ class llcMgmt:
                 import traceback as _tb2
                 out["steps"]["4_namespace"] = {"error": str(e), "traceback": _tb2.format_exc()}
 
+            # ── Step 4a: data-path diagnostic (shows which ACCTS files + key balances) ──
+            try:
+                import os as _os4a, json as _j4a
+                from ledger import setup_paths as _sp4a
+                llc_name = getattr(llc, 'objName', 'WBGroupLLC')
+                _data_diag = {
+                    "llc_TOP":           str(getattr(llc, 'TOP', '?')),
+                    "sp_TOP":            str(_sp4a.TOP),
+                    "sp_ACCTS_DIR":      str(_sp4a.ACCTS_DIR),
+                    "llc_acctDir":       str(llc.acctDir()),
+                    "tops_match":        str(getattr(llc, 'TOP', '?')) == str(_sp4a.TOP),
+                }
+                for _nm in ('llcExpRev', 'llcAssets'):
+                    for _base in (str(_sp4a.ACCTS_DIR), str(getattr(llc, 'TOP', '')) + '/books/Accts'):
+                        _fp = _os4a.path.join(_base, f"{_nm}_{llc_name}.json")
+                        if _os4a.path.exists(_fp):
+                            try:
+                                _d = _j4a.loads(open(_fp).read())
+                                _entries = _d if isinstance(_d, list) else _d.get('entries', [])
+                                _depr = [e for e in _entries if 'Depreciation' in str(e.get('acct',''))]
+                                _tang = [e for e in _entries if 'Tangible.InService' in str(e.get('acct',''))]
+                                _data_diag[f"{_nm}_via_{_base[-5:]}"] = {
+                                    "path": _fp, "total": len(_entries),
+                                    "depr_entries": len(_depr), "tang_entries": len(_tang),
+                                }
+                            except Exception as _ex:
+                                _data_diag[f"{_nm}_via_{_base[-5:]}"] = {"error": str(_ex)}
+                            break
+                out["steps"]["4a_data_paths"] = _data_diag
+            except Exception as e:
+                import traceback as _tb4a
+                out["steps"]["4a_data_paths"] = {"error": str(e), "traceback": _tb4a.format_exc()}
+
             # ── Step 4b: post-refresh fill check (isolates _refreshStmtInstances bug) ──
             try:
                 import os as _os4b
