@@ -30,13 +30,44 @@ if _default is None:
 LLC_NAME, LLC_YEAR = _default
 _sp.load_config(LLC_NAME, LLC_YEAR)
 
-# Load LLC_SECRET_KEY and LLC_GPG_PASSPHRASE from config.json secrets.
-# All credentials live in ~/.llcRentalTracker/config.json — never in profile JSON.
-_secrets = _sp.SECRETS or {}
-if _secrets.get("LLC_SECRET_KEY"):
-    os.environ.setdefault("LLC_SECRET_KEY", _secrets["LLC_SECRET_KEY"])
-if _secrets.get("LLC_GPG_PASSPHRASE"):
-    os.environ.setdefault("LLC_GPG_PASSPHRASE", _secrets["LLC_GPG_PASSPHRASE"])
+# Inject LLC_SECRET_KEY and LLC_GPG_PASSPHRASE into the environment.
+#
+# Priority (first non-empty value wins):
+#   1. Already in os.environ (explicitly set by operator / PA env tab)
+#   2. ~/.llcRentalTracker/config.json  stanza["secrets"]  (local dev installs)
+#   3. ~/.MultiTaskWS/config.json        WEB_SECRET_KEY / WEB_GPG_PASSPHRASE
+#      (PA production — MultiTaskWS platform holds platform-wide secrets)
+#
+# Phase 3 will replace tiers 2+3 with gpg --decrypt keys.json.gpg using
+# master_passphrase from config.json.  Until then both tiers remain active.
+
+def _inject_secrets() -> None:
+    import json as _j
+
+    # Tier 2 — ~/.llcRentalTracker/config.json stanza["secrets"]
+    _s2 = _sp.SECRETS or {}
+    if _s2.get("LLC_SECRET_KEY"):
+        os.environ.setdefault("LLC_SECRET_KEY", _s2["LLC_SECRET_KEY"])
+    if _s2.get("LLC_GPG_PASSPHRASE"):
+        os.environ.setdefault("LLC_GPG_PASSPHRASE", _s2["LLC_GPG_PASSPHRASE"])
+
+    # Tier 3 — ~/.MultiTaskWS/config.json (fallback for PA and MultiTaskWS installs)
+    _mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
+    if _mw_cfg.exists():
+        try:
+            _mw = _j.loads(_mw_cfg.read_text())
+            # rentalTracker stanza first; top-level WEB_* keys as final fallback
+            _rt = _mw.get("rentalTracker", {})
+            _key = _rt.get("WEB_SECRET_KEY") or _mw.get("WEB_SECRET_KEY")
+            _pp  = _rt.get("APP_GPG_PASSPHRASE") or _mw.get("WEB_GPG_PASSPHRASE")
+            if _key:
+                os.environ.setdefault("LLC_SECRET_KEY", _key)
+            if _pp:
+                os.environ.setdefault("LLC_GPG_PASSPHRASE", _pp)
+        except Exception:
+            pass
+
+_inject_secrets()
 
 # Hard startup validation — fail NOW if the configured paths don't exist on disk.
 # Never serve the app with a wrong bus_repo; surface the error immediately.

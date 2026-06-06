@@ -28,10 +28,13 @@ Timestamp of last change: 2026.04.24  (v0.2.4.7 — PDF-embed tax views)
 import json
 import logging
 import math
+import os
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, List, Set
+
+from ledger import setup_paths as _sp
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 
@@ -201,7 +204,7 @@ class llcMgmt:
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
 
-        import os, hashlib, json
+        import hashlib
         _key = os.environ.get("LLC_SECRET_KEY")
         _key_src = "env"
         if not _key:
@@ -216,7 +219,6 @@ class llcMgmt:
                 except Exception:
                     pass
         if not _key:
-            from ledger import setup_paths as _sp
             _seed = f"llcRentalTracker:{_sp.CONFIG_FILE}:{self.llc_name or 'LLC'}"
             _key = hashlib.sha256(_seed.encode()).hexdigest()
             _key_src = "derived"
