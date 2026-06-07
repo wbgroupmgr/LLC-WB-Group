@@ -30,42 +30,27 @@ if _default is None:
 LLC_NAME, LLC_YEAR = _default
 _sp.load_config(LLC_NAME, LLC_YEAR)
 
-# Inject LLC_SECRET_KEY and LLC_GPG_PASSPHRASE into the environment.
-#
-# Priority (first non-empty value wins):
-#   1. Already in os.environ (explicitly set by operator / PA env tab)
-#   2. ~/.llcRentalTracker/config.json  stanza["secrets"]  (local dev installs)
-#   3. ~/.MultiTaskWS/config.json        WEB_SECRET_KEY / WEB_GPG_PASSPHRASE
-#      (PA production — MultiTaskWS platform holds platform-wide secrets)
-#
-# Phase 3 will replace tiers 2+3 with gpg --decrypt keys.json.gpg using
-# master_passphrase from config.json.  Until then both tiers remain active.
+# Inject LLC_SECRET_KEY and LLC_GPG_PASSPHRASE from ~/.llcRentalTracker/config.json.
+# SOLE SOURCE — no fallback. Hard fail if either key is missing.
+#   APP_SECRET_KEY (top-level)             → LLC_SECRET_KEY env var  (per-tracker)
+#   llcList[LLC_NAME].APP_GPG_PASSPHRASE   → LLC_GPG_PASSPHRASE env var  (per-BUS)
 
 def _inject_secrets() -> None:
-    import json as _j
-
-    # Tier 2 — ~/.llcRentalTracker/config.json stanza["secrets"]
-    _s2 = _sp.SECRETS or {}
-    if _s2.get("LLC_SECRET_KEY"):
-        os.environ.setdefault("LLC_SECRET_KEY", _s2["LLC_SECRET_KEY"])
-    if _s2.get("LLC_GPG_PASSPHRASE"):
-        os.environ.setdefault("LLC_GPG_PASSPHRASE", _s2["LLC_GPG_PASSPHRASE"])
-
-    # Tier 3 — ~/.MultiTaskWS/config.json (fallback for PA and MultiTaskWS installs)
-    _mw_cfg = Path.home() / ".MultiTaskWS" / "MultiTaskWS_config.json"
-    if _mw_cfg.exists():
-        try:
-            _mw = _j.loads(_mw_cfg.read_text())
-            # rentalTracker stanza first; top-level WEB_* keys as final fallback
-            _rt = _mw.get("rentalTracker", {})
-            _key = _rt.get("WEB_SECRET_KEY") or _mw.get("WEB_SECRET_KEY")
-            _pp  = _rt.get("APP_GPG_PASSPHRASE") or _mw.get("WEB_GPG_PASSPHRASE")
-            if _key:
-                os.environ.setdefault("LLC_SECRET_KEY", _key)
-            if _pp:
-                os.environ.setdefault("LLC_GPG_PASSPHRASE", _pp)
-        except Exception:
-            pass
+    _cfg = _sp.read_config()
+    _sk  = _cfg.get("APP_SECRET_KEY", "")
+    _pp  = _sp.SECRETS.get("APP_GPG_PASSPHRASE", "")
+    if not _pp:
+        raise RuntimeError(
+            f"[wsgi] FATAL: APP_GPG_PASSPHRASE missing for '{LLC_NAME}' in {_sp.CONFIG_FILE}.\n"
+            "  Run: python3 wsCmd.py --newBus <path> --year <year> --llcName <name>"
+        )
+    if not _sk:
+        raise RuntimeError(
+            f"[wsgi] FATAL: APP_SECRET_KEY missing from {_sp.CONFIG_FILE}.\n"
+            "  Run: python3 wsCmd.py --setup --llcName <name>"
+        )
+    os.environ.setdefault("LLC_GPG_PASSPHRASE", _pp)
+    os.environ.setdefault("LLC_SECRET_KEY", _sk)
 
 _inject_secrets()
 

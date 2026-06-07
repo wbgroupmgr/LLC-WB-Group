@@ -81,17 +81,15 @@ _SEED_USER = {
     "created_at": "2026-01-01T00:00:00",
 }
 
-# Used by addTracker
-MULTITASKWS_CONFIG_BN = '.MultiTaskWS/MultiTaskWS_config.json'
 TRACKER_DICT = {
-      "name": "llcRentalTracker",
-      "mount": "/rentalTracker",
-      "url": "/rentalTracker/",
-      "description": "rentalTracker : Financial Mgmt App for Property Rental LLC",
-      "status": "online",
-      "builtin": False,
-      "stanza_key": "rentalTracker"
-    }
+    "name":        "llcRentalTracker",
+    "stanza_key":  "llcRentalTracker",
+    "mount":       "/rentalTracker",
+    "url":         "/rentalTracker/login",
+    "description": "Financial Mgmt App for Property Rental LLC",
+    "status":      "online",
+    "builtin":     False,
+}
 
 
 # ── Bootstrap helpers ─────────────────────────────────────────────────────────
@@ -109,82 +107,17 @@ def _prompt_passphrase_pair(label: str, min_len: int = 12) -> str:
         return pp
 
 
-def _ensure_master_passphrase(force: bool = False) -> str:
-    """
-    Read master_passphrase from ~/.llcRentalTracker/config.json.
-    If config.json does not exist, lacks the key, or force=True, prompt and store it.
-    Returns the master passphrase.
-    """
-    cfg = _sp.read_config()
-    if not force and cfg.get("master_passphrase"):
-        print("  ✓ MASTER passphrase loaded from config.json")
-        return cfg["master_passphrase"]
-    if force:
-        cfg.pop("master_passphrase", None)
-        _sp.write_config(cfg)
-
-    print("\n──── MASTER Passphrase ────────────────────────────────────────")
-    print("  Encrypts keys.json.gpg. Needed on every host that runs the app.")
-    print("  Stored in ~/.llcRentalTracker/config.json (never in any repo).")
-    pp = _prompt_passphrase_pair("MASTER passphrase")
-    cfg["master_passphrase"] = pp
-    _sp.write_config(cfg)
-    _sp.CONFIG_FILE.chmod(0o600)
-    print(f"  ✓ Stored in {_sp.CONFIG_FILE} (chmod 600)")
-    return pp
-
-
-def _ensure_keys(accts_dir: Path, master_pp: str, force: bool = False) -> dict:
-    """
-    Ensure books/Accts/keys.json.gpg exists and is decryptable with master_pp.
-    If force=True, delete any existing file and recreate from a fresh prompt.
-    Returns the decrypted keys dict.
-    """
-    keys_file = accts_dir / "keys.json.gpg"
-
-    if force and keys_file.exists():
-        keys_file.unlink()
-        print(f"  ✓ Deleted existing {keys_file.name}")
-
-    if keys_file.exists():
-        try:
-            data = json.loads(_gpg_decrypt(keys_file, master_pp).decode("utf-8"))
-            print(f"  ✓ keys.json.gpg decrypted — secrets loaded")
-            return data
-        except Exception as exc:
-            print(f"  ✗ Cannot decrypt {keys_file.name}: {exc}")
-            print("    Check that your MASTER passphrase matches the one used to create it.")
-            sys.exit(1)
-
-    print("\n──── App Passphrase (LLC_GPG_PASSPHRASE) ──────────────────────")
-    print("  Encrypts the user DB (pw.json.gpg). Shared across all platforms")
-    print("  via keys.json.gpg — set it once, never change unless rotating keys.")
-    gpg_pp     = _prompt_passphrase_pair("app passphrase")
-    secret_key = secrets.token_hex(32)
-
-    keys = {"LLC_GPG_PASSPHRASE": gpg_pp, "LLC_SECRET_KEY": secret_key}
-    accts_dir.mkdir(parents=True, exist_ok=True)
-    _gpg_encrypt(json.dumps(keys, indent=2).encode("utf-8"), keys_file, master_pp)
-
-    print(f"  ✓ Created {keys_file}")
-    print()
-    print("  ⚠  Push keys.json.gpg to GitHub BEFORE running --setup:")
-    print(f"     cd {accts_dir.parent.parent}")
-    print(f"     git add {keys_file.relative_to(accts_dir.parent.parent)}")
-    print( "     git commit -m 'feat: initial keys.json.gpg'")
-    print( "     git push")
-    return keys
 
 
 # ── Business provisioning ─────────────────────────────────────────────────────
 
 def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
                       llc_name: str = None, force: bool = False) -> None:
-    """
-    Add a business stanza to ~/.llcRentalTracker/config.json and set it as default.
+    """Register a BUS repo and prompt for its APP_GPG_PASSPHRASE.
 
-    llcName defaults to the repo folder name but can be overridden via --llcName.
-    The last --newBus issued becomes the default for wsgi.py and --setup/--start.
+    Each BUS has its own unique APP_GPG_PASSPHRASE — it must match the passphrase
+    used to encrypt that BUS's pw.json.gpg (PA is the authoritative source).
+    The last --newBus issued becomes the default for --setup/--start.
     """
     bus_path = Path(bus_repo).expanduser().resolve()
     detected = bus_path.name
@@ -193,74 +126,62 @@ def provision_new_bus(bus_repo: str, year: int, books_dir: str = "books",
     if llc_name != detected:
         print(f"  ℹ  llcName overridden: '{detected}' (folder) → '{llc_name}' (--llcName)")
 
-    # Auto-detect dataName from existing Accts files (single shared DB under books/Accts/)
     accts_dir = bus_path / books_dir / "Accts"
     data_name = llc_name
     for p in accts_dir.glob("llcAssets_*.json"):
-        stem = p.stem
-        candidate = stem[len("llcAssets_"):]
+        candidate = p.stem[len("llcAssets_"):]
         if candidate:
             data_name = candidate
             break
     if data_name != llc_name:
         print(f"  ℹ  dataName auto-detected: '{data_name}' (from Accts files)")
 
-    # ── Bootstrap MASTER passphrase + keys.json.gpg ──────────────────────────
     print()
     print("=" * 64)
-    print(f"  --newBus Bootstrap  [{llc_name}]  year={year}"
-          + ("  [--F force]" if force else ""))
+    print(f"  --newBus  [{llc_name}]  year={year}")
     print("=" * 64)
 
-    if force:
-        # Delete pw.json.gpg upfront so it is recreated below
-        pw_file = accts_dir / "pw.json.gpg"
-        if pw_file.exists():
-            pw_file.unlink()
-            print(f"  ✓ Deleted existing pw.json.gpg")
+    # Check if passphrase already set for this BUS
+    cfg      = _sp.read_config()
+    existing = next((s for s in cfg.get("llcList", []) if s["llcName"] == llc_name), None)
 
-    master_pp = _ensure_master_passphrase(force=force)
-    keys      = _ensure_keys(accts_dir, master_pp, force=force)
+    if existing and existing.get("APP_GPG_PASSPHRASE") and not force:
+        passphrase  = existing["APP_GPG_PASSPHRASE"]
+        years_list  = existing.get("years", [])
+        print(f"  ✓ APP_GPG_PASSPHRASE already set for {llc_name}")
+    else:
+        print(f"\n──── APP_GPG_PASSPHRASE for {llc_name} ─────────────────────")
+        print(f"  Encrypts {llc_name}/books/Accts/pw.json.gpg.")
+        print(f"  Must match the passphrase used on PA (master host).")
+        passphrase = _prompt_passphrase_pair(f"APP_GPG_PASSPHRASE for {llc_name}")
+        years_list = existing.get("years", []) if existing else []
 
-    # With --F: recreate pw.json.gpg with the fresh LLC_GPG_PASSPHRASE
-    if force:
-        pw_file = accts_dir / "pw.json.gpg"
-        _gpg_encrypt(
-            json.dumps([dict(_SEED_USER)], indent=2).encode("utf-8"),
-            pw_file,
-            keys["LLC_GPG_PASSPHRASE"],
-        )
-        print(f"  ✓ Created pw.json.gpg  (seed user: llcgroupmgr / llcManager0!)")
-        print(f"    Push this file to GitHub after --newBus completes.")
+    if year not in years_list:
+        years_list = sorted(set(years_list + [year]), reverse=True)
 
-    # ── Register stanza ───────────────────────────────────────────────────────
     stanza = {
-        "llcName":   llc_name,
-        "dataName":  data_name,
-        "bus_repo":  str(bus_path),
-        "books_dir": books_dir,
-        "year":      year,
+        "llcName":            llc_name,
+        "dataName":           data_name,
+        "bus_repo":           str(bus_path),
+        "books_dir":          books_dir,
+        "years":              years_list,
+        "APP_GPG_PASSPHRASE": passphrase,
     }
 
-    cfg = _sp.read_config()
-    # Replace existing entry for same (llcName, year) if present
-    cfg["llcList"] = [s for s in cfg.get("llcList", [])
-                      if not (s["llcName"] == llc_name and int(s["year"]) == year)]
+    cfg["llcList"] = [s for s in cfg.get("llcList", []) if s["llcName"] != llc_name]
     cfg["llcList"].append(stanza)
     cfg["default"] = [llc_name, year]
     _sp.write_config(cfg)
+    _sp.CONFIG_FILE.chmod(0o600)
 
     print()
     print(f"  ✓ Registered in  : {_sp.CONFIG_FILE}")
     print(f"    llcName        : {llc_name}")
     print(f"    bus_repo       : {bus_path}")
-    print(f"    books_dir      : {books_dir}")
-    print(f"    year           : {year}")
+    print(f"    years          : {years_list}")
     print()
-    print("  Next steps:")
-    print("    1. git add books/Accts/keys.json.gpg && git push  (if just created)")
-    print(f"   2. python3 wsCmd.py --setup --llcName {llc_name}")
-    print("    3. git add books/Accts/pw.json.gpg && git push")
+    print("  Next step:")
+    print(f"    python3 wsCmd.py --setup --llcName {llc_name}")
     print("=" * 64)
 
 
@@ -285,19 +206,22 @@ class WsCmd:
     # ── internal helpers ──────────────────────────────────────────────────────
 
     def _inject_env_from_profile(self) -> None:
-        """Set LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from config.json secrets if not in env.
-
-        Reads setup_paths.SECRETS (loaded from config.json at startup).
-        Falls back to llc.MultiTaskWS_Config for installations that haven't
-        migrated yet — will emit a DeprecationWarning via LLC._Profile().
-        """
-        cfg = _sp.SECRETS or {}
-        if not cfg:
-            # backward-compat: old installs store secrets in profile JSON
-            cfg = getattr(self.llc, "MultiTaskWS_Config", None) or {}
-        for env_var in ("LLC_GPG_PASSPHRASE", "LLC_SECRET_KEY"):
-            if not os.environ.get(env_var) and cfg.get(env_var):
-                os.environ[env_var] = cfg[env_var]
+        """Inject LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from config.json. Hard fail if missing."""
+        cfg    = _sp.read_config()
+        pp     = _sp.SECRETS.get("APP_GPG_PASSPHRASE", "")
+        sk     = cfg.get("APP_SECRET_KEY", "")
+        if not pp:
+            sys.exit(
+                f"\nFATAL: APP_GPG_PASSPHRASE missing for '{self.llc_name}' in {_sp.CONFIG_FILE}.\n"
+                f"  Run: python3 wsCmd.py --newBus <path> --year {self.year} --llcName {self.llc_name}"
+            )
+        if not sk:
+            sys.exit(
+                f"\nFATAL: APP_SECRET_KEY missing from {_sp.CONFIG_FILE}.\n"
+                f"  Run: python3 wsCmd.py --setup --llcName {self.llc_name}"
+            )
+        os.environ.setdefault("LLC_GPG_PASSPHRASE", pp)
+        os.environ.setdefault("LLC_SECRET_KEY", sk)
 
     def _webserver_tag(self) -> str:
         home = Path.home()
@@ -363,25 +287,19 @@ class WsCmd:
         else:
             print(f"  ✓ {', '.join(DEPS)} ready.")
 
-    def _write_secrets_to_config(self, passphrase: str) -> str:
-        """Write LLC secrets to config.json (the authoritative location)."""
-        print("\n── Step 3: Secrets → ~/.llcRentalTracker/config.json ──────────")
-        secret_key = secrets.token_hex(32)
-        os.environ["LLC_SECRET_KEY"] = secret_key
-        tag = self._webserver_tag()
-
-        secrets_dict = {
-            "LLC_SECRET_KEY":     secret_key,
-            "LLC_GPG_PASSPHRASE": passphrase,
-            "WebServer":          tag,
-        }
-        _sp.write_secrets(self.llc_name, self.year, secrets_dict)
-
-        print(f"  ✓ Saved secrets → {_sp.CONFIG_FILE}")
-        print(f"    LLC_SECRET_KEY    : {secret_key[:16]}…")
-        print(f"    LLC_GPG_PASSPHRASE: {'*' * len(passphrase)}")
-        print(f"    WebServer         : {tag}")
-        return secret_key
+    def _ensure_app_secret_key(self) -> str:
+        """Generate APP_SECRET_KEY at top-level config if not already set. Returns the key."""
+        print("\n── Step 2: APP_SECRET_KEY ──────────────────────────────────────")
+        cfg = _sp.read_config()
+        sk  = cfg.get("APP_SECRET_KEY", "")
+        if sk:
+            print(f"  ✓ APP_SECRET_KEY already present — reusing")
+            return sk
+        sk = secrets.token_hex(32)
+        cfg["APP_SECRET_KEY"] = sk
+        _sp.write_config(cfg)
+        print(f"  ✓ Generated APP_SECRET_KEY → {_sp.CONFIG_FILE}")
+        return sk
 
     def _seed_userdb(self) -> None:
         print("\n── Step 4: User Database ───────────────────────────────────────")
@@ -421,28 +339,48 @@ class WsCmd:
         print(f"  ✓ Saved → {self._db}")
 
 
-    def addTracker(self):
-        """Add this tracker's stanza into ~/.MultiTaskWS/MultiTaskWS_config.json."""
-        cFN = os.path.join(Path.home(), MULTITASKWS_CONFIG_BN)
+    def addTracker(self) -> None:
+        """Register routing entry in ~/.MultiTaskWS/config.json Trackers list (if platform present).
+
+        Writes routing metadata only — NO secrets stanza for external trackers.
+        """
+        for cfg_name in ("config.json", "MultiTaskWS_config.json"):
+            mw_cfg = Path.home() / ".MultiTaskWS" / cfg_name
+            if mw_cfg.exists():
+                break
+        else:
+            return  # no platform config — standalone mode, skip silently
+
         try:
-            with open(cFN, 'r') as fio:
-                cfgDict = json.load(fio)
-            tList = cfgDict['Trackers']
-            if any(tDict['name'] == TRACKER_DICT['name'] for tDict in tList):
+            with open(mw_cfg, "r") as f:
+                mw = json.load(f)
+            trackers = mw.get("Trackers", [])
+            if any(t.get("stanza_key") == TRACKER_DICT["stanza_key"] for t in trackers):
+                print(f"  ✓ {TRACKER_DICT['stanza_key']} already in platform Trackers list")
                 return
-            entry = dict(TRACKER_DICT,
-                         sys_path=str(Path(__file__).resolve().parent))
-            cfgDict['Trackers'].append(entry)
-            with open(cFN, 'w') as fio:
-                json.dump(cfgDict, fio, indent=2)
+            entry = {
+                "name":        TRACKER_DICT["name"],
+                "stanza_key":  TRACKER_DICT["stanza_key"],
+                "mount":       TRACKER_DICT["mount"],
+                "url":         TRACKER_DICT["url"],
+                "description": TRACKER_DICT["description"],
+                "status":      TRACKER_DICT["status"],
+                "builtin":     TRACKER_DICT["builtin"],
+                "sys_path":    str(Path(__file__).resolve().parent),
+            }
+            trackers.append(entry)
+            mw["Trackers"] = trackers
+            with open(mw_cfg, "w") as f:
+                json.dump(mw, f, indent=2)
+            print(f"  ✓ Registered in platform config: {mw_cfg}")
         except Exception as err:
-            print(f"WARNING: wsCmd -- addTracker failed.  Ok for local, needed for MultiTaskWS", err)
+            print(f"  WARNING: addTracker failed (OK for standalone): {err}")
             
 
     # ── public commands ───────────────────────────────────────────────────────
 
     def setup(self, reset: bool = False) -> None:
-        """Set up the LLC task app (passphrase, deps, profile config, user DB)."""
+        """Set up the LLC task app: verify passphrase, generate secret key, seed user DB."""
         print()
         print("=" * 64)
         print(f"  LLC Task App — Setup  [{self.llc_name}]  year={self.year}")
@@ -451,51 +389,37 @@ class WsCmd:
         if reset:
             self._reset_db()
 
-        # Prefer keys.json.gpg path (new design); fall back to manual prompt
-        keys_file = _sp.ACCTS_DIR / "keys.json.gpg" if _sp.ACCTS_DIR else None
-        if keys_file and keys_file.exists():
-            master_pp = _sp.read_config().get("master_passphrase", "")
-            if not master_pp:
-                master_pp = _ensure_master_passphrase()
-            keys = _ensure_keys(_sp.ACCTS_DIR, master_pp)
-            passphrase = keys.get("LLC_GPG_PASSPHRASE", "")
-            os.environ["LLC_GPG_PASSPHRASE"] = passphrase
-            secret_key = keys.get("LLC_SECRET_KEY", secrets.token_hex(32))
-            os.environ["LLC_SECRET_KEY"] = secret_key
-            print(f"\n── Step 1: Secrets from keys.json.gpg ──────────────────────")
-            print(f"  ✓ LLC_GPG_PASSPHRASE loaded")
-            print(f"  ✓ LLC_SECRET_KEY     loaded")
-        else:
-            passphrase = self._prompt_passphrase()   # legacy path (no keys.json.gpg)
-            secret_key = None
+        # Step 1 — Verify APP_GPG_PASSPHRASE set by --newBus
+        print(f"\n── Step 1: APP_GPG_PASSPHRASE for {self.llc_name} ─────────────")
+        passphrase = _sp.SECRETS.get("APP_GPG_PASSPHRASE", "")
+        if not passphrase:
+            sys.exit(
+                f"\n  ✗ APP_GPG_PASSPHRASE not found for '{self.llc_name}'.\n"
+                f"  Run first: python3 wsCmd.py --newBus <path> --year {self.year} "
+                f"--llcName {self.llc_name}"
+            )
+        os.environ["LLC_GPG_PASSPHRASE"] = passphrase
+        print(f"  ✓ APP_GPG_PASSPHRASE loaded for {self.llc_name}")
 
+        # Step 2 — Generate APP_SECRET_KEY (once per tracker, reused across BUS instances)
+        secret_key = self._ensure_app_secret_key()
+        os.environ["LLC_SECRET_KEY"] = secret_key
+
+        # Step 3 — Install dependencies
         self._install_deps()
-        # Write profile; if we got secret_key from keys.json.gpg, use it
-        if secret_key:
-            print("\n── Step 3: Secrets → ~/.llcRentalTracker/config.json ──────────")
-            tag = self._webserver_tag()
-            _sp.write_secrets(self.llc_name, self.year, {
-                "LLC_SECRET_KEY":     secret_key,
-                "LLC_GPG_PASSPHRASE": passphrase,
-                "WebServer":          tag,
-            })
-            print(f"  ✓ Saved secrets → {_sp.CONFIG_FILE}")
-        else:
-            self._write_secrets_to_config(passphrase)
+
+        # Step 4 — Seed user DB
         self._seed_userdb()
+
+        # Step 5 — Register with platform (routing only, no secrets stanza)
         self.addTracker()
 
         print()
         print("=" * 64)
         print("  Setup complete.")
-        print(f"  Credentials stored in: {_sp.CONFIG_FILE}")
+        print(f"  Config: {_sp.CONFIG_FILE}")
         print()
-        print("  Recover credentials any time (no passphrase needed):")
-        print(f"    python3 -c \"import json; cfg=json.load(open('{_sp.CONFIG_FILE}')); "
-              f"stanza=[s for s in cfg['llcList'] if s['llcName']=='{self.llc_name}'][0]; "
-              f"print(json.dumps(stanza.get('secrets',{{}}), indent=2))\"")
-        print()
-        print("  Start locally (passphrase loaded automatically from profile):")
+        print("  Start locally:")
         print(f"    python3 wsCmd.py --start --llcName {self.llc_name}")
         print("=" * 64)
         print()
