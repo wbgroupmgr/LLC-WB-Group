@@ -905,6 +905,7 @@ class irsForm:
                 "pdfFT":        str(real.get("/FT") or "") or None,
                 "page":         int(fld.get("page") or 0),
                 "checkedValue": fld.get("checkedValue") or "",
+                "location":     fld.get("location") or "",
             })
         return pd.DataFrame(rows)
 
