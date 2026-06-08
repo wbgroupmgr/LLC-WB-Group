@@ -1549,12 +1549,24 @@ class llcMgmt:
 
         # ── BookToIRS Diagnostic (IRSDiagAgent) ───────────────────────────────
 
+        # form_key → canonical AID form name (handles lowercase agent route keys)
+        _FORM_KEY_MAP = {
+            "form1065": "Form1065", "form8825": "Form8825",
+            "form4562": "Form4562", "schk1":    "Sch_K1",
+            "sch_k1":   "Sch_K1",
+        }
+
         @app.route("/api/aid/diagnose")
         def aid_diagnose():
-            """Return IRSDiagAgent.diagnose() as JSON for the current form."""
+            """Return IRSDiagAgent.diagnose() as JSON for the current form.
+            Accepts both canonical (Form4562) and agent-route (form4562) keys."""
             try:
-                form_nm = _aid_form_from_request()
-                _llc    = getattr(self.eSession, "llc", None)
+                raw = (request.args.get("formNm") or "").strip()
+                form_nm = _FORM_KEY_MAP.get(raw.lower(), raw) or "Form1065"
+                if form_nm not in AID_FORMS:
+                    return jsonify({"ok": False,
+                                    "error": f"Unknown form: {raw!r}"}), 400
+                _llc = getattr(self.eSession, "llc", None)
                 if _llc is None:
                     return jsonify({"ok": False, "error": "no LLC session"}), 400
                 from irs.taxAgents.irsDiagAgent import IRSDiagAgent
