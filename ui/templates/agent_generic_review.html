@@ -208,6 +208,68 @@
     </div>
 </div>
 
+{# ── BookToIRS Diagnostic Frame ──────────────────────────────────────────── #}
+<div class="review-panel" id="diagPanel" style="margin-top:12px">
+    <div class="review-header" style="cursor:pointer;user-select:none"
+         onclick="diagToggle()">
+        <h2>📊 BookToIRS Diagnostic</h2>
+        <span style="font-size:12px;color:#bfdbfe;margin-right:8px" id="diagToggleIcon">▼</span>
+        <button type="button" class="btn btn-sm"
+                style="background:#1d4ed8;color:white;border:none;margin-left:auto;font-size:12px"
+                onclick="event.stopPropagation();diagLoad()">⟳ Refresh</button>
+        <button type="button" class="btn btn-sm"
+                style="background:#374151;color:white;border:none;margin-left:6px;font-size:12px"
+                onclick="event.stopPropagation();window.print()">🖨 Print</button>
+    </div>
+    <div id="diagBody" style="padding:12px 18px;display:none">
+        <div id="diagContent" style="font-size:12px;color:#6b7280">
+            Click Refresh to load diagnostic.
+        </div>
+    </div>
+</div>
+
+<style>
+.diag-section { margin-bottom: 18px; }
+.diag-section-head {
+    font-weight: 700; font-size: 13px; color: #1e3a8a;
+    border-bottom: 1px solid #bfdbfe; padding-bottom: 4px; margin-bottom: 8px;
+    display: flex; align-items: baseline; gap: 8px;
+}
+.diag-ref-chip {
+    font-size: 10px; font-family: monospace;
+    background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;
+    border-radius: 4px; padding: 1px 6px;
+}
+.diag-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 6px; }
+.diag-table th {
+    text-align: left; color: #6b7280; font-weight: 600;
+    border-bottom: 1px solid #e5e7eb; padding: 3px 8px;
+}
+.diag-table td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; }
+.diag-table td.fid  { font-family: monospace; color: #1e40af; }
+.diag-table td.sn   { font-family: monospace; color: #6b7280; }
+.diag-table td.uas  { color: #374151; }
+.diag-table td.val  { font-weight: 600; color: #111827; }
+.diag-table td.zero { font-weight: 600; color: #92400e; }
+.diag-cite { font-size: 11px; color: #374151; font-style: italic; margin-bottom: 3px; }
+.diag-reason {
+    font-size: 11px; color: #6b7280; line-height: 1.5;
+    background: #f8fafc; border-left: 3px solid #bfdbfe;
+    padding: 6px 10px; border-radius: 0 4px 4px 0;
+}
+.diag-sanity { margin-top: 16px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
+.diag-sanity table { border-collapse: collapse; font-size: 11px; }
+.diag-sanity td { padding: 2px 12px 2px 0; }
+.diag-sanity td:first-child { color: #6b7280; font-family: monospace; }
+.diag-sanity td:last-child  { font-weight: 600; color: #111827; }
+@media print {
+    .review-header button, .run-bar, #agentStripBody { display: none !important; }
+    .section-body { display: block !important; }
+    #diagBody { display: block !important; }
+    .diag-reason { background: none; border-left: 2px solid #999; }
+}
+</style>
+
 <script>
 const _START_URL = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/start';
 
@@ -268,5 +330,116 @@ function issueConfirm(btn, ruleId, choice) {
         }
     });
 })();
+
+// ── BookToIRS Diagnostic panel ───────────────────────────────────────────────
+const _DIAG_URL  = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}';
+let _diagLoaded  = false;
+
+function diagToggle() {
+    const body = document.getElementById('diagBody');
+    const icon = document.getElementById('diagToggleIcon');
+    const open = body.style.display === 'block';
+    body.style.display = open ? 'none' : 'block';
+    icon.textContent   = open ? '▼' : '▲';
+    if (!open && !_diagLoaded) diagLoad();
+}
+
+function diagLoad() {
+    const el = document.getElementById('diagContent');
+    el.innerHTML = '<span style="color:#6b7280">Loading…</span>';
+    document.getElementById('diagBody').style.display = 'block';
+    document.getElementById('diagToggleIcon').textContent = '▲';
+
+    fetch(_DIAG_URL)
+      .then(r => r.json())
+      .then(data => {
+          if (!data.ok) { el.innerHTML = `<span style="color:#991b1b">Error: ${data.error}</span>`; return; }
+          el.innerHTML = _renderDiag(data);
+          _diagLoaded  = true;
+      })
+      .catch(err => { el.innerHTML = `<span style="color:#991b1b">Fetch error: ${err}</span>`; });
+}
+
+function _renderDiag(data) {
+    let html = '';
+    const sections = data.sections || [];
+
+    for (const sec of sections) {
+        if (!sec.fields || sec.fields.length === 0) continue;
+        html += `<div class="diag-section">`;
+        html += `<div class="diag-section-head">`;
+        html += `${sec.name} <span class="diag-ref-chip">${sec.ref_id}</span>`;
+        html += `</div>`;
+
+        // Field table
+        html += `<table class="diag-table">
+            <thead><tr>
+                <th>fid</th><th>shortName</th><th>UAS path (books source)</th><th>Value</th>
+            </tr></thead><tbody>`;
+        for (const f of sec.fields) {
+            const valCls = f.is_zero ? 'zero' : 'val';
+            const valTxt = f.is_zero ? f.value_fmt + ' ← ZERO' : f.value_fmt;
+            html += `<tr>
+                <td class="fid">${f.fid}</td>
+                <td class="sn">${f.shortName}</td>
+                <td class="uas">${f.uas}</td>
+                <td class="${valCls}">${valTxt}</td>
+            </tr>`;
+        }
+        html += `</tbody></table>`;
+
+        // IRS reference
+        if (sec.cite || sec.reason) {
+            html += `<div class="diag-cite">📖 ${sec.cite}</div>`;
+            html += `<div class="diag-reason">${sec.reason.replace(/\n/g,'<br>')}</div>`;
+        }
+        html += `</div>`;
+    }
+
+    // Unmapped section
+    const unmapped = data.unmapped || [];
+    if (unmapped.length) {
+        html += `<div class="diag-section">`;
+        html += `<div class="diag-section-head" style="color:#92400e">⚠ Unmapped (no section defined)</div>`;
+        html += `<table class="diag-table"><thead><tr>
+            <th>fid</th><th>shortName</th><th>UAS path</th><th>Value</th>
+        </tr></thead><tbody>`;
+        for (const f of unmapped) {
+            html += `<tr>
+                <td class="fid">${f.fid}</td>
+                <td class="sn">${f.shortName||''}</td>
+                <td class="uas">${f.uas}</td>
+                <td class="val">${f.value_fmt}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+    }
+
+    // Books sanity totals
+    if (data.sections && data.sections.length) {
+        const aid = _SCRIPT_ROOT + '/api/aid/sources?formNm={{ form_key | urlencode }}';
+        html += `<div class="diag-sanity">
+            <strong style="font-size:12px;color:#374151">Books Sanity (IS / BS aggregates)</strong>
+            <table style="margin-top:6px">`;
+        // IS totals from sections that have IS source fields
+        const isFields = data.sections.flatMap(s => s.fields.filter(f => f.src === 'IS' && !f.is_zero));
+        if (isFields.length) {
+            html += `<tr><td colspan="2" style="color:#1e40af;font-weight:700;padding-top:4px">IS (Income Statement)</td></tr>`;
+            for (const f of isFields) {
+                html += `<tr><td>${f.uas}</td><td>${f.value_fmt}</td></tr>`;
+            }
+        }
+        const bsFields = data.sections.flatMap(s => s.fields.filter(f => f.src === 'BS' && !f.is_zero));
+        if (bsFields.length) {
+            html += `<tr><td colspan="2" style="color:#166534;font-weight:700;padding-top:4px">BS (Balance Sheet)</td></tr>`;
+            for (const f of bsFields) {
+                html += `<tr><td>${f.uas}</td><td>${f.value_fmt}</td></tr>`;
+            }
+        }
+        html += `</table></div>`;
+    }
+
+    return html || '<span style="color:#6b7280">No mapped fields with values.</span>';
+}
 </script>
 {% endblock %}

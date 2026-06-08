@@ -1547,6 +1547,24 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        # ── BookToIRS Diagnostic (IRSDiagAgent) ───────────────────────────────
+
+        @app.route("/api/aid/diagnose")
+        def aid_diagnose():
+            """Return IRSDiagAgent.diagnose() as JSON for the current form."""
+            try:
+                form_nm = _aid_form_from_request()
+                _llc    = getattr(self.eSession, "llc", None)
+                if _llc is None:
+                    return jsonify({"ok": False, "error": "no LLC session"}), 400
+                from irs.taxAgents.irsDiagAgent import IRSDiagAgent
+                data = IRSDiagAgent(_llc, form_nm).diagnose()
+                return jsonify({"ok": True, **data})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
         # ── Form 1065 Agent routes ─────────────────────────────────────────────
         # Pre-import at bind time so a missing file surfaces as a startup error,
         # not a silent 404.  Guarded so a missing taxAgents package degrades
