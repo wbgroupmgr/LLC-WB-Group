@@ -45,7 +45,7 @@
     .issue-sev { font-weight: 700; min-width: 50px; }
     .sev-error { color: #991b1b; }
     .sev-warn  { color: #92400e; }
-    .sev-info  { color: #1e3a8a; }
+    .sev-info  { color: #166534; }    /* green — no action required */
     .issue-msg   { flex: 1; color: #374151; }
     .issue-cite  { color: #9ca3af; font-style: italic; font-size: 11px; }
     .issue-action { color: #1d4ed8; font-size: 11px; }
@@ -110,6 +110,34 @@
     .btn-confirm-no:hover { background: #fde68a; }
     .btn-confirm-no.flagged { background: #92400e; color: white; cursor: default; }
     .confirm-hint { font-size: 10px; color: #9ca3af; line-height: 1.3; }
+    /* Mark Resolved button */
+    .btn-resolve {
+        background: #f0fdf4; color: #166534; border: 1px solid #86efac;
+        border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+        cursor: pointer; white-space: nowrap;
+    }
+    .btn-resolve:hover { background: #dcfce7; }
+    .btn-resolve.resolved { background: #166534; color: white; cursor: default; opacity: 0.8; }
+    .resolve-note { font-size: 10px; color: #9ca3af; margin-left: 6px; }
+    /* Audit GL button */
+    .btn-audit {
+        background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+        border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+        cursor: pointer; text-decoration: none; display: inline-block;
+    }
+    .btn-audit:hover { background: #dbeafe; color: #1d4ed8; }
+    /* CIP transaction list */
+    .cip-txn-table {
+        margin-top: 6px; font-size: 11px; border-collapse: collapse; width: 100%;
+    }
+    .cip-txn-table th {
+        text-align: left; color: #6b7280; font-weight: 600;
+        border-bottom: 1px solid #e5e7eb; padding: 2px 8px;
+    }
+    .cip-txn-table td { padding: 2px 8px; border-bottom: 1px solid #f3f4f6; }
+    .cip-txn-head {
+        font-size: 11px; font-weight: 600; color: #92400e; margin-top: 6px;
+    }
 </style>
 {% endblock %}
 
@@ -220,6 +248,55 @@
                                href="{{ url_for('view_object', obj_type=back_obj) }}?aid_fid={{ issue.fids[0] }}">
                                 🛠 Fix with Aid — open {{ issue.fids[0] }}
                             </a>
+                        </div>
+                        {% endif %}
+
+                        {# ── Audit GL button ───────────────────────────────── #}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.audit_link %}
+                        <div style="margin-top:6px">
+                            <a class="btn-audit"
+                               href="{{ url_for('view_object', obj_type=issue.suggested_mapping.audit_link.split('?')[0]) }}{% if '?' in issue.suggested_mapping.audit_link %}?{{ issue.suggested_mapping.audit_link.split('?')[1] }}{% endif %}">
+                                🔍 {{ issue.suggested_mapping.audit_label or 'Open GL Audit View' }}
+                            </a>
+                        </div>
+                        {% endif %}
+
+                        {# ── CIP transaction list ──────────────────────────── #}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.cip_transactions %}
+                        {% set txns = issue.suggested_mapping.cip_transactions %}
+                        <div class="cip-txn-head">
+                            📋 GL entries to reclassify ({{ txns | length }} transactions):
+                        </div>
+                        <table class="cip-txn-table">
+                            <thead><tr>
+                                <th>Date</th><th>Property</th><th>Account</th>
+                                <th>Description</th><th style="text-align:right">Amount</th>
+                            </tr></thead>
+                            <tbody>
+                            {% for t in txns %}
+                            <tr>
+                                <td>{{ t.dt }}</td>
+                                <td>{{ t.prop }}</td>
+                                <td style="font-family:monospace;font-size:10px">{{ t.acct }}</td>
+                                <td>{{ t.desc }}</td>
+                                <td style="text-align:right;font-weight:600">${{ '{:,.2f}'.format(t.amt) }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endif %}
+
+                        {# ── Mark Resolved button ──────────────────────────── #}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.resolve_available %}
+                        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <button type="button" class="btn-resolve"
+                                    data-rule-id="{{ issue.rule_id }}"
+                                    onclick="markResolved(this, '{{ issue.rule_id }}')">
+                                ✓ Mark Resolved
+                            </button>
+                            {% if issue.suggested_mapping.resolve_note %}
+                            <span class="resolve-note">{{ issue.suggested_mapping.resolve_note }}</span>
+                            {% endif %}
                         </div>
                         {% endif %}
                     </span>
@@ -369,7 +446,19 @@ function issueConfirm(btn, ruleId, choice) {
     }
 }
 
-// Restore any previous confirmations on page load.
+// Mark Resolved — bookkeeper confirms a flagged issue has been fixed in the GL.
+// State is stored in localStorage so it survives page reload.
+function markResolved(btn, ruleId) {
+    localStorage.setItem('resolved_' + ruleId, '1');
+    btn.classList.add('resolved');
+    btn.textContent = '✓ Resolved';
+    btn.disabled = true;
+    // Dim the entire issue row to de-emphasise it
+    const row = btn.closest('.issue-row');
+    if (row) row.style.opacity = '0.45';
+}
+
+// Restore any previous confirmations / resolutions on page load.
 (function () {
     document.querySelectorAll('[data-rule-id]').forEach(el => {
         const ruleId = el.getAttribute('data-rule-id');
@@ -377,6 +466,16 @@ function issueConfirm(btn, ruleId, choice) {
         if (saved) {
             const btn = el.querySelector(saved === 'yes' ? '.btn-confirm-yes' : '.btn-confirm-no');
             if (btn) issueConfirm(btn, ruleId, saved);
+        }
+    });
+    document.querySelectorAll('.btn-resolve').forEach(btn => {
+        const ruleId = btn.getAttribute('data-rule-id');
+        if (ruleId && localStorage.getItem('resolved_' + ruleId)) {
+            btn.classList.add('resolved');
+            btn.textContent = '✓ Resolved';
+            btn.disabled = true;
+            const row = btn.closest('.issue-row');
+            if (row) row.style.opacity = '0.45';
         }
     });
 })();

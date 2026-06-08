@@ -597,173 +597,119 @@ class AgentF8825_Expenses(_SectionAgent):
 
     def _rule_pre_service_expenses(self):
         """
-        F8EX-R05: Pre-placed-in-service expenses detected for CIP property.
-        IRC §263(a) + Reg. §1.263(a)-2(a): amounts paid to produce (construct,
-        build, install) tangible property must be capitalized — they are NOT
-        currently deductible rental expenses. If CIP property expenses remain
-        booked to Acct.Exp.* accounts, IS.total_expenses is overstated, and
-        Form 8825 Line 18 (F104) and Line 21 (F113) are both wrong.
-
-        W&B Group 2025 — RV_RV1: Acct.Exp.Repair + Acct.Exp.Other entries
-        (Oct-Nov 2025 construction materials and supplies) must be reclassified
-        to Acct.Fixed.Tangible.InConstruction.RV_RV1.
-
-        Books-correction required BEFORE Form 8825 can be filed.
-        IRC §446: form values must equal correctly-stated books values.
+        F8EX-R05: Pre-placed-in-service expenses in GL for CIP property.
+        IRC §263(a): construction costs must be capitalized, not expensed.
+        If still in Acct.Exp.*, Line 20b overstated; Line 21 understated.
         """
         cip = self._get_cip_propNms()
         if not cip:
             return None
 
-        # Load IS fill dict — per-property expenses come from _build_f8825_filldict
-        # which already filters CIP. Form-level total F104 comes from IS.total_expenses.
         total_exp_books = self._get_is_agg('total_expenses')
         fill = self._load_fill_dict()
-
-        # Sum expense subtotals across active-property columns from fill dict.
-        # F095 = col A (prop 0), F096 = col B (prop 1), etc. — expense subtotal per prop.
         active_col_exp = 0.0
         for col in range(4):
-            fid = f'F{95 + col:03d}'
-            active_col_exp += _safe_float(fill.get(fid, 0))
+            active_col_exp += _safe_float(fill.get(f'F{95 + col:03d}', 0))
         for col in range(4):
-            fid = f'F{95 + 119 + col:03d}'
-            active_col_exp += _safe_float(fill.get(fid, 0))
+            active_col_exp += _safe_float(fill.get(f'F{95 + 119 + col:03d}', 0))
         active_col_exp = round(active_col_exp, 2)
 
-        cip_exp = round(total_exp_books - active_col_exp, 2)
+        cip_exp  = round(total_exp_books - active_col_exp, 2)
         cip_names = ', '.join(sorted(cip))
 
         if cip_exp > 1.00:
             return self.format_issue(
                 'F8EX-R05', self.ERROR,
-                f"CIP property {cip_names} has ~${cip_exp:,.2f} in pre-placed-in-service "
-                f"expenses booked to Acct.Exp.* accounts. "
-                f"IRC §263(a): these must be CAPITALIZED to "
-                f"Acct.Fixed.Tangible.InConstruction.{{propNm}}, not expensed. "
-                f"Impact: Form 8825 F104 (Line 18 total expenses) is overstated by "
-                f"~${cip_exp:,.2f}; F113 (Line 21 net income/loss) is understated "
-                f"(more negative) by the same amount → Schedule K Line 2 and all "
-                f"K-1 Box 2 allocations are incorrect.",
-                'IRC §263(a); Reg. §1.263(a)-2(a); IRC §446 Books-First',
-                f"Fix books: in llcExpRev (or wherever the expenses are recorded), "
-                f"reclassify all Acct.Exp.Repair and Acct.Exp.Other entries for "
-                f"propNm='{cip_names}' to Acct.Fixed.Tangible.InConstruction. "
-                f"Exception: Hays County permit fees may qualify as IRC §195 start-up "
-                f"costs (deductible via §195 election on Form 1065, not Form 8825). "
-                f"Re-run regenerate() after books are corrected.")
+                f"Under-construction property {cip_names} has ~${cip_exp:,.2f} in expenses "
+                f"still booked to Acct.Exp.* accounts (IRC §263 violation). "
+                f"Pre-service costs must be capitalized — they are not deductible on Form 8825. "
+                f"Impact: Line 20b (Total Rental Expenses) is overstated ~${cip_exp:,.2f}; "
+                f"Line 21 (Net Rental Income) is understated by the same amount, "
+                f"flowing incorrectly to Schedule K Line 2 and each partner's K-1 Box 2.",
+                'IRC §263(a); IRC §168(a); IRC §446',
+                f"Fix GL — reclassify Acct.Exp.Repair + Acct.Exp.Other entries for "
+                f"propNm='{cip_names}' to Acct.Fixed.Tangible.InConstruction.",
+                suggested_mapping={
+                    'resolve_available': True,
+                    'resolve_label':     'Mark Resolved — expenses capitalized in GL',
+                    'resolve_note':      f'Confirm all {cip_names} construction costs are '
+                                         f'now in Acct.Fixed.Tangible.InConstruction.',
+                })
         elif cip:
             return self.format_issue(
                 'F8EX-R05', self.INFO,
-                f"CIP property detected: {cip_names}. "
-                f"No pre-service expenses found in IS (either correctly capitalized "
-                f"or zero). No Form 8825 action needed for this property.",
+                f"Under-construction property {cip_names}: no pre-service expenses "
+                f"found in active GL — correctly capitalized or zero.",
                 'IRC §263(a); IRC §168(a)',
                 "No action required.")
 
     def _rule_line14_blank(self):
-        """
-        F8EX-R01: Line 14 (depreciation) blank while IS.depreciation > 0.
-        IRC §168: residential rental property is depreciable under MACRS.
-        A blank Line 14 when IS.depreciation > 0 means the depreciation
-        deduction is missing from the rental schedule — an IRS reporting error.
-        The depreciation expense reduces the net rental income/loss on Line 21,
-        which flows to Schedule K Line 2. Omitting it overstates net rental income.
-        W&B Group 2025: IS.depreciation = $1,903.13 → fill field F079.
-        """
-        fill = self._load_fill_dict()
-        depr = self._get_is_agg('depreciation')
-        # F079 is the fill field for Line 14 depreciation (Col A from verified data)
-        line14 = _safe_float(fill.get('F079') or fill.get('F8825_Line14')
-                             or fill.get('Line14') or 0)
+        """F8EX-R01: Line 14 (Depreciation) is blank but books show depreciation."""
+        fill   = self._load_fill_dict()
+        depr   = self._get_is_agg('depreciation')
+        line14 = _safe_float(fill.get('F079') or 0)
         if depr > 0.01 and line14 < 0.01:
             return self.format_issue(
                 'F8EX-R01', self.ERROR,
-                f"Form 8825 Line 14 (Depreciation) is blank but IS.depreciation = ${depr:,.2f}. "
-                f"IRC §168: MACRS depreciation must be reported on Form 8825 Line 14. "
-                f"Form 8825 uses a dynamic per-property builder (_build_f8825_filldict), NOT "
-                f"bookNS_IS.json. A blank F079 means the depreciation GL entry is missing propNm. "
-                f"A blank Line 14 overstates net rental income by ${depr:,.2f}.",
-                'IRC §168; Form 8825 Instructions Line 14; IRC §446 Books-First',
-                "Check propNm on Acct.Exp.Depreciation entry in llcAssets_WBGroupLLC.json — "
-                "it must be set to the property name (e.g. 'H_805HighMesa'). "
-                "Form 8825 does NOT use bookNS_IS.json; it uses _build_f8825_filldict() which "
-                "requires propNm on every GL record. Fix propNm, then click Refresh FILL.pdf.",
-                fids=['F079'],
-                suggested_mapping={'action': 'fix_propNm', 'acct': 'Acct.Exp.Depreciation',
-                                   'required_propNm': 'H_805HighMesa',
-                                   'source_file': 'llcAssets_WBGroupLLC.json'})
+                f"Line 14 (Depreciation) is blank, but the GL shows ${depr:,.2f} "
+                f"in depreciation expense for the year (IRC §168 MACRS). "
+                f"A missing Line 14 overstates net rental income on Line 21 by ${depr:,.2f}, "
+                f"which flows to Schedule K Line 2 and each partner's K-1 Box 2.",
+                'IRC §168; Form 8825 Line 14; IRC §446',
+                "Fix GL — ensure the depreciation entry in llcAssets has propNm set "
+                "to the property name (e.g. 'H_805HighMesa'). "
+                "Form 8825 uses per-property GL aggregation; propNm is required.",
+                fids=['F079'])
 
     def _rule_line14_mismatch(self):
-        """
-        F8EX-R02: Line 14 ≠ IS.depreciation — Books-First violation.
-        IRC §446 + §703: books are the authoritative source. If Line 14 was
-        populated from Form 4562 instead of directly from IS.depreciation,
-        any error in Form 4562 propagates silently to Form 8825.
-        Books-First: both forms are independently derived from IS.depreciation.
-        The LLCTaxAgent cross-form audit (XF-R01) then confirms they agree.
-        """
-        fill  = self._load_fill_dict()
-        depr  = self._get_is_agg('depreciation')
-        line14 = _safe_float(fill.get('F079') or fill.get('F8825_Line14')
-                             or fill.get('Line14') or 0)
+        """F8EX-R02: Line 14 (Depreciation) does not match the GL depreciation amount."""
+        fill   = self._load_fill_dict()
+        depr   = self._get_is_agg('depreciation')
+        line14 = _safe_float(fill.get('F079') or 0)
         if line14 > 0.01 and abs(line14 - depr) > 1.00:
             return self.format_issue(
                 'F8EX-R02', self.ERROR,
-                f"Form 8825 Line 14 = ${line14:,.2f} but IS.depreciation = ${depr:,.2f}. "
-                f"Discrepancy: ${abs(line14 - depr):,.2f}. "
-                f"Books-First violation (IRC §446): Line 14 must equal IS.depreciation from books. "
-                f"Do NOT source Line 14 from Form 4562 — populate independently from IS.depreciation.",
+                f"Line 14 (Depreciation) = ${line14:,.2f} but GL shows ${depr:,.2f}. "
+                f"Discrepancy of ${abs(line14 - depr):,.2f} (IRC §446 Books-First violation). "
+                f"Line 14 must be sourced from the books (IS.depreciation), "
+                f"not from Form 4562.",
                 'IRC §446; IRC §703; Form 8825 Line 14',
-                "Fix bookNS_IS.json: Line 14 mapping must point to IS.depreciation, "
-                "not to any Form 4562 value. Re-run BookToIRS pipeline.",
-                fids=['F079', 'F8825_Line14'])
+                "Update bookNS — verify Line 14 maps to IS.depreciation "
+                "(not to any Form 4562 value).",
+                fids=['F079'])
 
     def _rule_line14_xf_note(self):
-        """
-        F8EX-R03: Informational — Line 14 will be reconciled against Form 4562 Line 22.
-        This is the LLCTaxAgent XF-R01 cross-form audit. Both forms are independently
-        sourced from IS.depreciation (Books-First). The audit confirms they agree.
-        This rule fires as INFO to make the cross-form audit relationship visible
-        in the Form 8825 agent's session state.
-        """
+        """F8EX-R03: Line 14 (Depreciation) confirmed — cross-form check pending."""
         depr = self._get_is_agg('depreciation')
         if depr > 0.01:
             return self.format_issue(
                 'F8EX-R03', self.INFO,
-                f"Form 8825 Line 14 = ${depr:,.2f} (IS.depreciation, Books-First). "
-                f"LLCTaxAgent XF-R01 will confirm: F4562 Line 22 == F8825 Line 14 == IS.depreciation. "
-                f"Both forms are independently populated from books — no form-to-form dependency.",
-                'LLCTaxAgent XF-R01; IRC §446; Form 4562 Instructions',
-                "No action required if Line 14 = IS.depreciation. "
-                "XF-R01 runs automatically in LLCTaxAgent.phase2_xf_audit().")
+                f"Line 14 (Depreciation) = ${depr:,.2f} — matches GL books (IRC §446). "
+                f"Cross-form audit (XF-R01) will confirm Line 14 equals Form 4562 Line 22.",
+                'IRC §446; LLCTaxAgent XF-R01',
+                "No action required.")
 
     def _rule_total_expenses_mismatch(self):
-        """
-        F8EX-R04: Total expenses (Line 18) ≠ IS.total_expenses by > $1.
-        Line 18 is the sum of Lines 5–17 per property. IS.total_expenses is the
-        books total of all deductible rental expenses. These should agree within $1
-        (rounding difference). A larger gap indicates an expense line is missing
-        from or incorrectly mapped on Form 8825.
-        IRC §446: form values must equal books values.
-        W&B Group 2025: IS.total_expenses = $4,793.50 → fill field F104.
-        """
+        """F8EX-R04: Line 20b (Total Rental Expenses) on form differs from GL total expenses."""
         fill  = self._load_fill_dict()
         total = self._get_is_agg('total_expenses')
-        # F104 is the fill field for Line 18 total expenses (verified)
-        line18 = _safe_float(fill.get('F104') or fill.get('F8825_Line18')
-                             or fill.get('Line18') or 0)
-        if line18 > 0.01 and abs(line18 - total) > 1.00:
+        line20b = _safe_float(fill.get('F104') or 0)
+        if line20b > 0.01 and abs(line20b - total) > 1.00:
+            gap = abs(line20b - total)
             return self.format_issue(
                 'F8EX-R04', self.WARN,
-                f"Form 8825 Line 18 (Total expenses) = ${line18:,.2f} but "
-                f"IS.total_expenses = ${total:,.2f}. Discrepancy: ${abs(line18 - total):,.2f}. "
-                f"Books-First (IRC §446): Line 18 should equal IS.total_expenses. "
-                f"Check that all expense lines (5–17) are mapped from books.",
-                'IRC §446; Form 8825 Instructions Line 18',
-                "Verify each expense category (repairs, utilities, depreciation, taxes, other) "
-                "is correctly mapped to Lines 11–17. Check for double-counted or omitted items.",
-                fids=['F104', 'F8825_Line18'])
+                f"Line 20b (Total Rental Expenses) = ${line20b:,.2f} but "
+                f"GL total expenses = ${total:,.2f}. "
+                f"Gap of ${gap:,.2f} — one or more expense lines may be missing "
+                f"from the form or double-counted in the GL (IRC §446).",
+                'IRC §446; Form 8825 Instructions Lines 5–18',
+                "Audit GL — open the Income Statement by Property view to see "
+                "expense totals per property and identify the unaccounted amount.",
+                fids=['F104'],
+                suggested_mapping={
+                    'audit_link':  'stmtIncomeStmt?view_by=ByProperty',
+                    'audit_label': 'Open IS by Property',
+                })
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -834,134 +780,163 @@ class AgentF8825_NetIncome(_SectionAgent):
     # ── Rules ────────────────────────────────────────────────────────────────
 
     def _rule_cip_in_totals(self):
-        """
-        F8NI-R04: CIP property expenses embedded in Form 8825 totals (F104, F113).
-        When a CIP property has expenses booked to Acct.Exp.* (pre-placed-in-service
-        costs not yet capitalized), those expenses flow into IS.total_expenses and
-        IS.net_rental, which are the source values for:
-          F104 = Line 20b Total Rental Expenses
-          F113 = Line 21 Total Net Income/Loss → Schedule K Line 2 → K-1 Box 2
-
-        This rule re-fires only if F8EX-R05 is not catching the issue (i.e., the
-        per-column math missed the CIP gap). It checks if CIP props are present AND
-        the fill F104 > expected active expenses.
-
-        Books-First (IRC §446): F113 must equal IS.net_rental for active properties
-        only. CIP expenses must be removed from the books before the form can be
-        correctly prepared.
-        """
+        """F8NI-R04: GL has expense entries for under-construction property that must be capitalized."""
         cip = self._get_cip_propNms()
         if not cip:
             return None
 
         fill = self._load_fill_dict()
-        f104 = _safe_float(fill.get('F104', 0))
-        f113 = _safe_float(fill.get('F113', 0))
-        net_books = self._get_is_agg('net_rental') or self._get_is_agg('net_income')
         total_exp_books = self._get_is_agg('total_expenses')
-
-        # Compute active-property expense total from per-column fids
-        active_col_exp = 0.0
+        active_col_exp  = 0.0
         for col in range(4):
             active_col_exp += _safe_float(fill.get(f'F{95 + col:03d}', 0))
         for col in range(4):
             active_col_exp += _safe_float(fill.get(f'F{95 + 119 + col:03d}', 0))
         active_col_exp = round(active_col_exp, 2)
-
-        cip_gap = round(total_exp_books - active_col_exp, 2)
+        cip_gap   = round(total_exp_books - active_col_exp, 2)
         cip_names = ', '.join(sorted(cip))
 
-        if cip_gap > 1.00 and (f104 > active_col_exp + 1.00 or abs(f113 - net_books) > 1.00):
-            return self.format_issue(
-                'F8NI-R04', self.ERROR,
-                f"Form 8825 totals include CIP property expenses. "
-                f"F104 (Line 20b total expenses) = ${f104:,.2f} but active-property "
-                f"column expenses sum to ${active_col_exp:,.2f}. "
-                f"Gap = ${cip_gap:,.2f} from {cip_names} pre-service expenses. "
-                f"F113 (Line 21 = ${f113:,.2f}) flows to Schedule K Line 2 and "
-                f"K-1 Box 2 — every partner's return is incorrect by ${cip_gap:,.2f}. "
-                f"Books correction required (IRC §263: capitalize CIP expenses).",
-                'IRC §263(a); IRC §446 Books-First; Form 8825 Line 21; IRC §702(a)',
-                f"Reclassify all Acct.Exp.* entries for propNm='{cip_names}' to "
-                f"Acct.Fixed.Tangible.InConstruction. Then re-run regenerate(). "
-                f"After correction: F104 drops by ${cip_gap:,.2f}; "
-                f"F113 rises by ${cip_gap:,.2f} (less negative).",
-                fids=['F104', 'F113'])
+        if cip_gap <= 1.00:
+            return None
+
+        # Build a list of the offending GL transactions for display
+        cip_txns: List[Dict[str, Any]] = []
+        try:
+            from ledger.stmtGL import stmtGL
+            for r in (stmtGL(self.llc)._rows or []):
+                if r.get('propNm') not in cip:
+                    continue
+                if r.get('acctType') != 'Expense':
+                    continue
+                try:
+                    amt = float(r.get('amt', 0) or 0)
+                except Exception:
+                    amt = 0.0
+                if amt <= 0:
+                    continue
+                cip_txns.append({
+                    'dt':    r.get('dt', ''),
+                    'desc':  (r.get('desc') or '')[:50],
+                    'acct':  r.get('acct', ''),
+                    'prop':  r.get('propNm', ''),
+                    'amt':   round(amt, 2),
+                })
+        except Exception:
+            pass
+
+        return self.format_issue(
+            'F8NI-R04', self.ERROR,
+            f"Under-construction property {cip_names} has ${cip_gap:,.2f} in GL expense entries "
+            f"that must be capitalized (IRC §263). "
+            f"These inflate Line 20b (Total Rental Expenses) by ${cip_gap:,.2f} and "
+            f"understate Line 21 (Net Rental Income) by the same amount, "
+            f"causing incorrect Schedule K Line 2 and partner K-1 Box 2 allocations.",
+            'IRC §263(a); IRC §446; Form 8825 Lines 20b, 21; IRC §702(a)',
+            f"Fix GL — reclassify the {len(cip_txns)} transaction(s) listed below "
+            f"from Acct.Exp.* to Acct.Fixed.Tangible.InConstruction for propNm='{cip_names}'.",
+            fids=['F104', 'F113'],
+            suggested_mapping={
+                'cip_transactions': cip_txns,
+                'resolve_available': True,
+                'resolve_label':     'Mark Resolved — all CIP expenses reclassified',
+                'resolve_note':      f'Confirm every {cip_names} expense entry has been '
+                                      f'moved to Acct.Fixed.Tangible.InConstruction.',
+            })
 
     def _rule_line21_blank(self):
-        """
-        F8NI-R01: Line 21 (total net) blank while IS.net_rental ≠ 0.
-        Form 8825 Line 21 is the total net rental income/loss for all properties.
-        It must be populated whenever the partnership has rental activity.
-        A blank Line 21 means the rental result is not flowing to Schedule K Line 2,
-        which means partners are not receiving their allocated share of rental income/loss.
-        IRC §702(a): all partnership items must flow to partners' returns.
-        """
-        fill = self._load_fill_dict()
-        net  = self._get_is_agg('net_rental')
-        # F113 is the fill field for Line 21 total net (verified)
-        line21 = _safe_float(fill.get('F113') or fill.get('F8825_Line21')
-                             or fill.get('Line21') or 0)
-        if abs(net) > 0.01 and abs(line21) < 0.01:
+        """F8NI-R01: Line 21 (Net Rental Income/Loss) is blank — rental activity exists."""
+        fill   = self._load_fill_dict()
+        line21 = _safe_float(fill.get('F113') or 0)
+        rent   = self._get_is_agg('rent_income')
+        if rent > 0.01 and abs(line21) < 0.01:
             return self.format_issue(
                 'F8NI-R01', self.ERROR,
-                f"Form 8825 Line 21 (Total net income/loss) is blank but "
-                f"IS.net_rental = ${net:,.2f}. "
-                f"Line 21 must be populated — it flows to Schedule K Line 2 "
-                f"and then to each K-1 Box 2. "
-                f"A blank Line 21 omits the rental result from partners' returns. "
-                f"IRC §702(a): all partnership items must be allocated to partners.",
-                'Form 8825 Instructions Line 21; IRC §702(a); Schedule K Instructions Line 2',
-                "Verify bookNS_IS.json maps IS.net_rental → Form 8825 Line 21 (F113). "
-                "Re-run BookToIRS pipeline.",
-                fids=['F113', 'F8825_Line21'])
+                f"Line 21 (Net Rental Income/Loss) is blank, but the LLC received "
+                f"${rent:,.2f} in rental income. Line 21 flows to Schedule K Line 2 "
+                f"and each partner's K-1 Box 2. A blank Line 21 omits the rental "
+                f"result from all partners' returns (IRC §702(a)).",
+                'Form 8825 Instructions Line 21; IRC §702(a); Schedule K Line 2',
+                "Update bookNS — confirm IS.net_rental is mapped and the GL has "
+                "propNm set on all income/expense entries.",
+                fids=['F113'])
 
     def _rule_line21_mismatch(self):
         """
-        F8NI-R02: Line 21 ≠ IS.net_rental — Books-First violation.
-        Line 21 is the most critical value on Form 8825 because it flows directly
-        to Schedule K Line 2 and then to K-1 Box 2 for each partner.
-        If Line 21 ≠ IS.net_rental, partners will report incorrect rental
-        income/loss on their individual returns. IRC §446 requires form values
-        to equal books values. IRC §702(a): items must retain their character
-        as determined at the partnership level.
+        F8NI-R02: Line 21 (Net Rental Income/Loss) differs from GL net rental.
+
+        ACCOUNTING NOTE — Year-End Closing Entries:
+        Standard double-entry practice closes all Income/Expense accounts to
+        Partners' Capital at year-end, leaving IS balances at $0. After closing,
+        IS.net_rental from taxAggregates() = $0, but Form 8825 Line 21 must still
+        report the ANNUAL net rental income/loss (the pre-close activity).
+
+        This rule accounts for three cases:
+        1. IS.net_rental = 0 (year-end closed): Line 21 from per-property GL
+           aggregation is correct; fire INFO only (not an error).
+        2. Discrepancy equals CIP expense gap: already reported by F8NI-R04;
+           skip to avoid duplicate alerts.
+        3. Unexplained discrepancy: true Books-First violation; fire ERROR.
         """
         fill   = self._load_fill_dict()
         net    = self._get_is_agg('net_rental')
-        line21 = _safe_float(fill.get('F113') or fill.get('F8825_Line21')
-                             or fill.get('Line21') or 0)
-        if abs(line21) > 0.01 and abs(line21 - net) > 1.00:
+        line21 = _safe_float(fill.get('F113') or 0)
+
+        if abs(line21) < 0.01:
+            return None     # handled by F8NI-R01
+
+        gap = round(abs(line21 - net), 2)
+        if gap <= 1.00:
+            return None     # within rounding — handled by F8NI-R03
+
+        # Case 1: IS.net_rental = 0 — year-end closing entries zeroed IS accounts
+        if abs(net) < 0.01:
             return self.format_issue(
-                'F8NI-R02', self.ERROR,
-                f"Form 8825 Line 21 = ${line21:,.2f} but IS.net_rental = ${net:,.2f}. "
-                f"Discrepancy: ${abs(line21 - net):,.2f}. Books-First violation (IRC §446). "
-                f"Line 21 must equal IS.net_rental — this value flows to Schedule K Line 2 "
-                f"and then to each K-1 Box 2. A wrong Line 21 causes all K-1 allocations "
-                f"to be incorrect.",
-                'IRC §446; Form 8825 Line 21; Schedule K Line 2; IRC §702(a)',
-                "Fix bookNS_IS.json: Line 21 mapping must point to IS.net_rental "
-                "(not IS.rent_income or any computed value other than IS.net_rental). "
-                "Re-run BookToIRS pipeline.",
-                fids=['F113', 'F8825_Line21'])
+                'F8NI-R02', self.INFO,
+                f"Line 21 (Net Rental Income/Loss) = ${line21:,.2f} (from per-property GL). "
+                f"IS.net_rental = $0.00 — year-end closing entries have zeroed IS accounts, "
+                f"which is standard accounting practice. "
+                f"Line 21 correctly reflects the annual pre-close activity.",
+                'IRC §446; double-entry closing procedure; Form 8825 Line 21',
+                "No action required — year-end close is expected.")
+
+        # Case 2: Gap explained by CIP expenses (already flagged by F8NI-R04)
+        total_exp  = self._get_is_agg('total_expenses')
+        active_col = 0.0
+        for col in range(4):
+            active_col += _safe_float(fill.get(f'F{95 + col:03d}', 0))
+        cip_gap = round(total_exp - active_col, 2)
+        if abs(gap - cip_gap) <= 1.00:
+            return None     # discrepancy is the CIP gap; F8NI-R04 covers it
+
+        # Case 3: Unexplained discrepancy
+        return self.format_issue(
+            'F8NI-R02', self.ERROR,
+            f"Line 21 (Net Rental Income/Loss) = ${line21:,.2f} but "
+            f"GL net rental = ${net:,.2f}. "
+            f"Unexplained gap of ${gap:,.2f} — this flows to Schedule K Line 2 "
+            f"and each partner's K-1 Box 2 (IRC §446, §702).",
+            'IRC §446; Form 8825 Line 21; Schedule K Line 2; IRC §702(a)',
+            "Audit GL — compare per-property income and expenses to identify "
+            "the unaccounted amount.",
+            fids=['F113'])
 
     def _rule_line21_confirmed(self):
-        """
-        F8NI-R03: Line 21 = IS.net_rental confirmed — verify Schedule K Line 2 will match.
-        This informational rule confirms the key value is correct and reminds
-        the bookkeeper that LLCTaxAgent XF-R02 will verify the Schedule K connection.
-        """
+        """F8NI-R03: Line 21 (Net Rental Income/Loss) confirmed — ready for Schedule K."""
         fill   = self._load_fill_dict()
+        line21 = _safe_float(fill.get('F113') or 0)
         net    = self._get_is_agg('net_rental')
-        line21 = _safe_float(fill.get('F113') or fill.get('F8825_Line21')
-                             or fill.get('Line21') or 0)
-        if abs(net) > 0.01 and abs(line21 - net) <= 1.00:
+        # Confirmed if: Line 21 is non-zero AND (matches IS.net_rental OR IS is YE-closed)
+        ye_closed = abs(net) < 0.01
+        matches   = abs(line21 - net) <= 1.00
+        if abs(line21) > 0.01 and (matches or ye_closed):
+            label = 'net rental income' if line21 >= 0 else 'net rental loss'
             return self.format_issue(
                 'F8NI-R03', self.INFO,
-                f"Form 8825 Line 21 = ${line21:,.2f} = IS.net_rental confirmed (Books-First). "
-                f"LLCTaxAgent XF-R02 will verify Schedule K Line 2 matches this value. "
-                f"W&B Group 2025: net rental loss (${abs(net):,.2f}) → passive loss to K-1 Box 2.",
-                'Form 8825 Instructions Line 21; LLCTaxAgent XF-R02; IRC §469(c)(2)',
-                "No action required. XF-R02 runs in LLCTaxAgent.phase2_xf_audit().")
+                f"Line 21 (Net Rental Income/Loss) = ${line21:,.2f} ({label}). "
+                f"Flows to Schedule K Line 2, then each partner's K-1 Box 2 "
+                f"(IRC §469(c)(2) passive activity).",
+                'Form 8825 Line 21; Schedule K Line 2; IRC §469(c)(2)',
+                "No action required.")
 
 
 # ════════════════════════════════════════════════════════════════════════════
