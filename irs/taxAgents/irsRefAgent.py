@@ -50,17 +50,21 @@ _F4562_SECTIONS = [
     {
         "id":    "Header",
         "name":  "Header",
-        # F002=f2 (Name), F003=f3 (EIN), F004=f4 (Business activity).
-        # f1 (shortName f1_1) is the pre-header year field — not a user entry.
-        # The first fillable header field is f2 (shortName f1_2 = Name).
-        "fids":  ["F002", "F003", "F004"],
+        # 2025 Form 4562 (published Jan 2026): f1_1=Name, f1_2=EIN, f1_3=BizCode.
+        # f1_1 IS the first user-fillable field — it is NOT a pre-header system field.
+        # Verified against the actual PDF: seq 1=f1_1, seq 2=f1_2, seq 3=f1_3.
+        # F001=f1 (Name), F002=f2 (EIN), F003=f3 (Business activity).
+        "fids":  ["F001", "F002", "F003"],
         "ref":   "F4562-H",
     },
     {
         "id":    "PartI",
         "name":  "Part I — §179 Deduction",
-        # F005=f5 (Line 1 dollar limit), F021=f21 (Line 12 deduction), F026=f26 (Line 13 carryover)
-        "fids":  ["F005", "F021", "F026"],
+        # F004=f4 (f1_4, Line 1 dollar limit), F020=f20 (f1_20, Line 12 deduction),
+        # F021=f21 (f1_21, Line 13 carryover).
+        # NOTE: The old mapping used F005/F021/F026 which were all off by +1.
+        # F026=f26=c1_1 (checkbox) — "Val.0" in a checkbox is silently lost.
+        "fids":  ["F004", "F020", "F021"],
         "ref":   "F4562-179",
     },
     {
@@ -86,28 +90,29 @@ _F4562_SECTIONS = [
 
 _F4562_REFERENCES = {
     "F4562-H": {
-        "fields": ["F002", "F003", "F004"],
+        "fields": ["F001", "F002", "F003"],
         "cite":   "Form 4562 Instructions, Top of Form (Lines A–C); IRC §6109",
         "reason": [
-            "F002 (f2, shortName f1_2): Name(s) shown on return — same as Form 1065. "
-            "f1_1 (our f1) is the pre-header year-indicator field and is NOT the name field. "
-            "The Header pattern f1_2..f1_4 correctly identifies the three user-fillable header fields.",
-            "F003 (f3, shortName f1_3): Identifying number — partnership EIN from llcProfile.",
-            "F004 (f4, shortName f1_4): Business or activity to which this form relates. "
-            "Code 531110 = Lessors of Residential Buildings and Dwellings (NAICS). "
-            "Required by Form 4562 Instructions top of form.",
+            "F001 (f1, shortName f1_1): Name(s) shown on return — same entity as Form 1065. "
+            "VERIFIED: 2025 Form 4562 (IRS PDF published Jan 7 2026, /FT=/Tx at pos 1). "
+            "f1_1 IS the first user-fillable field, not a pre-header system field.",
+            "F002 (f2, shortName f1_2): Identifying number — partnership EIN from llcProfile.",
+            "F003 (f3, shortName f1_3): Business or activity to which this form relates. "
+            "Code 531110 = Lessors of Residential Buildings and Dwellings (NAICS).",
         ],
     },
     "F4562-179": {
-        "fields": ["F005", "F021", "F026"],
+        "fields": ["F004", "F020", "F021"],
         "cite":   "IRC §179(b)(1), §179(d)(1)(B); Rev. Proc. 2024-40; Form 4562 Part I Instructions",
         "reason": [
-            "F005 (f5, shortName f1_5): Line 1 — $1,220,000 dollar limitation (2025, Rev. Proc. 2024-40). "
-            "Statutory constant — not sourced from books. Entered even when §179 deduction is $0.",
-            "F021 (f21, shortName f1_21): Line 12 — $0 §179 deduction. "
+            "F004 (f4, shortName f1_4): Line 1 — $1,220,000 dollar limitation (2025, Rev. Proc. 2024-40). "
+            "Statutory constant — not sourced from books. Informational; entered even when deduction is $0. "
+            "NOTE: Old mapping used f5 (f1_5 = Line 2 'Total cost') — that was WRONG.",
+            "F020 (f20, shortName f1_20): Line 12 — $0 §179 deduction. "
             "IRC §179(d)(1)(B): residential rental real property is explicitly excluded. "
-            "Any non-zero value here for a residential rental LLC is an IRS violation.",
-            "F026 (f26, shortName f1_26): Line 13 — $0 carryover. No §179 election in prior years.",
+            "NOTE: Old mapping used f21 (f1_21 = Line 13 'Carryover') — that was WRONG.",
+            "F021 (f21, shortName f1_21): Line 13 — $0 carryover. No §179 election in prior years. "
+            "NOTE: Old mapping used f26 (c1_1 = Part II checkbox) — value was silently discarded.",
         ],
     },
     "F4562-19h": {

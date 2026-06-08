@@ -80,34 +80,37 @@ class Form4562(irsForm):
     """
 
     # Patterns match against XFA shortName (f1_N / c1_N / f2_N).
-    # Field sequence determined from Form4562_IRS.pdf namespace.
+    # Field sequence verified against the 2025 Form 4562 IRS PDF (published Jan 2026).
     #
-    # Naming note: f1_1 (our fID f1) is a pre-header system field (year indicator).
-    # The first user-fillable header field is f1_2 (our f2 = Name).  This is why
-    # the Header pattern starts at f1_2, not f1_1.  IRC and IRS instructions
-    # consistently label Name/EIN/Activity as the first three fields — they map
-    # to our f2/f3/f4, not f1/f2/f3.
+    # 2025 Form 4562 confirmed field layout (sequential fID = IRS shortName position):
+    #   f1  = f1_1  = Name(s) shown on return          ← Header
+    #   f2  = f1_2  = Identifying number (EIN)          ← Header
+    #   f3  = f1_3  = Business or activity code         ← Header
+    #   f4  = f1_4  = Part I Line 1: §179 dollar limit  ← PartI.Sec179
+    #   f5–f25 = f1_5–f1_25 = Part I Lines 2–13 + Part II Lines 14–17
+    #   f26 = c1_1 (Part II bonus checkbox)
+    #   f27–f68 = f1_26–f1_67 = Part III Section B Lines 19a–19g
+    #   f69–f74 = f1_68–f1_73 = Part III Section B Line 19h (Residential Rental)
     LOCATION_RULES: List[Tuple[str, str]] = [
-        # f1_2..f1_4: Header — Name, EIN, Business/activity code
-        (r'^f1_[2-4]$',                              "Form4562.Header"),
-        # Part I §179 (Lines 1–13): f1_5..f1_25
-        (r'^f1_([5-9]|1\d|2[0-5])$',                "Form4562.PartI.Sec179"),
-        # Part II Special/Bonus depreciation: c1_* checkboxes
+        # Header: Name, EIN, Business/activity code — f1_1..f1_3 = our f1..f3
+        (r'^f1_[1-3]$',                              "Form4562.Header"),
+        # Part I §179 (Lines 1–13): f1_4..f1_21 = our f4..f21
+        # Includes Table_Ln6 rows (Lines 6a-6c): f1_9..f1_14 = our f9..f14
+        (r'^f1_([4-9]|1\d|2[01])$',                 "Form4562.PartI.Sec179"),
+        # Part II Special/Bonus depreciation: Lines 14–17 (f1_22..f1_25) + c1_* checkboxes
+        (r'^f1_2[2-5]$',                             "Form4562.PartII.SpecialDepr"),
         (r'^c1_',                                    "Form4562.PartII.SpecialDepr"),
-        # Part III Section A + Section B Lines 17–19g (up to 25-yr): f1_26..f1_67
+        # Part III Section A + Section B Lines 19a–19g (up to 25-yr): f1_26..f1_67 = our f27..f68
         (r'^f1_(2[6-9]|[3-5]\d|6[0-7])$',           "Form4562.PartIII.MACRS.Other"),
         # Part III Section B Line 19h: Residential Rental 27.5yr GDS MM S/L
         # Columns (b-g): f1_68..f1_73 = our f69-f74 — IRC §168(c)(1), §168(d)(2)
         (r'^f1_(6[89]|7[0-3])$',                     "Form4562.PartIII.MACRS.Line19h"),
-        # Part III Section B Lines 19i-19j (nonresidential 39yr/40yr): f1_74..f1_97
-        # NOTE: These ARE Part III — not Part V Listed Property.
-        # Line 19i = nonresidential real property (IRC §168(c)(1): 39yr/40yr ADS).
-        # Line 19j = additional rows for multi-asset entries.
+        # Part III Section B Lines 19i-19j (nonresidential 39yr/40yr): f1_74..f1_97 = our f75..f98
+        # These ARE Part III — NOT Part V Listed Property.
         (r'^f1_(7[4-9]|[89]\d|9[0-7])$',            "Form4562.PartIII.MACRS.Other"),
-        # Part III Section C ADS (Lines 20a-20e): f1_98..f1_127
+        # Part III Section C ADS (Lines 20a-20e): f1_98..f1_127 = our f99..f128
         (r'^f1_(9[89]|1[01]\d|12[0-7])$',           "Form4562.PartIII.MACRS.ADS"),
         # Page 2 — Part IV Summary (Line 22): first 4 standalone fields before checkboxes
-        # f2_1 = Line 22 total depreciation; f2_2..f2_4 = adjacent Part IV entries.
         (r'^f2_[1-4]$',                              "Form4562.PartIV.Summary"),
         # Page 2 — Part V Listed Property (Table_Ln26) + Part VI Amortization
         (r'^f2_',                                    "Form4562.PartV.ListedProp"),
@@ -170,10 +173,10 @@ class Form4562(irsForm):
         d_fmt = f"${d:,.2f}"
         return [
             {
-                "part":    "Header (f2–f4)",
+                "part":    "Header (f1–f3)",
                 "status":  "auto",
                 "summary": "Auto-filled from Profile: LLC name, EIN, business activity code (531110).",
-                "detail":  "f2=Name, f3=EIN, f4=business/activity. These are populated by the BookToIRS pipeline from bookNS_Profile.json.",
+                "detail":  "f1=Name (f1_1), f2=EIN (f1_2), f3=business/activity (f1_3). Populated by BookToIRS from bookNS_Profile.json.",
             },
             {
                 "part":    "Part I — §179 Deduction (Lines 1–12)",

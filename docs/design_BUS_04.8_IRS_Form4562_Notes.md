@@ -69,11 +69,13 @@ ui.llcForm4562 (irs_pdf_view.html + stat chips + Review button)
 
 ### bookNS_Profile.json → Form4562
 
-| fid | logicalKey | UAS Path | Resolved Value |
+Verified against 2025 Form 4562 IRS PDF (published Jan 7, 2026). f1_1 IS the Name field.
+
+| fid | shortName | UAS Path | Resolved Value |
 |---|---|---|---|
-| f2 | P1_Hdr_Nm | `Profile.entity.entity_name` | W&B Group, LLC |
-| f3 | P1_Hdr_EIN | `Profile.entity.ein` | 39-3842347 |
-| f4 | P1_Hdr_Biz | `Profile.F1065.A_bus_act` | 531110 |
+| f1 | f1_1 | `Profile.entity.entity_name` | W&B Group, LLC |
+| f2 | f1_2 | `Profile.entity.ein` | 39-3842347 |
+| f3 | f1_3 | `Profile.F1065.A_bus_act` | 531110 |
 
 ### bookNS_BS.json → Form4562
 
@@ -87,13 +89,18 @@ ui.llcForm4562 (irs_pdf_view.html + stat chips + Review button)
 
 ### bookNS_IS.json → Form4562
 
-| fid | logicalKey | UAS Path | Resolved Value |
-|---|---|---|---|
-| f5 | P1_L1 | `Val.1,220,000` | 1,220,000 |
-| f21 | P1_L12 | `Val.0` | 0 |
-| f26 | P1_L17 | `Val.0` | 0 |
-| f74 | P3_L19h_g | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
-| f129 | P4_L22 | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
+| fid | shortName | IRS Line | UAS Path | Resolved Value |
+|---|---|---|---|---|
+| f4 | f1_4 | Part I Line 1 | `Val.1,220,000` | 1,220,000 |
+| f20 | f1_20 | Part I Line 12 | `Val.0` | 0 |
+| f21 | f1_21 | Part I Line 13 | `Val.0` | 0 |
+| f74 | f1_73 | Part III Line 19h col (g) | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
+| f129 | f2_1 | Part IV Line 22 | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
+
+**Old mapping errors (corrected):**
+- f5 (f1_5) was Part I Line 2 "Total cost" — $1,220,000 was going to the WRONG line
+- f21 (f1_21) was Part I Line 13 "Carryover" — $0 was going to carryover not deduction
+- f26 (c1_1) was a Part II checkbox — $0 was silently discarded (can't fill a checkbox with "0")
 
 **f129 vs f153 — Part IV Line 22 location:**
 f129 (shortName f2_1) is the first standalone text field on page 2, before the Part V checkboxes
@@ -325,13 +332,18 @@ assessment data is accessible from the ledger.
 
 | Item | Value | Notes |
 |---|---|---|
-| Building cost (f70) | $437,950.81 | Includes land — CPA must split |
-| Placed in service (f69) | 8/2025 | Earliest InService record |
-| Recovery period (f71) | 27.5 yrs | Residential rental |
-| Convention (f72) | MM | Mid-Month |
-| Method (f73) | S/L | Straight-Line |
-| Depreciation deduction (f74/f153) | $5,246.06 | Safe-harbor proxy — CPA confirm |
-| §179 limit (f5) | $1,220,000 | 2025 statutory |
-| §179 deduction (f21) | $0 | Not available for rental |
+| LLC name (f1) | W&B Group, LLC | Header Name field |
+| EIN (f2) | 39-3842347 | Header EIN field |
+| Business code (f3) | 531110 | Header activity code |
+| §179 limit (f4) | $1,220,000 | Part I Line 1 — 2025 statutory |
+| §179 deduction (f20) | $0 | Part I Line 12 — not available for rental |
+| §179 carryover (f21) | $0 | Part I Line 13 |
+| Placed in service (f69) | 8/2025 | Part III Line 19h col (b) |
+| Building cost (f70) | $139,563 net tangible | Part III Line 19h col (c) — CPA: excludes land |
+| Recovery period (f71) | 27.5 yrs | Part III Line 19h col (d) — IRC §168(c)(1) |
+| Convention (f72) | MM | Part III Line 19h col (e) — IRC §168(d)(2) |
+| Method (f73) | S/L | Part III Line 19h col (f) — IRC §168(b)(3)(B) |
+| Depreciation deduction (f74) | $1,903.13 | Part III Line 19h col (g) — IS.depreciation |
+| Line 22 total (f129) | $1,903.13 | Part IV Summary — flows to Form 1065 Line 16a |
 
 **Form 4562** → Line 22 ($5,246.06) → **Form 1065** Line 16a → **Form 8825** Line 14.
