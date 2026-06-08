@@ -317,39 +317,60 @@ class AgentF4562_Sec179(_SectionAgent):
 
 class AgentF4562_MACRS(_SectionAgent):
     """
-    IRS Knowledge Base — Form 4562 Part III Section A: MACRS (Line 19h)
+    IRS Knowledge Base — Form 4562 Part III Section B: MACRS Residential Rental
 
-    Line 19h: Residential rental property
-      Col (b): Month/year placed in service (e.g., "8/25" for August 2025)
-      Col (c): Depreciable basis = building cost ONLY (land excluded — never depreciable)
-      Col (d): Recovery period = 27.5 years (IRC §168(c))
-      Col (e): Convention = MM (mid-month) — IRC §168(d)(2)
-      Col (f): Method = S/L (straight-line) — IRC §168(b)(3)(B)
-      Col (g): Depreciation amount = IS.depreciation from books (Books-First)
+    2025 FORM CHANGE (verified from IRS XFA accessibility labels):
+      Line 19h is now "50-year property" (new class in 2025 form).
+      Residential rental (27.5yr) moved to Line 19i (XFA: Line19i_1/Line19i_2).
+      Line 19j is nonresidential real property (39yr, was Line 19i in prior forms).
+
+    Line 19i (Residential rental property) — columns filled:
+      Col (b): Month/year placed in service — f75 (f1_74) — FILLABLE
+      Col (c): Depreciable basis = net tangible, land excluded — f76 (f1_75) — FILLABLE
+      Col (d): "27.5 yrs." — pre-printed readOnly by IRS in XFA (do NOT fill f77)
+      Col (e): "MM"       — pre-printed readOnly by IRS in XFA (do NOT fill f78)
+      Col (f): "S/L"      — pre-printed readOnly by IRS in XFA (do NOT fill f79)
+      Col (g): Depreciation amount = IS.depreciation — f80 (f1_79) — FILLABLE
+
+    Why cols (d)/(e)/(f) are NOT filled:
+      The 2025 IRS XFA marks f77/f78/f79 with access="readOnly" and pre-populates
+      "27.5 yrs. / MM / S/L" as caption text. Attempting to fill them overwrites nothing
+      visible — the pre-printed values always show. This is by IRS design: residential
+      rental always uses 27.5yr GDS, MM, S/L; the IRS hardcodes it in the form.
 
     Depreciable basis (CRITICAL — land exclusion):
-      IRS rule: land is never depreciable (IRC §167; Reg. §1.167(a)-2).
-      The depreciable basis = total acquisition cost − land value − non-depreciable items.
-      For H_805HighMesa: llcAssets Acct.Fixed.Land = $79,438.41 is excluded.
-      Depreciable basis ≈ Acct.Fixed.Tangible.InService = $142,884.48.
+      IRC §167; Treas. Reg. §1.167(a)-2: land is never depreciable.
+      Depreciable basis = net Acct.Fixed.Tangible.InService (Debit − Credit entries).
+      For H_805HighMesa: Acct.Fixed.Land ($79,438.41) is EXCLUDED from col (c).
+      Col (c) (f76) = net tangible InService balance only.
 
-    MACRS Year 1 formula (mid-month convention):
+    MACRS Year 1 formula — 27.5yr, MM convention (IRC §168(d)(2)):
       Annual depreciation = depreciable_basis / 27.5
-      Year 1 = annual × ((12.5 − placed_month) / 12)
-      For August 2025 (month=8): Year 1 = (basis/27.5) × (4.5/12)
+      Year 1 partial = annual × ((12.5 − placed_month) / 12)
+      August 2025 (month=8): Year 1 = (basis/27.5) × (4.5/12)
 
-    Books-First: Col (g) MUST equal IS.depreciation from books.
-    The formula is used for verification only — if formula ≠ books, the books
-    have an error that must be corrected BEFORE filing.
+    Books-First (IRC §446+703): Col (g) MUST equal IS.depreciation from books.
+    Formula is verification only — if formula ≠ books, books have an error.
+
+    fid mapping (bookNS):
+      f75 = Line19i_1 col (b) — placed in service date
+      f76 = Line19i_1 col (c) — depreciable basis
+      f80 = Line19i_1 col (g) — current-year MACRS deduction
+      f129 = Part IV Line 22 — total depreciation (equals f80 for W&B Group)
     """
 
-    LABEL            = 'MACRS Depreciation (Part III Line 19h)'
+    LABEL            = 'MACRS Depreciation (Part III Line 19i — Residential Rental)'
     AGENT_KEY        = 'AgentF4562_MACRS'
     LOGICAL_PREFIXES = ['F45M_']
 
-    _RECOVERY_PERIOD  = 27.5  # residential rental, IRC §168(c)
-    _CONVENTION       = 'MM'   # mid-month, IRC §168(d)(2)
-    _METHOD           = 'S/L'  # straight-line, IRC §168(b)(3)(B)
+    _RECOVERY_PERIOD  = 27.5  # residential rental, IRC §168(c)(1)
+    _CONVENTION       = 'MM'   # mid-month, IRC §168(d)(2) — pre-printed by IRS, readOnly
+    _METHOD           = 'S/L'  # straight-line, IRC §168(b)(3)(B) — pre-printed by IRS, readOnly
+
+    # fids for Line 19i col (b), (c), (g) — the three FILLABLE columns
+    _FID_DATE   = 'f75'   # Line19i_1 col (b): placed in service
+    _FID_BASIS  = 'f76'   # Line19i_1 col (c): depreciable basis
+    _FID_DEPR   = 'f80'   # Line19i_1 col (g): current-year deduction
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
@@ -364,9 +385,9 @@ class AgentF4562_MACRS(_SectionAgent):
         depr   = self._get_is_agg('depreciation')
         placed = self._get_placed_in_service() or 'unknown'
         basis  = net_tangible_basis(self._get_tangible_inservice())
-        return (f"MACRS Line 19h: H_805HighMesa placed {placed}, "
-                f"net basis ${basis:,.2f}, 27.5yr S/L MM, "
-                f"Col (g) = ${depr:,.2f} (= IS.depreciation, Books-First).")
+        return (f"MACRS Line 19i (2025 form): H_805HighMesa placed {placed}, "
+                f"net basis ${basis:,.2f}, 27.5yr S/L MM (pre-printed), "
+                f"f80 col (g) = ${depr:,.2f} (= IS.depreciation, Books-First).")
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
@@ -447,28 +468,23 @@ class AgentF4562_MACRS(_SectionAgent):
         """
         F45M-R04: Column (g) depreciation amount ≠ IS.depreciation — Books-First violation.
         IRC §446 + §703: books are the authoritative source for all form dollar amounts.
-        Column (g) MUST equal IS.depreciation from the books.
-        If the fill dict shows a different amount (e.g., because someone entered a
-        manually computed MACRS figure), it must be corrected to match IS.depreciation.
+        Col (g) of Line 19i (f80) MUST equal IS.depreciation from the books.
         The MACRS formula in F45M-R05 is a verification check — it does not override
         the books value.
         """
         fill = self._load_fill_dict()
         depr = self._get_is_agg('depreciation')
-        col_g = _safe_float(fill.get('F4562_L19h_g') or fill.get('F4562_ColG')
-                            or fill.get('MACRS_depr') or 0)
+        col_g = _safe_float(fill.get(self._FID_DEPR) or 0)
         if col_g > 0.01 and abs(col_g - depr) > 1.00:
             return self.format_issue(
                 'F45M-R04', self.ERROR,
-                f"Form 4562 Part III Line 19h Col (g) = ${col_g:,.2f} but "
+                f"Form 4562 Part III Line 19i Col (g) ({self._FID_DEPR}) = ${col_g:,.2f} but "
                 f"IS.depreciation = ${depr:,.2f}. Discrepancy: ${abs(col_g - depr):,.2f}. "
-                f"Books-First violation (IRC §446): Col (g) must equal IS.depreciation from books. "
-                f"The MACRS formula is a verification tool — it does not override the books value.",
+                f"Books-First violation (IRC §446): Col (g) must equal IS.depreciation from books.",
                 'IRC §446; IRC §703; Form 4562 Instructions Col (g)',
-                "Fix the fill dict: Form 4562 Line 19h Col (g) must map to IS.depreciation "
-                f"(${depr:,.2f}). If the formula gives a different amount, the books entry "
-                "may have an error — correct the ledger before filing.",
-                fids=['F4562_L19h_g'])
+                f"Fix bookNS_IS.json: {self._FID_DEPR} must map to Acct.Exp.Depreciation "
+                f"(${depr:,.2f}). If the formula gives a different amount, correct the ledger.",
+                fids=['F4562_L19i_g'])
 
     def _rule_macrs_formula_check(self):
         """
@@ -517,18 +533,18 @@ class AgentF4562_MACRS(_SectionAgent):
         expected = result['expected']
         return self.format_issue(
             'F45M-R05', severity,
-            f"MACRS formula reconciliation: net basis ${basis:,.2f} / 27.5 × "
-            f"(12.5-{month})/12 = ${expected:,.2f}. "
+            f"MACRS formula reconciliation (Line 19i, 27.5yr, MM): "
+            f"net basis ${basis:,.2f} / 27.5 × (12.5-{month})/12 = ${expected:,.2f}. "
             f"IS.depreciation (books) = ${depr:,.2f}. Difference = ${diff:,.2f}. "
             f"This is an accounting reconciliation question — NOT a BookToIRS mapping issue. "
             f"IS.depreciation is sourced from Acct.Exp.Depreciation (set by YE closing). "
             f"Books-First (IRC §446): file IS.depreciation unless books are corrected.",
-            'IRC §168; Pub 946 Table A-6; IRC §446 Books-First',
+            'IRC §168(c)(1); Pub 946 Table A-6; IRC §446 Books-First',
             f"Confirm: Is IS.depreciation = ${depr:,.2f} the correct MACRS amount for this property? "
             f"If YES → books are correct; proceed with filing IS.depreciation. "
             f"If NO → correct the YE closing entry in llcAssets (Acct.Exp.Depreciation) "
             f"to the MACRS formula result ${expected:,.2f}, then Refresh FILL.pdf.",
-            fids=['F4562_L19h_g', 'F4562_L19h_b', 'F4562_L19h_c'],
+            fids=['F4562_L19i_g', 'F4562_L19i_b', 'F4562_L19i_c'],
             suggested_mapping={'confirm_required': True,
                                'confirm_yes': f'Books correct — file IS.depreciation ${depr:,.2f}',
                                'confirm_no':  f'Books wrong — correct to MACRS ${expected:,.2f}'})

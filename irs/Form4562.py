@@ -82,32 +82,47 @@ class Form4562(irsForm):
     # Patterns match against XFA shortName (f1_N / c1_N / f2_N).
     # Field sequence verified against the 2025 Form 4562 IRS PDF (published Jan 2026).
     #
-    # 2025 Form 4562 confirmed field layout (sequential fID = IRS shortName position):
-    #   f1  = f1_1  = Name(s) shown on return          ← Header
-    #   f2  = f1_2  = Identifying number (EIN)          ← Header
-    #   f3  = f1_3  = Business or activity code         ← Header
-    #   f4  = f1_4  = Part I Line 1: §179 dollar limit  ← PartI.Sec179
-    #   f5–f25 = f1_5–f1_25 = Part I Lines 2–13 + Part II Lines 14–17
-    #   f26 = c1_1 (Part II bonus checkbox)
-    #   f27–f68 = f1_26–f1_67 = Part III Section B Lines 19a–19g
-    #   f69–f74 = f1_68–f1_73 = Part III Section B Line 19h (Residential Rental)
+    # 2025 Form 4562 confirmed field layout — verified from IRS XFA accessibility labels.
+    #
+    # Header (same row: Name | BizCode | EIN):
+    #   f1  = f1_1  = Name(s) shown on return (x=12.7mm, w=76.2mm)
+    #   f2  = f1_2  = Business/activity (x=88.9mm, w=81.28mm) ← wider, description
+    #   f3  = f1_3  = Identifying number / EIN (x=170.18mm, w=33mm) ← narrow, right-most
+    #   f4  = f1_4  = Part I Line 1: §179 dollar limit
+    #
+    # 2025 FORM CHANGE — Line numbering shifted in Part III Section B:
+    #   Line19h = "50-year property" (NEW in 2025) — f69–f74 — col(d) readOnly "50 yrs."
+    #   Line19i = "Residential rental property" (WAS Line19h in prior forms) — f75–f86
+    #             Line19i_1 (f75-f80): Row 1 of 2 — col(d) readOnly "27.5 yrs."
+    #             Line19i_2 (f81-f86): Row 2 of 2 (second property slot)
+    #   Line19j = "Nonresidential real property" (WAS Line19i) — f87–f98
+    #             Line19j_1 (f87-f92): Row 1, col(d) readOnly "39 yrs."
+    #             Line19j_2 (f93-f98): Row 2
+    #
+    # Cols (d)/(e)/(f) in Lines 19h/19i/19j are readOnly pre-printed values in XFA.
+    # Only cols (b) and (c) and (g) need to be filled from books.
     LOCATION_RULES: List[Tuple[str, str]] = [
-        # Header: Name, EIN, Business/activity code — f1_1..f1_3 = our f1..f3
+        # Header: Name (f1_1), BizCode (f1_2), EIN (f1_3)
         (r'^f1_[1-3]$',                              "Form4562.Header"),
         # Part I §179 (Lines 1–13): f1_4..f1_21 = our f4..f21
-        # Includes Table_Ln6 rows (Lines 6a-6c): f1_9..f1_14 = our f9..f14
         (r'^f1_([4-9]|1\d|2[01])$',                 "Form4562.PartI.Sec179"),
         # Part II Special/Bonus depreciation: Lines 14–17 (f1_22..f1_25) + c1_* checkboxes
         (r'^f1_2[2-5]$',                             "Form4562.PartII.SpecialDepr"),
         (r'^c1_',                                    "Form4562.PartII.SpecialDepr"),
-        # Part III Section A + Section B Lines 19a–19g (up to 25-yr): f1_26..f1_67 = our f27..f68
+        # Part III Section B Lines 19a–19g (3yr–25yr): f1_26..f1_67 = our f27..f68
         (r'^f1_(2[6-9]|[3-5]\d|6[0-7])$',           "Form4562.PartIII.MACRS.Other"),
-        # Part III Section B Line 19h: Residential Rental 27.5yr GDS MM S/L
-        # Columns (b-g): f1_68..f1_73 = our f69-f74 — IRC §168(c)(1), §168(d)(2)
-        (r'^f1_(6[89]|7[0-3])$',                     "Form4562.PartIII.MACRS.Line19h"),
-        # Part III Section B Lines 19i-19j (nonresidential 39yr/40yr): f1_74..f1_97 = our f75..f98
-        # These ARE Part III — NOT Part V Listed Property.
-        (r'^f1_(7[4-9]|[89]\d|9[0-7])$',            "Form4562.PartIII.MACRS.Other"),
+        # Part III Section B Line 19h: 50-year property (2025 form, NEW)
+        # Cols (d)/(e)/(f) are readOnly pre-printed "50 yrs / MM / S/L" — do NOT fill them.
+        (r'^f1_(6[89]|7[0-3])$',                     "Form4562.PartIII.MACRS.50yr"),
+        # Part III Section B Line 19i: Residential Rental — 27.5yr GDS, MM, S/L
+        # Line19i_1 (f75-f80) = Row 1; Line19i_2 (f81-f86) = Row 2 (second property slot)
+        # Cols (d)/(e)/(f) are readOnly pre-printed "27.5 yrs / MM / S/L" — do NOT fill them.
+        # Fill only: col (b) placed-in-service date, col (c) basis, col (g) deduction.
+        # IRC §168(c)(1): 27.5yr for residential rental. IRC §168(d)(2): MM convention.
+        (r'^f1_(7[4-9]|8[0-5])$',                   "Form4562.PartIII.MACRS.Line19i"),
+        # Part III Section B Line 19j: Nonresidential real property — 39yr GDS
+        # Line19j_1 (f87-f92) = Row 1; Line19j_2 (f93-f98) = Row 2
+        (r'^f1_(8[6-9]|9[0-7])$',                   "Form4562.PartIII.MACRS.Other"),
         # Part III Section C ADS (Lines 20a-20e): f1_98..f1_127 = our f99..f128
         (r'^f1_(9[89]|1[01]\d|12[0-7])$',           "Form4562.PartIII.MACRS.ADS"),
         # Page 2 — Part IV Summary (Line 22): first 4 standalone fields before checkboxes
@@ -205,18 +220,17 @@ class Form4562(irsForm):
                 ),
             },
             {
-                "part":    "Part III — MACRS Depreciation (Lines 17–21, Line 19h)",
+                "part":    "Part III — MACRS Depreciation (Line 19i: Residential Rental)",
                 "status":  "auto",
-                "summary": f"Line 19h filled: 27.5-yr S/L MM, basis $437,950 (⚠ land not yet split), deduction {d_fmt}.",
+                "summary": f"Line 19i filled: 27.5-yr S/L MM (pre-printed), basis net-tangible, deduction {d_fmt}.",
                 "detail":  (
-                    "Line 19h (residential rental, 27.5 yrs, MM convention, S/L method) is the "
-                    "core entry. Placed-in-service date: 8/2025. "
-                    f"Current deduction (f74) = {d_fmt} sourced from Acct.Exp.Depreciation — "
-                    "this is a safe-harbor proxy; the true MACRS Year 1 deduction is ~$4,779 "
-                    "after subtracting land (≈20% of $437,950 = $87,590 land; depreciable basis "
-                    "≈ $350,360; $350,360 / 27.5 × 4.5/12 = $4,779). "
-                    "CRITICAL: f70 basis ($437,950) includes land value — must be corrected "
-                    "to depreciable-only basis before filing."
+                    "2025 Form 4562 change: residential rental moved to Line 19i (was Line 19h in prior years). "
+                    "Line 19h is now '50-year property'. Line 19i (XFA: Line19i_1, f75-f80) is "
+                    "'Residential rental property, 27.5yr GDS, MM, S/L'. "
+                    "Cols (d)/(e)/(f) are pre-printed readOnly by the IRS — only cols (b) and (c) and (g) are filled. "
+                    "f75=placed-in-service date, f76=depreciable basis (net tangible, land excluded), "
+                    f"f80=deduction={d_fmt} from Acct.Exp.Depreciation. "
+                    "CRITICAL: f76 basis must exclude land value (IRC §167; Treas. Reg. §1.167(a)-2)."
                 ),
             },
             {

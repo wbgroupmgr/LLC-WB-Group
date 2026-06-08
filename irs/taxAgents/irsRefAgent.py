@@ -68,13 +68,14 @@ _F4562_SECTIONS = [
         "ref":   "F4562-179",
     },
     {
-        "id":    "PartIII-19h",
-        "name":  "Part III — Line 19h (Residential Rental MACRS)",
-        # F069=f69 through F074=f74 are XFA SectionBTable.Line19h columns (b)-(g).
-        # These are the ONLY correct fids for residential rental (IRC §168(c)(1)).
-        # Line 19i (F075-F086) is nonresidential — using it would be an IRS violation.
-        "fids":  ["F069", "F070", "F071", "F072", "F073", "F074"],
-        "ref":   "F4562-19h",
+        "id":    "PartIII-19i",
+        "name":  "Part III — Line 19i (Residential Rental MACRS, 2025 form)",
+        # 2025 CHANGE: Residential rental moved to Line 19i (was 19h in prior years).
+        # Line 19h is now "50-year property". Only cols (b), (c), (g) are filled.
+        # Cols (d)/(e)/(f) are readOnly pre-printed "27.5 yrs / MM / S/L" by IRS.
+        # F075=f75 col(b), F076=f76 col(c), F080=f80 col(g).
+        "fids":  ["F075", "F076", "F080"],
+        "ref":   "F4562-19i",
     },
     {
         "id":    "PartIV",
@@ -115,23 +116,26 @@ _F4562_REFERENCES = {
             "NOTE: Old mapping used f26 (c1_1 = Part II checkbox) — value was silently discarded.",
         ],
     },
-    "F4562-19h": {
-        "fields": ["F069", "F070", "F071", "F072", "F073", "F074"],
-        "cite":   "IRC §168(c)(1), §168(d)(2), §168(b)(3)(B); Form 4562 Part III Section B Instructions",
+    "F4562-19i": {
+        # 2025 FORM CHANGE: Residential rental moved from Line 19h to Line 19i.
+        # Line 19h is now "50-year property" (new class). Line 19i = residential rental (27.5yr).
+        # VERIFIED from 2025 Form 4562 IRS XFA accessibility labels:
+        #   Line19h speak: "Row: 19h. 50-year property." col (d) pre-printed "50 yrs." readOnly
+        #   Line19i_1 speak: "Row: 19i. Residential rental property. Line 1 of 2. Col (d) 27.5 yrs."
+        #   Line19j_1 speak: "Row: 19j. Nonresidential real property. Line 1 of 2. Col (d) 39 yrs."
+        "fields": ["F075", "F076", "F080"],
+        "cite":   "IRC §168(c)(1), §168(d)(2), §168(b)(3)(B); 2025 Form 4562 Part III Section B Line 19i",
         "reason": [
-            "These six fids map to XFA path SectionBTable[0].Line19h[0].f1_68..f1_73 — "
-            "the six columns of the residential rental row (Line 19h). "
-            "This is the ONLY correct IRS row for 27.5-year MACRS residential rental property.",
-            "Line 19i (fids f75-f86, XFA Line19i_1/Line19i_2) is for NONRESIDENTIAL real "
-            "property (39yr GDS / 40yr ADS). Using Line 19i for residential rental would "
-            "violate IRC §168(c)(1) and overstate the recovery period.",
-            "F069 (f69, shortName f1_68): col (b) — month/year placed in service.",
-            "F070 (f70, shortName f1_69): col (c) — depreciable basis. ⚠ Land excluded per "
-            "IRC §167; Treas. Reg. §1.167(a)-2. Current value includes land — CPA must split.",
-            "F071 (f71, shortName f1_70): col (d) — 27.5 years (Val.27.5). Mandatory per IRC §168(c)(1).",
-            "F072 (f72, shortName f1_71): col (e) — MM (mid-month convention). Mandatory per IRC §168(d)(2).",
-            "F073 (f73, shortName f1_72): col (f) — S/L (straight-line). Mandatory per IRC §168(b)(3)(B).",
-            "F074 (f74, shortName f1_73): col (g) — depreciation deduction = IS.depreciation (Books-First, IRC §446).",
+            "2025 Form 4562 LINE CHANGE: Residential rental is now Line 19i (XFA: Line19i_1/Line19i_2). "
+            "Line 19h is now a new '50-year property' row — do NOT use it for residential rental. "
+            "IRC §168(c)(1) still mandates 27.5yr for residential rental; the IRS just moved it to Line 19i.",
+            "F075 (f75, shortName f1_74): Line19i_1 col (b) — month/year placed in service.",
+            "F076 (f76, shortName f1_75): Line19i_1 col (c) — depreciable basis (tangible InService net). "
+            "Land MUST be excluded — IRC §167; Treas. Reg. §1.167(a)-2.",
+            "Cols (d)(e)(f) = f77/f78/f79 are XFA readOnly with pre-printed '27.5 yrs / MM / S/L'. "
+            "Do NOT fill them — they will not override the pre-printed IRS values.",
+            "F080 (f80, shortName f1_79): Line19i_1 col (g) — depreciation deduction = IS.depreciation "
+            "(Books-First, IRC §446). Line 19i_2 (f81-f86) is a second slot for a second property.",
         ],
     },
     "F4562-22": {
@@ -142,7 +146,8 @@ _F4562_REFERENCES = {
             "before the Part V checkboxes (c2_1/c2_2) and Table_Ln26. This is Part IV Line 22. "
             "NOTE: F153 (f153, shortName f2_18, inside Table_Ln26 BodyRow2) is NOT Line 22 — "
             "it is a field inside the Part V Listed Property table and must remain blank.",
-            "Line 22 = sum of Parts II + III depreciation. For W&B Group this equals Line 19h only.",
+            "Line 22 = sum of Parts II + III depreciation. For W&B Group this equals Line 19i only "
+            "(no bonus depreciation Part II, no listed property Part V).",
             "Flows to Form 1065 Line 16a (Depreciation not claimed on Schedule A or elsewhere). "
             "Form 1065 Instructions p.17; Form 8825 Line 14 sourced independently from IS.depreciation.",
         ],
