@@ -188,11 +188,19 @@ class IRSDiagAgent:
             for fid in sec_def["fids"]:
                 entry = all_mapped.get(fid)
                 if entry is None:
-                    continue                      # fid defined in section but not in bookNS
+                    # fid in section definition but not in any bookNS source → show as unmapped
+                    fields.append({
+                        "fid":       fid,
+                        "shortName": "",
+                        "src":       "(not in bookNS)",
+                        "uas":       "",
+                        "value":     None,
+                        "value_fmt": "(not mapped)",
+                        "is_zero":   False,
+                    })
+                    continue
                 placed.add(fid)
                 val = entry["value"]
-                if _is_blank(val):
-                    continue                      # skip blank values (rule 1)
                 fields.append({
                     "fid":       fid,
                     "shortName": entry["shortName"],
@@ -247,8 +255,6 @@ class IRSDiagAgent:
         lines.append("═" * 96)
 
         for sec in data["sections"]:
-            if not sec["fields"]:
-                continue                          # skip empty sections
             lines.append("")
             lines.append(f"── {sec['name']}  [{sec['ref_id']}] {'─' * max(0, 72 - len(sec['name']) - len(sec['ref_id']))}")
 

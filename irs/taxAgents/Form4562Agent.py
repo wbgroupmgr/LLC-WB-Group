@@ -367,10 +367,12 @@ class AgentF4562_MACRS(_SectionAgent):
     _CONVENTION       = 'MM'   # mid-month, IRC §168(d)(2) — pre-printed by IRS, readOnly
     _METHOD           = 'S/L'  # straight-line, IRC §168(b)(3)(B) — pre-printed by IRS, readOnly
 
-    # fids for Line 19i col (b), (c), (g) — the three FILLABLE columns
-    _FID_DATE   = 'f75'   # Line19i_1 col (b): placed in service
-    _FID_BASIS  = 'f76'   # Line19i_1 col (c): depreciable basis
-    _FID_DEPR   = 'f80'   # Line19i_1 col (g): current-year deduction
+    # fids for Line 19i col (b), (c), (g) — the three FILLABLE columns.
+    # IMPORTANT: loadFillDict() normalizes all fids to uppercase "F###" format.
+    # These constants must match that format for fill.get() lookups to work.
+    _FID_DATE   = 'F075'   # Line19i_1 col (b): placed in service
+    _FID_BASIS  = 'F076'   # Line19i_1 col (c): depreciable basis
+    _FID_DEPR   = 'F080'   # Line19i_1 col (g): current-year deduction
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
@@ -592,8 +594,10 @@ class AgentF4562_Summary(_SectionAgent):
 
     # Correct fid for Part IV Line 22 (first standalone text field on page 2, f2_1).
     # f153 (f2_18, Table_Ln26 BodyRow2) is in the Part V Listed Property table — NOT Line 22.
-    _LINE22_FID = 'f129'
-    _COL_G_FID  = 'f74'
+    # IMPORTANT: loadFillDict() normalizes all fids to uppercase "F###" format.
+    # These constants must match that format for fill.get() lookups to work.
+    _LINE22_FID = 'F129'   # Part IV Line 22 total depreciation (page 2, f2_1)
+    _COL_G_FID  = 'F080'   # Line 19i_1 col (g) depreciation deduction — same value
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
