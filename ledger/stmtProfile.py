@@ -165,8 +165,14 @@ class stmtProfile(stmtDB):
     BKNS_PROFILE_FN = 'bookNS_Profile.json'
 
     def _bkNS_profile_path(self) -> str:
-        '''Resolve <TOP>/<dirAccounting>/<YEAR>/bookNS_Profile.json.'''
+        '''Resolve bookNS_Profile.json: IRS_FORMS_DIR first, then books/<yr>/Forms/.'''
         import os as _os
+        try:
+            from ledger import setup_paths as _sp
+            if getattr(_sp, 'IRS_FORMS_DIR', None):
+                return _os.path.join(str(_sp.IRS_FORMS_DIR), self.BKNS_PROFILE_FN)
+        except Exception:
+            pass
         try:
             top  = _os.path.expanduser(str(getattr(self.llc, 'TOP', '') or ''))
             acct = getattr(self.llc, 'dirAccounting', '') or ''
@@ -174,10 +180,14 @@ class stmtProfile(stmtDB):
                     or getattr(self.llc, 'yr', None))
             yr   = str(int(yr)) if yr else ''
             if yr:
-                return _os.path.join(top, acct, yr, self.BKNS_PROFILE_FN)
+                return _os.path.join(top, acct, yr, 'Forms', self.BKNS_PROFILE_FN)
             return _os.path.join(top, acct, self.BKNS_PROFILE_FN)
         except Exception:
             return ''
+
+    def _bkNS_path(self) -> str:
+        '''Alias for BookToIRS diagnostics compatibility.'''
+        return self._bkNS_profile_path()
 
     def _bkNS_profile_load(self) -> Dict[str, Any]:
         import os as _os, json as _json

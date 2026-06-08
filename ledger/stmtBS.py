@@ -373,9 +373,9 @@ class stmtBS(stmtDB):
                 return ''
             records = _j2.loads(open(fn).read())
             inservice = [r for r in records
-                         if r.get('Ledger') == 'Acct.Fixed.Tangible.InService']
-            # Prefer LLC-owned (propOwner == {'LLC': 100}); fall back to all InService.
-            llc_owned = [r for r in inservice if r.get('propOwner') == {'LLC': 100}]
+                         if r.get('acct') == 'Acct.Fixed.Tangible.InService']
+            # Prefer LLC-owned (propOwners == {'LLC': 100}); fall back to all InService.
+            llc_owned = [r for r in inservice if r.get('propOwners') == {'LLC': 100}]
             dts = [r['dt'] for r in (llc_owned or inservice) if r.get('dt')]
             if not dts:
                 return ''
