@@ -474,9 +474,14 @@ class WsCmd:
 
         print(f"\n  Connecting to PA ({username}.pythonanywhere.com) …")
         try:
-            _pa_req(username, token, "GET", "/cpu")   # lightweight auth check
+            # /webapps/ is available on all PA account tiers (unlike /cpu/ which is paid)
+            _pa_req(username, token, "GET", "/webapps")
         except RuntimeError as e:
-            sys.exit(f"\n  ✗ PA API auth failed: {e}\n  Check api_token in {_sp.CONFIG_FILE}")
+            sys.exit(
+                f"\n  ✗ PA API auth failed: {e}"
+                f"\n  Check api_token in {_sp.CONFIG_FILE}"
+                f"\n  Get token at: https://www.pythonanywhere.com/account/#api_token"
+            )
 
         print("  Running sync script on PA …")
         output = _pa_run_command(username, token, script, timeout_sec=180)
@@ -602,40 +607,84 @@ def _pa_req(username: str, token: str, method: str, path: str,
 
 
 def _pa_run_command(username: str, token: str, bash: str,
-                    poll_sec: float = 1.5, timeout_sec: int = 120) -> str:
+                    poll_sec: float = 2.0, timeout_sec: int = 180) -> str:
     """
-    Run a bash command on PA via the Consoles API.
-    Creates a throwaway console, sends the command, polls for output, returns it.
+    Run a bash script on PA via the Consoles API.
+    Creates a throwaway Bash console, uploads the script as a file via the
+    Files API, then sources it so the console runs it cleanly.
+    Polls get_latest_output (which returns ALL output since console start,
+    not just the delta) until the sentinel line appears or timeout.
     """
+    home = f"/home/{username}"
+
+    # Upload the script to a temp file via Files API so we avoid quoting issues
+    script_path = f"{home}/.llcRentalTracker/_sync_run.sh"
+    _pa_upload_file(username, token, script_path, bash.encode())
+
     # Create a new Bash console
     console = _pa_req(username, token, "POST", "/consoles",
-                      {"executable": "bash", "arguments": "", "working_directory": "/home/" + username})
+                      {"executable": "bash", "arguments": "",
+                       "working_directory": home})
     cid = console["id"]
 
     try:
-        # Send the command — append newline + exit so the console terminates cleanly
+        # Brief pause so the shell initialises before we send input
+        time.sleep(1.5)
+        # Source the uploaded script; the shell will echo our sentinels
         _pa_req(username, token, "POST", f"/consoles/{cid}/send_input",
-                {"input": bash + "\nexit 0\n"})
+                {"input": f"bash {script_path}\n"})
 
-        # Poll for output until idle or timeout
+        # Poll — get_latest_output returns ALL output since console open (not delta)
         deadline = time.time() + timeout_sec
         output   = ""
         while time.time() < deadline:
             time.sleep(poll_sec)
-            latest = _pa_req(username, token, "GET", f"/consoles/{cid}/get_latest_output")
-            chunk  = latest.get("output", "")
-            output += chunk
-            # Detect shell prompt (command finished) or explicit marker
+            latest = _pa_req(username, token, "GET",
+                             f"/consoles/{cid}/get_latest_output")
+            output = latest.get("output", "")   # cumulative, not delta
             if "=== sync done ===" in output or "=== sync error ===" in output:
-                break
-            if not chunk:
                 break
         return output
     finally:
+        # Clean up console and temp script
         try:
             _pa_req(username, token, "DELETE", f"/consoles/{cid}")
         except Exception:
             pass
+        try:
+            _pa_delete_file(username, token, script_path)
+        except Exception:
+            pass
+
+
+def _pa_upload_file(username: str, token: str, pa_path: str, content: bytes) -> None:
+    """Upload a file to PA via the Files API (PUT /files/path/{path})."""
+    url = f"https://www.pythonanywhere.com/api/v0/user/{username}/files/path{pa_path}"
+    req = urllib.request.Request(
+        url, data=content,
+        headers={"Authorization": f"Token {token}", "Content-Type": "text/plain"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300]
+        if e.code not in (200, 201):
+            raise RuntimeError(f"PA Files upload → HTTP {e.code}: {body}")
+
+
+def _pa_delete_file(username: str, token: str, pa_path: str) -> None:
+    """Delete a file on PA via the Files API."""
+    url = f"https://www.pythonanywhere.com/api/v0/user/{username}/files/path{pa_path}"
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Token {token}"}, method="DELETE"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+    except urllib.error.HTTPError:
+        pass
 
 
 def _pa_reload_webapp(username: str, token: str, domain: str) -> None:
