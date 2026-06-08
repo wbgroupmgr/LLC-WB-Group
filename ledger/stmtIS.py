@@ -724,14 +724,20 @@ class stmtIS_Tax(stmtIS):
                     continue
                 out[f'F{base_fid + col:03d}'] = round(val, 2)
 
-        # Form-level totals — ALWAYS from taxAggregates() (authoritative, propNm-agnostic).
-        # These override any per-property summation so they always match the books.
-        total_income   = round(float(agg.get('total_income',   0) or 0), 2)
-        total_expenses = round(float(agg.get('total_expenses', 0) or 0), 2)
-        net_rental     = round(float(agg.get('net_rental', agg.get('net_income', 0)) or 0), 2)
-        if total_income:   out['F103'] = total_income
-        if total_expenses: out['F104'] = total_expenses
-        if net_rental:     out['F113'] = net_rental
+        # Form-level totals — summed from per-property columns (CIP already excluded above).
+        # DO NOT source from taxAggregates() here: agg.total_expenses / agg.net_rental
+        # include ALL Acct.Exp.* entries (including CIP pre-service costs that haven't yet
+        # been capitalized). Using per-property sums keeps Form 8825 correct for active
+        # properties even before the books are fixed. F8EX-R05 / F8NI-R04 audit rules
+        # flag the books discrepancy when CIP expenses remain in Acct.Exp.*.
+        # IRC §446 Books-First applies here via the per-property GL aggregation, which
+        # sources the same books data — just filtered to active (InService) properties.
+        total_income   = round(sum(pv.get('income_subtotal', 0.0) for pv in prop_vals.values()), 2)
+        total_expenses = round(sum(pv.get('exp_subtotal',    0.0) for pv in prop_vals.values()), 2)
+        net_rental     = round(sum(pv.get('net_income',      0.0) for pv in prop_vals.values()), 2)
+        if total_income:              out['F103'] = total_income
+        if total_expenses:            out['F104'] = total_expenses
+        if net_rental != 0.0:         out['F113'] = net_rental
         return out
 
     @staticmethod

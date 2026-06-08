@@ -47,9 +47,12 @@ def _now_iso() -> str:
 class _SectionAgent(IRSFormsAgent):
     """Common base for all Form 8825 section agents."""
 
-    LABEL        = ''
-    AGENT_KEY    = ''
-    LOGICAL_PREFIXES: List[str] = []
+    LABEL      = ''
+    AGENT_KEY  = ''
+    # Numeric fid ranges owned by this section: list of (lo, hi) inclusive int pairs.
+    # Replaces string LOGICAL_PREFIXES — Form 8825 fids are numeric (F001, F023, …)
+    # and cannot be reliably distinguished by string prefix within the fill dict.
+    _FID_RANGES: List[tuple] = []
 
     def __init__(self, llc, tax_year: int):
         super().__init__(llc, tax_year)
@@ -173,15 +176,38 @@ class _SectionAgent(IRSFormsAgent):
     _FID_EXP_TOTAL    = 'F104'   # Line 18 total expenses (all columns summed)
     _FID_NET_TOTAL    = 'F113'   # Line 21 total net income/loss (all columns)
 
+    # ── Fid ownership ─────────────────────────────────────────────────────────
+
+    def _owns_fid(self, fid: str) -> bool:
+        """True if fid (e.g. 'F023') falls within this section's _FID_RANGES."""
+        try:
+            n = int(str(fid).lstrip('Ff'))
+        except (ValueError, AttributeError):
+            return False
+        return any(lo <= n <= hi for lo, hi in self._FID_RANGES)
+
     # ── Pass interface ────────────────────────────────────────────────────────
 
     def pass1_auto_fill(self) -> Dict[str, Any]:
         fill_dict = self._load_fill_dict()
-        completeness = self.audit_fill_completeness(fill_dict, self.LOGICAL_PREFIXES)
+        filled = blank = complex_ = 0
+        for k, v in fill_dict.items():
+            if not self._owns_fid(k):
+                continue
+            s = str(v).strip().lower() if v is not None else ''
+            if v is None or s == '':
+                blank += 1
+            elif s == 'complex':
+                complex_ += 1
+            else:
+                filled += 1
         return {
             'section':  self.AGENT_KEY,
             'tax_year': self.tax_year,
-            **completeness,
+            'filled':   filled,
+            'blank':    blank,
+            'complex':  complex_,
+            'total':    filled + blank + complex_,
         }
 
     def pass2_audit(self) -> Dict[str, Any]:
@@ -196,8 +222,7 @@ class _SectionAgent(IRSFormsAgent):
 
     def pass4_finalize(self) -> Dict[str, Any]:
         fill = self._load_fill_dict()
-        return {k: v for k, v in fill.items()
-                if any(k.startswith(p) for p in self.LOGICAL_PREFIXES)}
+        return {k: v for k, v in fill.items() if self._owns_fid(k)}
 
     def pass5_summarize(self) -> str:
         return f"{self.LABEL}: complete."
@@ -248,9 +273,9 @@ class AgentF8825_Properties(_SectionAgent):
     in the first row and the date the property was placed in service."
     """
 
-    LABEL            = 'Properties'
-    AGENT_KEY        = 'AgentF8825_Properties'
-    LOGICAL_PREFIXES = ['F8PR_']
+    LABEL       = 'Properties'
+    AGENT_KEY   = 'AgentF8825_Properties'
+    _FID_RANGES = [(1, 22), (115, 137)]    # Property headers cols A-D + E-H
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
@@ -413,9 +438,9 @@ class AgentF8825_Income(_SectionAgent):
     Books-First: IRC §446.
     """
 
-    LABEL            = 'Income (Lines 2a-2c)'
-    AGENT_KEY        = 'AgentF8825_Income'
-    LOGICAL_PREFIXES = ['F8IN_']
+    LABEL       = 'Income (Lines 2a-2c)'
+    AGENT_KEY   = 'AgentF8825_Income'
+    _FID_RANGES = [(23, 34), (142, 153)]   # Income lines cols A-D + E-H
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
@@ -549,9 +574,9 @@ class AgentF8825_Expenses(_SectionAgent):
     IRC §469(c)(2): rental expenses are passive — all on Form 8825, never Form 1065 Page 1.
     """
 
-    LABEL            = 'Expenses (Lines 11-17, incl. Line 14 Depreciation)'
-    AGENT_KEY        = 'AgentF8825_Expenses'
-    LOGICAL_PREFIXES = ['F8EX_']
+    LABEL       = 'Expenses (Lines 5-19a, incl. Line 14 Depreciation)'
+    AGENT_KEY   = 'AgentF8825_Expenses'
+    _FID_RANGES = [(35, 102), (154, 221)]  # Expense lines cols A-D + E-H
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
@@ -784,9 +809,9 @@ class AgentF8825_NetIncome(_SectionAgent):
     excess is suspended until the property is disposed (IRC §469(b)).
     """
 
-    LABEL            = 'Net Income/Loss (Lines 18-21)'
-    AGENT_KEY        = 'AgentF8825_NetIncome'
-    LOGICAL_PREFIXES = ['F8NI_']
+    LABEL       = 'Summary (Lines 20a-23)'
+    AGENT_KEY   = 'AgentF8825_NetIncome'
+    _FID_RANGES = [(103, 113)]             # Form-level totals
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([

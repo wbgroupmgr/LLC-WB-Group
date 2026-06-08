@@ -154,57 +154,132 @@ _F4562_REFERENCES = {
 }
 
 # ── Form 8825 ─────────────────────────────────────────────────────────────────
-# Dynamic: columns A-H correspond to properties. Sections and fids vary by
-# property count. The diagnostic shows per-property aggregates from taxAggregates().
+# Form 8825 fid layout (2024/2025 IRS PDF, sequential namespace IDs):
+#
+#  Page 1 (Properties A–D):
+#   F001–F022  Property headers: entity name/EIN/address, property type,
+#               placed-in-service date, fair-rental days, personal-use days
+#               per property column A–D.
+#   F023–F034  Income: Line 2a gross rents, 2b other income, 2c total income
+#               per column A–D (base F023 col A; +1 per col).
+#   F035–F102  Expenses: Lines 5–18 (advertising, auto, cleaning, depr,
+#               insurance, legal, mgmt, mortgage int, other int, repairs,
+#               taxes, utilities, wages, other, Line 18 subtotal, Line 19a net)
+#               per column A–D.
+#   F103–F113  Summary: Line 20a total rental income, Line 20b total rental
+#               expenses, Line 23 total net rental income/loss.
+#
+#  Page 2 (Properties E–H, offset +114 from page-1 base):
+#   F115–F137  Property headers, cols E–H.
+#   F142–F153  Income lines, cols E–H.
+#   F154–F221  Expense lines, cols E–H.
+#
+# Section fid assignments follow the user specification:
+#   Property: F001–F022 + F115–F137
+#   Income:   F023–F034 + F142–F153
+#   Expense:  F035–F102 + F154–F221
+#   Summary:  F103–F113
+
+def _frange(lo: int, hi: int) -> list:
+    return [f"F{n:03d}" for n in range(lo, hi + 1)]
 
 _F8825_SECTIONS = [
     {
+        "id":   "Property",
+        "name": "Property Headers (Lines 1a–1c)",
+        "fids": _frange(1, 22) + _frange(115, 137),
+        "ref":  "F8825-PROP",
+    },
+    {
         "id":   "Income",
-        "name": "Rental Income",
-        "fids": [],          # populated dynamically per property column
+        "name": "Rental Income (Lines 2a–2c)",
+        "fids": _frange(23, 34) + _frange(142, 153),
         "ref":  "F8825-INC",
     },
     {
         "id":   "Expenses",
-        "name": "Rental Expenses",
-        "fids": [],
+        "name": "Rental Expenses (Lines 5–19a)",
+        "fids": _frange(35, 102) + _frange(154, 221),
         "ref":  "F8825-EXP",
     },
     {
-        "id":   "Totals",
-        "name": "Form Totals (Lines 17–20)",
-        "fids": [],
-        "ref":  "F8825-TOT",
+        "id":   "Summary",
+        "name": "Form Summary (Lines 20a–23)",
+        "fids": _frange(103, 113),
+        "ref":  "F8825-SUM",
     },
 ]
 
 _F8825_REFERENCES = {
-    "F8825-INC": {
-        "fields": [],
-        "cite":   "IRC §61; Form 8825 Instructions, Lines 2a–2c",
+    "F8825-PROP": {
+        "fields": _frange(1, 22) + _frange(115, 137),
+        "cite":   "IRC §168(a); Form 8825 Instructions, Line 1 Column Headings",
         "reason": [
-            "Line 2a Gross rents: sourced from Acct.Rev.Rent per property.",
-            "Line 2b Other income: sourced from Acct.Rev.Fees.Other.",
-            "Each property column (A–H) is filled separately; form totals aggregate all properties.",
+            "F001–F003: entity name, EIN, address (from llcProfile) — top of form.",
+            "F004–F022 (cols A–D): property type description (e.g. '1-family residential'), "
+            "placed-in-service date, fair-rental days, personal-use days per property. "
+            "IRC §168(a): placed-in-service date required for MACRS to begin. "
+            "IRS Form 8825 Instructions: 'Enter the type of property … and the date placed in service.'",
+            "CIP RULE (IRC §168 + §263): property NOT yet placed in service has NO column on Form 8825. "
+            "RV_RV1 (Acct.Fixed.Tangible.InConstruction) is excluded — no column, no income, no expenses. "
+            "Pre-service costs must be capitalized under IRC §263(a), not reported on Form 8825.",
+            "F115–F137 (cols E–H, page 2): same fields for properties 5–8.",
+        ],
+    },
+    "F8825-INC": {
+        "fields": _frange(23, 34) + _frange(142, 153),
+        "cite":   "IRC §61; Pub 527 §1; Form 8825 Instructions, Lines 2a–2c",
+        "reason": [
+            "Line 2a (F023 col A, +1 per col): Gross rents received or accrued. "
+            "IRC §61: all amounts received as rent are gross income. "
+            "Books source: Acct.Rev.Rent.{propNm} — ONLY for placed-in-service properties.",
+            "Line 2b (F027 col A, +1 per col): Other rental income (cancellation fees, "
+            "services in lieu of rent). Books source: Acct.Rev.Fees.Other. "
+            "Pub 527: non-rental income belongs on Schedule K, not Form 8825.",
+            "Line 2c (F031 col A, +1 per col): Total income = Line 2a + Line 2b (computed).",
+            "CIP properties (RV_RV1) contribute ZERO income — they have no column on Form 8825.",
+            "F142–F153 (cols E–H, page 2): same lines for properties 5–8.",
         ],
     },
     "F8825-EXP": {
-        "fields": [],
-        "cite":   "IRC §162, §168, §163; Form 8825 Instructions, Lines 5–16",
+        "fields": _frange(35, 102) + _frange(154, 221),
+        "cite":   "IRC §162, §163, §164, §168; Form 8825 Instructions, Lines 5–19a",
         "reason": [
-            "Line 11 Repairs: Acct.Exp.Repair — ordinary and necessary repair costs per IRC §162.",
-            "Line 12 Utilities: Acct.Exp.Util.",
-            "Line 14 Depreciation: Acct.Exp.Depreciation — must equal Form 4562 Line 22.",
-            "Line 17 Other: Acct.Exp.Operating + Acct.Exp.Other combined.",
+            "Line 11 Repairs (F067 col A): Acct.Exp.Repair — IRC §162 ordinary/necessary maintenance. "
+            "NOT capital improvements (those are capitalized per IRC §263).",
+            "Line 12 Utilities (F071 col A): Acct.Exp.Util — IRC §162.",
+            "Line 14 Depreciation (F079 col A): IS.depreciation — CRITICAL Books-First (IRC §446+703). "
+            "Must NOT come from Form 4562; both forms independently sourced from books. "
+            "LLCTaxAgent XF-R01 confirms F4562 Line 22 == F8825 Line 14 == IS.depreciation.",
+            "Line 16 Taxes (F083 col A): Acct.Exp.Taxes — IRC §164 real property taxes only.",
+            "Line 17 Other (F091 col A): Acct.Exp.Operating + Acct.Exp.Other combined — IRC §162.",
+            "Line 18 Expense subtotal (F095 col A): sum Lines 5–17 per column (computed).",
+            "Line 19a Net income/loss (F099 col A): Line 2c minus Line 18 per column (computed).",
+            "CIP properties (RV_RV1) contribute ZERO expenses to Form 8825. "
+            "Pre-service costs (IRC §263) must be capitalized in books, not reported here. "
+            "F8EX-R05 flags if CIP expenses remain in Acct.Exp.* accounts.",
+            "F154–F221 (cols E–H, page 2): same lines for properties 5–8.",
         ],
     },
-    "F8825-TOT": {
-        "fields": [],
-        "cite":   "Form 8825 Instructions, Lines 17–20; Form 1065 Schedule K Line 2",
+    "F8825-SUM": {
+        "fields": _frange(103, 113),
+        "cite":   "Form 8825 Instructions, Lines 20a–23; Form 1065 Schedule K Line 2; IRC §469(c)(2)",
         "reason": [
-            "Line 18: total expenses across all properties.",
-            "Line 19a: net income/loss per property (rents minus expenses).",
-            "Line 20: total net rental income/loss — flows to Form 1065 Schedule K Line 2.",
+            "F103 (Line 20a Total Rental Income): sum of all per-column Line 2c values "
+            "(active/InService properties ONLY). Source: sum of per-property income_subtotals "
+            "from _build_f8825_filldict(). NOT from IS.total_income (which may include CIP).",
+            "F104 (Line 20b Total Rental Expenses): sum of all per-column Line 18 values "
+            "(active/InService properties ONLY). Source: sum of per-property exp_subtotals. "
+            "MUST NOT include pre-service CIP expenses. If books still have CIP expenses in "
+            "Acct.Exp.*, F8EX-R05 fires ERROR. After books fix: F104 = H_805HighMesa expenses only.",
+            "F113 (Line 23 Total Net Rental Income/Loss): sum of all per-column Line 19a values. "
+            "= Line 20a minus Line 20b = active-property total income minus active-property total expenses. "
+            "MUST NOT be net_rental from IS.taxAggregates() if books still include CIP expenses. "
+            "Source: sum of per-property net_income from _build_f8825_filldict(). "
+            "For W&B Group after books fix: F113 = +$681.61 (net rental INCOME, not loss). "
+            "Flows to Form 1065 Schedule K Line 2, then K-1 Box 2 for each partner.",
+            "IRC §469(c)(2): rental activity is passive; net rental income/loss is a passive item.",
+            "F8NI-R04 audit rule fires ERROR if F104/F113 include CIP expenses.",
         ],
     },
 }
