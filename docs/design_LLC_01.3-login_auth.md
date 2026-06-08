@@ -1,676 +1,297 @@
-# Login & Registration Design — LLC Accounting App
+# Login, Auth & Configuration Design — llcRentalTracker
 
-Authentication and user-registration layer for the LLC Management App (`llcMgmt`).
-
----
-
-## Session Summary — 2026-06-02
-
-**Implemented this session:**
-- Redesigned auth from single-layer GPG (platform-specific passphrase, broke cross-platform) to two-layer model: MASTER passphrase in `~/.llcRentalTracker/config.json` → `keys.json.gpg` → `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY` → `pw.json.gpg`.
-- Established PA=master host rule: only PA pushes `pw.json.gpg` commits; local machines pull only. Shared `LLC_GPG_PASSPHRASE` ensures all platforms decrypt the same file.
-- Added `wsCmd --newBus` bootstrap command for new LLC provisioning.
-- Added `--F` force flag to skip confirmation prompts in scripted runs.
-- Fixed `wsCmd` import crash: deferred `deepdiff` and other heavy optional imports to function bodies (not module top-level) so `--start` works on hosts without optional deps installed.
+**Status:** Current as of Phase 2+3 migration (June 2026).  
+**Platform docs:** See [pyMultiTaskWS/docs/design_configuration.md](../../../pyMultiTaskWS/docs/design_configuration.md) and [design_setup_adminTracker.md](../../../pyMultiTaskWS/docs/design_setup_adminTracker.md) for platform-level context.
 
 ---
 
-## Problem Statement — Why the Original Design Failed
+## 1. Design Principles
 
-The original design encrypted `pw.json.gpg` with a **platform-specific**
-`LLC_GPG_PASSPHRASE` and committed it to the Business Repo. When local pushed
-`680f1ac`, the locally-encrypted `pw.json.gpg` overwrote PA's copy → PA could
-no longer decrypt it → `gpg: decryption failed: Bad session key` → login broken.
+Per [design_configuration.md §1](../../../pyMultiTaskWS/docs/design_configuration.md):
 
-Root cause: different passphrases on different platforms + same file in the repo.
+- Each tracker owns its secrets in `~/.<trackerRepo>/config.json` — no cross-tracker sharing.
+- `APP_GPG_PASSPHRASE` and `APP_SECRET_KEY` are unique per tracker instance.
+- No fallback for required secrets — hard fail at startup if either is missing.
+- PA = master host for BUS data; only PA pushes commits to `LLC-WBGroup`.
 
 ---
 
-## Design Decisions
+## 2. Three-Repo Architecture
 
-### D1 — One Master Host (PA) pushes; all others pull
-There is exactly **one authoritative host** — PA (PythonAnywhere). It is the only
-host that ever pushes commits to the Business Repo (`LLC-WBGroup`).
-Local machines and any other hosts **pull only** and never push data files.
+```
+pyMultiTaskWS/          ← web platform + adminTracker (one repo)
+llcRentalTracker/       ← this app
+LLC-WBGroup/            ← BUS data: accounting JSON, pw.json.gpg
+```
 
-This means `pw.json.gpg` committed by PA is always encrypted with PA's passphrase.
-As long as all platforms share the **same `LLC_GPG_PASSPHRASE`** (extracted from
-`keys.json.gpg`), every platform can decrypt PA's `pw.json.gpg`.
+At runtime each repo serves a distinct role:
+- `pyMultiTaskWS` dispatches requests to mounted trackers (`/admin/`, `/rentalTracker/`).
+- `llcRentalTracker` handles all `/rentalTracker/*` routes.
+- `LLC-WBGroup` provides the accounting DB and the encrypted user DB (`pw.json.gpg`).
 
-### D2 — MASTER passphrase stored in `~/.llcRentalTracker/config.json`
-The MASTER passphrase lives in the existing per-host config file, not in an
-environment variable. This keeps the startup sequence self-contained — `wsCmd.py`
-and `wsgi.py` already read this file for LLC/year config.
+---
+
+## 3. Config File Hierarchy
+
+### 3.1 Platform Config — `~/.MultiTaskWS/config.json`
+
+Owned by `pyMultiTaskWS`. Holds platform secrets and the `Trackers` routing list.
 
 ```json
 {
-  "master_passphrase": "<MASTER_PP>",
-  "default": ["WBGroupLLC", 2025],
-  "llcList": [...]
+  "WEB_SECRET_KEY": "<platform Flask key>",
+  "Trackers": [
+    { "name": "AdminTracker",      "mount": "/admin",         "builtin": true,  "stanza_key": "adminTracker" },
+    { "name": "llcRentalTracker",  "mount": "/rentalTracker", "builtin": false, "stanza_key": "llcRentalTracker",
+      "sys_path": "/home/wbgroup/pyTrackers/llcRentalTracker" }
+  ],
+  "adminTracker": {
+    "APP_GPG_PASSPHRASE": "<adminTracker-specific passphrase>",
+    "APP_SECRET_KEY":     "<adminTracker-specific key>"
+  }
 }
 ```
 
-**Security note:** `~/.llcRentalTracker/config.json` is a file on the host filesystem,
-protected by host OS permissions (mode 600 recommended). It is never committed to any
-repo.
+**Key rules:**
+- External tracker stanzas (like `llcRentalTracker`) are NOT in the platform config — each tracker reads its own `~/.<tracker>/config.json`.
+- `sys_path` tells the dispatcher where to find the tracker's `wsgi.py`.
+- Written by `pyMultiTaskWS/wsCmd.py --setup` (platform) and populated by `llcRentalTracker/wsCmd.py --addTracker` (tracker registration).
 
-### D3 — `pw.json.gpg` remains in the Business Repo
-Because D1 ensures only PA pushes it, and D2 ensures all platforms share the same
-`LLC_GPG_PASSPHRASE`, `pw.json.gpg` can safely live in the repo. Any host that
-pulls gets a file it can decrypt with the same passphrase from `keys.json.gpg`.
+### 3.2 Tracker Config — `~/.llcRentalTracker/config.json`
 
-No `.gitignore` entry needed.
-
----
-
-## Requirements
-
-### R1 — Single source of truth for user accounts
-PA (master host) owns `pw.json.gpg`. User management (add/delete/change password)
-is done on PA. After any user-DB change PA pushes to GitHub. Other hosts pull to
-get the latest user list.
-
-### R2 — MASTER passphrase unlocks everything
-One passphrase per host, stored in `~/.llcRentalTracker/config.json`.
-It unlocks `keys.json.gpg` → which provides `LLC_GPG_PASSPHRASE` + `LLC_SECRET_KEY`.
-
-### R3 — `keys.json.gpg` is the platform-portable secrets package
-```json
-{
-  "LLC_GPG_PASSPHRASE": "<shared passphrase for pw.json.gpg>",
-  "LLC_SECRET_KEY":     "<Flask session signing secret>"
-}
-```
-
-`keys.json.gpg` **IS in the Business Repo**, encrypted with the MASTER passphrase.
-Same content on all platforms — the MASTER passphrase is the only per-host secret.
-
-### R4 — `wsCmd.py --setup` is the bootstrap tool on any platform
-On a new host:
-1. Clone both repos
-2. Set MASTER passphrase in `~/.llcRentalTracker/config.json`
-3. Run `wsCmd.py --setup` — decrypts `keys.json.gpg`, verifies/creates `pw.json.gpg`
-4. Start app
-
-### R5 — Startup injects secrets automatically
-`wsgi.py` (and `wsCmd.py --start`) reads `config.json`, decrypts `keys.json.gpg`,
-injects `LLC_GPG_PASSPHRASE` and `LLC_SECRET_KEY` into `os.environ` before the
-Flask app initialises. No platform-specific environment variables needed beyond
-what's already in `config.json`.
-
----
-
-## Architecture
-
-```
-~/.llcRentalTracker/config.json     (host filesystem, never in repo)
-  └── master_passphrase  ──────────────┐
-                                       ▼
-Business Repo (LLC-WBGroup)     gpg --decrypt
-  books/Accts/
-    keys.json.gpg  (IN REPO)  ──▶  { LLC_GPG_PASSPHRASE, LLC_SECRET_KEY }
-    pw.json.gpg    (IN REPO)  ──▶  [users]  (decrypted with LLC_GPG_PASSPHRASE)
-    *.json (data)  (IN REPO)
-
-
-Push/pull flow:
-
-  PA (master host)                   Local / other hosts
-  ──────────────────                 ───────────────────
-  owns pw.json.gpg        push ───▶  GitHub repo
-  manages users                      ◀─── pull
-  keys.json.gpg matches              keys.json.gpg matches
-  same LLC_GPG_PASSPHRASE            same LLC_GPG_PASSPHRASE
-  → can decrypt pw.json.gpg         → can decrypt pw.json.gpg
-```
-
----
-
-## Startup Sequence (revised)
-
-```
-wsgi.py / wsCmd.py --start
-  │
-  ├── 1. read ~/.llcRentalTracker/config.json
-  │         → master_passphrase
-  │
-  ├── 2. gpg --decrypt books/Accts/keys.json.gpg  (using master_passphrase)
-  │         → { LLC_GPG_PASSPHRASE, LLC_SECRET_KEY }
-  │
-  ├── 3. os.environ["LLC_GPG_PASSPHRASE"] = ...  (if not already set)
-  │   os.environ["LLC_SECRET_KEY"]      = ...
-  │
-  └── 4. Flask app starts → llcLogin_auth reads LLC_GPG_PASSPHRASE → decrypts pw.json.gpg
-```
-
----
-
-## `~/.llcRentalTracker/config.json` — revised schema
+Owned exclusively by `llcRentalTracker`. This is the **sole authority** for this tracker's secrets and BUS registration. No fallback, no platform stanza needed at runtime.
 
 ```json
 {
-  "master_passphrase": "<MASTER_PP — never commit this file>",
   "default": ["WBGroupLLC", 2025],
+  "APP_SECRET_KEY": "<Flask session signing key — unique to this tracker>",
   "llcList": [
     {
-      "llcName":   "WBGroupLLC",
-      "dataName":  "WBGroupLLC",
-      "bus_repo":  "/path/to/LLC-WBGroup",
-      "books_dir": "books",
-      "year":      2025
+      "llcName":            "WBGroupLLC",
+      "dataName":           "WBGroupLLC",
+      "bus_repo":           "/home/wbgroup/llc/LLC-WBGroup",
+      "books_dir":          "books",
+      "years":              [2025],
+      "APP_GPG_PASSPHRASE": "<passphrase for pw.json.gpg — unique to this BUS>"
     }
   ]
 }
 ```
 
-`setup_paths.py` already reads this file. Adding `master_passphrase` is a one-field
-addition with no impact on existing config readers (they ignore unknown keys).
+**Schema rules:**
+- `APP_SECRET_KEY` is top-level (per-tracker, one Flask signing key).
+- `APP_GPG_PASSPHRASE` is inside the stanza (per-BUS, encrypts that BUS's `pw.json.gpg`).
+- `years` is an array (supports multiple fiscal years per BUS).
+- `master_passphrase` and `keys.json.gpg` are **removed** — they were a prior design workaround.
 
 ---
 
-## `wsCmd.py --setup` Flow (revised)
+## 4. Startup Sequence
 
 ```
-1. Read ~/.llcRentalTracker/config.json → master_passphrase
-   If absent → prompt: "Enter MASTER passphrase:" → write to config.json
-
-2. Decrypt books/Accts/keys.json.gpg using master_passphrase
-   If absent or decrypt fails:
-     → prompt to create keys.json.gpg (generate LLC_GPG_PASSPHRASE + LLC_SECRET_KEY,
-       encrypt with master_passphrase, write + commit to Business Repo from PA)
-
-3. Extract LLC_GPG_PASSPHRASE and LLC_SECRET_KEY from decrypted keys
-
-4. Write LLC_GPG_PASSPHRASE + LLC_SECRET_KEY into llcProfile MultiTaskWS_Config
-
-5. Check books/Accts/pw.json.gpg:
-   ABSENT → create with seed user, encrypted with LLC_GPG_PASSPHRASE
-   PRESENT, decrypts OK → print "✓ User DB verified"
-   PRESENT, decrypts BAD → warn; if --reset: delete + recreate with seed user
-
-6. Done — start with:  python3 wsCmd.py --start --llcName WBGroupLLC
+pyMultiTaskWS/wsgi.py  (PA WSGI entry point)
+  │
+  ├─ WsCmd().make_application()
+  │     ├─ Load ~/.MultiTaskWS/config.json
+  │     ├─ Mount adminTracker at /admin (builtin)
+  │     └─ For each external Tracker in Trackers list:
+  │           importlib.exec_module(sys_path/wsgi.py)
+  │           → mounts at t["mount"]
+  │
+  └─ llcRentalTracker/wsgi.py  (exec'd by dispatcher)
+        │
+        ├─ setup_paths.load_config(LLC_NAME, LLC_YEAR)
+        │     ← reads ~/.llcRentalTracker/config.json
+        │     ← sets TOP, ACCTS_DIR, IRS_FORMS_DIR, YEAR, SECRETS
+        │
+        ├─ _inject_secrets()
+        │     ← SECRETS["APP_GPG_PASSPHRASE"] → os.environ["LLC_GPG_PASSPHRASE"]
+        │     ← config["APP_SECRET_KEY"]       → os.environ["LLC_SECRET_KEY"]
+        │     ← hard RuntimeError if either is missing (no silent fallback)
+        │
+        ├─ path validation (bus_repo + Accts/ must exist on disk)
+        │
+        └─ llcMgmt(eSession).app  → Flask app mounted at /rentalTracker
+              └─ app.secret_key ← os.environ["LLC_SECRET_KEY"]
 ```
+
+### 4.1 Session Cookie Config
+
+```python
+# llcMgmt.__init__
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"   # send on top-level nav (popup/new-tab)
+app.config["SESSION_COOKIE_PATH"]     = "/"      # all paths on this domain
+```
+
+Sessions are **always permanent** (expiry-dated cookie):
+- Without "Remember me": 8-hour expiry.
+- With "Remember me": 30-day expiry.
+
+Non-permanent session cookies are unreliable across new browser windows and popup tabs — always use permanent.
 
 ---
 
-## PA Fix Plan (immediate — restores login today)
+## 5. Setup Workflows
 
-### Context
-- PA has `books/2025/Accts/pw.json.gpg` — encrypted with PA's `LLC_GPG_PASSPHRASE`
-- PA's `$LLC_GPG_PASSPHRASE` env var is set in PA environment tab
-- `books/Accts/pw.json.gpg` is missing (was not copied in migration `680f1ac`)
-
-### Step 1 — Verify the working file on PA
-```bash
-# PA console:
-gpg --batch --decrypt \
-    --passphrase "$LLC_GPG_PASSPHRASE" \
-    ~/LLC-WBGroup/books/2025/Accts/pw.json.gpg
-# Should print the JSON user array — confirms the file and passphrase are correct.
-```
-
-### Step 2 — Copy to new path
-```bash
-cp ~/LLC-WBGroup/books/2025/Accts/pw.json.gpg \
-   ~/LLC-WBGroup/books/Accts/pw.json.gpg
-```
-
-### Step 3 — Commit from PA (master host pushes)
-```bash
-cd ~/LLC-WBGroup
-git add books/Accts/pw.json.gpg
-git commit -m "fix: add pw.json.gpg to books/Accts/ — master host copy"
-git push
-```
-
-### Step 4 — Reload PA app → confirm login
-
-### Step 5 — Seed `~/.llcRentalTracker/config.json` with master_passphrase on PA
-```bash
-# PA console — add master_passphrase to config.json:
-python3 -c "
-import json
-from pathlib import Path
-cfg_file = Path.home() / '.llcRentalTracker/config.json'
-cfg = json.loads(cfg_file.read_text())
-if 'master_passphrase' not in cfg:
-    import getpass
-    cfg['master_passphrase'] = getpass.getpass('MASTER passphrase: ')
-    cfg_file.write_text(json.dumps(cfg, indent=2))
-    print('Written.')
-else:
-    print('Already present.')
-"
-chmod 600 ~/.llcRentalTracker/config.json
-```
-
----
-
-## Remaining Work (after login is restored)
-
-### Phase A — Create `keys.json.gpg` on PA
-Generate and encrypt the keys file using PA's current secrets.
-Commit from PA → all hosts can pull it.
+### 5.1 New PA Instance (full setup from scratch)
 
 ```bash
-# PA console:
-python3 - << 'EOF'
-import json, os, subprocess, tempfile
-from pathlib import Path
+# ── Step 1: Platform setup ───────────────────────────────────────────────────
+cd ~/pyMultiTaskWS
+python3 wsCmd.py --setup
+# → creates ~/.MultiTaskWS/config.json (WEB_SECRET_KEY, adminTracker stanza)
+# PA Web tab: point WSGI config to ~/pyMultiTaskWS/wsgi.py → Reload
 
-accts = Path('~/LLC-WBGroup/books/Accts').expanduser()
-keys  = {
-    'LLC_GPG_PASSPHRASE': os.environ['LLC_GPG_PASSPHRASE'],
-    'LLC_SECRET_KEY':     os.environ.get('LLC_SECRET_KEY', ''),
-}
-plaintext = json.dumps(keys, indent=2).encode()
-master_pp = json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())['master_passphrase']
+# ── Step 2: Clone BUS repo ───────────────────────────────────────────────────
+mkdir ~/llc && cd ~/llc
+git clone https://github.com/wbgroupmgr/LLC-WBGroup.git
 
-# Encrypt
-proc = subprocess.run(
-    ['gpg','--batch','--yes','--symmetric','--cipher-algo','AES256',
-     '--passphrase', master_pp, '--output', str(accts/'keys.json.gpg'), '-'],
-    input=plaintext, capture_output=True
-)
-print('keys.json.gpg written' if proc.returncode == 0 else proc.stderr.decode())
-EOF
+# ── Step 3: Register BUS + set tracker passphrase ────────────────────────────
+mkdir ~/pyTrackers && cd ~/pyTrackers
+git clone https://github.com/wbgroupmgr/llcRentalTracker.git
+cd llcRentalTracker
 
-cd ~/LLC-WBGroup
-git add books/Accts/keys.json.gpg
-git commit -m "feat: add keys.json.gpg — per-instance secrets bootstrap"
-git push
-```
-
-### Phase B — Update `setup_paths.py`
-Add `read_master_passphrase()` helper that returns `config.json["master_passphrase"]`.
-
-### Phase C — Update `wsgi.py` startup
-Add `_inject_from_keys()` call at module load time (before Flask init).
-
-### Phase D — Update `wsCmd.py --setup`
-Implement revised flow from the `--setup` section above.
-
-### Phase E — Local setup
-```bash
-# Local: add master_passphrase to ~/.llcRentalTracker/config.json
-# Then pull LLC-WBGroup (gets keys.json.gpg + pw.json.gpg from PA)
-# wsCmd.py --setup will verify everything works
-```
-
----
-
-## File Ownership Summary
-
-| File | In Repo? | Who writes it | Pushed from |
-|---|---|---|---|
-| `books/Accts/keys.json.gpg` | ✅ YES | `wsCmd.py --setup` (initial) | PA (master) |
-| `books/Accts/pw.json.gpg` | ✅ YES | `llcLogin_auth` (user mgmt) | PA (master) |
-| `books/Accts/*.json` (data) | ✅ YES | App save actions | PA (master) |
-| `~/.llcRentalTracker/config.json` | ❌ NO | Operator / `wsCmd.py` | Never pushed |
-
----
-
-## Setup-Maintenance Workflow
-
-End-to-end lifecycle for the master BUS + llcRentalTracker instance and all downstream
-hosts. All write operations (git push, user changes, secret generation) originate from
-PA (master host). All other hosts are read-only with respect to the repo.
-
----
-
-### Workflow 1 — Setup New (brand-new master instance)
-
-Use when: fresh PA account, new LLC, or complete reinstall from scratch.
-
-```
-Prerequisites:
-  • GitHub repos created: LLC-WBGroup, llcRentalTracker
-  • PA account with console access
-  • GPG installed on PA (gpg --version)
-  • Python 3.10+, pip install -r requirements.txt done
-```
-
-**Step 1 — Clone both repos on PA**
-```bash
-# Clone APP 
-mkdir ~/pyTracker
-cd ~/pyTracker
-git clone https://github.com/wbgroupmgr/llcRentalTracker.git 
-
-# Clone BUS
-mkdir ~/llc
-cd ~/llc
-git clone https://github.com/wbgroupmgr/LLC-WBGroup.git 
-
-```
-
-**Step 2 — Register the LLC, bootstrap MASTER passphrase + keys (single command)**
-```bash
-cd ~/pyTrackers/llcRentalTracker
 python3 wsCmd.py --newBus ~/llc/LLC-WBGroup --year 2025 --llcName WBGroupLLC
-```
+# → prompts: Enter APP_GPG_PASSPHRASE (unique to this tracker — not shared with adminTracker)
+# → creates ~/.llcRentalTracker/config.json with llcList stanza + APP_GPG_PASSPHRASE
 
-`--newBus` handles all bootstrap logic automatically — no manual scripts:
+# ── Step 4: Generate APP_SECRET_KEY + create user DB ─────────────────────────
+python3 wsCmd.py --setup --llcName WBGroupLLC
+# → generates APP_SECRET_KEY
+# → writes complete secrets to ~/.llcRentalTracker/config.json
+# → creates LLC-WBGroup/books/Accts/pw.json.gpg (seed user)
+# → registers llcRentalTracker in ~/.MultiTaskWS/config.json Trackers list
 
-```
-── --newBus bootstrap sequence ─────────────────────────────
-  a) ~/.llcRentalTracker/config.json check:
-       Does NOT exist  → prompt MASTER passphrase (×2), create file (chmod 600)
-       Exists, no key  → prompt MASTER passphrase (×2), add to file
-       Exists, has key → import silently
+# ── Step 5: Register tracker routing in platform ─────────────────────────────
+python3 wsCmd.py --addTracker
+# → adds llcRentalTracker entry (sys_path, mount, stanza_key) to ~/.MultiTaskWS/config.json
+# NOTE: --setup now calls addTracker automatically; run --addTracker if missed
 
-  b) books/Accts/keys.json.gpg check:
-       Does NOT exist  → prompt app passphrase (LLC_GPG_PASSPHRASE) (×2)
-                         auto-generate LLC_SECRET_KEY
-                         encrypt keys.json.gpg with MASTER passphrase
-                         print "⚠ Push books/Accts/keys.json.gpg before --setup"
-       Exists          → decrypt with MASTER passphrase → import secrets silently
-
-  c) Register stanza in config.json (same as before)
-  d) Print next steps
-─────────────────────────────────────────────────────────────
-```
-
-**Step 3 — Push `keys.json.gpg` to GitHub (master host only)**
-```bash
+# ── Step 6: Push pw.json.gpg from PA (master host) ───────────────────────────
 cd ~/llc/LLC-WBGroup
-git add books/Accts/keys.json.gpg
-git commit -m "feat: initial keys.json.gpg for master instance"
+git add books/Accts/pw.json.gpg
+git commit -m "auth: initial user DB"
 git push
+
+# ── Step 7: Reload PA + login ─────────────────────────────────────────────────
+# PA Web tab → Reload
+# https://<pa-host>/rentalTracker/login
+# Seed user: llcgroupmgr / llcManager0!  ← CHANGE IMMEDIATELY
 ```
 
-**Step 4 — Run `--setup` to create the seed user DB**
+### 5.2 Local Dev Setup
+
+```bash
+cd /path/to/llcRentalTracker
+python3 wsCmd.py --newBus /path/to/LLC-WBGroup --year 2025 --llcName WBGroupLLC
+# → enter SAME APP_GPG_PASSPHRASE as PA (needed to decrypt PA's pw.json.gpg)
+# → creates ~/.llcRentalTracker/config.json
+
+python3 wsCmd.py --setup --llcName WBGroupLLC
+# → generates a LOCAL APP_SECRET_KEY (different from PA — fine for dev)
+# → does NOT write pw.json.gpg (pull from BUS repo — local never writes it)
+
+cd /path/to/LLC-WBGroup && git pull   # gets PA's pw.json.gpg
+
+cd /path/to/llcRentalTracker
+python3 wsCmd.py --start --llcName WBGroupLLC --year 2025 --port 5000 --load
+```
+
+### 5.3 Add a New Fiscal Year
+
 ```bash
 cd ~/pyTrackers/llcRentalTracker
-python3 wsCmd.py --setup --llcName WBGroupLLC
-# Reads master_passphrase from config.json → decrypts keys.json.gpg
-# → extracts LLC_GPG_PASSPHRASE → creates pw.json.gpg with seed user
+python3 wsCmd.py --newBus ~/llc/LLC-WBGroup --year 2026 --llcName WBGroupLLC
+# → appends 2026 to existing stanza: years: [2025, 2026]
+# PA Web tab → Reload
 ```
 
-**Step 5 — Push `pw.json.gpg` to GitHub**
+### 5.4 Stale .pyc After Git Pull (symptom: 500 on login with KeyError)
+
+After a git pull that changes `setup_paths.py`, stale bytecode may run old code against the new config schema:
+
 ```bash
-cd ~/llc/LLC-WBGroup
-git add books/Accts/pw.json.gpg
-git commit -m "feat: initial pw.json.gpg for master instance"
-git push
-```
-
-**Step 6 — Start the app**
-```bash
-# PA: wsgi.py mounts the app; Web tab → Reload
-```
-
-**Step 7 — Login and change seed password**
-```
-URL: https://<pa-host>/rentalTracker/login
-Username: llcgroupmgr
-Password: llcManager0!   ← CHANGE THIS IMMEDIATELY
+find /home/wbgroup/pyTrackers/llcRentalTracker -name "*.pyc" -delete
+find /home/wbgroup/pyTrackers/llcRentalTracker -name "__pycache__" -type d -exec rm -rf {} +
+# PA Web tab → Reload
 ```
 
 ---
 
-### Workflow 2 — Manage Users & Passwords
+## 6. Secret Naming Convention
 
-All user management happens on PA (master host) through the app UI.
-After any change the updated `pw.json.gpg` must be pushed to GitHub.
+| Secret | Key Name | Location | Scope |
+|---|---|---|---|
+| Flask session cookie | `APP_SECRET_KEY` | top-level in `~/.llcRentalTracker/config.json` | per-tracker |
+| GPG passphrase for `pw.json.gpg` | `APP_GPG_PASSPHRASE` | inside llcList stanza | per-BUS |
+| Platform Flask key | `WEB_SECRET_KEY` | `~/.MultiTaskWS/config.json` | platform-wide |
+| adminTracker GPG | `APP_GPG_PASSPHRASE` | adminTracker stanza in `~/.MultiTaskWS/config.json` | adminTracker |
 
-**Add a new user**
-```
-PA app → Register page → fill form → submit
-→ pw.json.gpg re-encrypted automatically by llcLogin_auth
-```
-
-**Delete a user**
-```
-PA app → Manage Users → delete
-→ pw.json.gpg re-encrypted automatically
-```
-
-**Reset a user's password**
-```
-PA app → Manage Users → reset password
-→ pw.json.gpg re-encrypted automatically
-```
-
-**After any user change — push to GitHub from PA**
-```bash
-cd ~/LLC-WBGroup
-git add books/Accts/pw.json.gpg
-git commit -m "auth: update user DB"
-git push
-```
-
-**Other hosts pick up the change**
-```bash
-# On local / any pull-only host:
-cd ~/LLC-WBGroup && git pull
-# pw.json.gpg updated — login works with new/changed credentials
-# No app restart needed (llcLogin_auth decrypts on every request)
-```
+At runtime, `wsgi.py` maps:
+- `APP_GPG_PASSPHRASE` → `os.environ["LLC_GPG_PASSPHRASE"]`
+- `APP_SECRET_KEY` → `os.environ["LLC_SECRET_KEY"]`
 
 ---
 
-### Workflow 3 — Sync Login Auth with Bus GitHub
+## 7. File Ownership
 
-This workflow covers keeping login state consistent across hosts after PA changes.
-
-**Normal sync (after user changes on PA)**
-```
-PA: user change made in app
-   → pw.json.gpg updated on PA filesystem
-   → git add + commit + push (PA console, see Workflow 2)
-   → GitHub repo updated
-
-Local/other: git pull
-   → gets latest pw.json.gpg from PA
-   → immediately usable (same LLC_GPG_PASSPHRASE from keys.json.gpg)
-```
-
-**What NEVER needs syncing**
-```
-LLC_GPG_PASSPHRASE  — lives in keys.json.gpg (already in repo)
-LLC_SECRET_KEY      — lives in keys.json.gpg (already in repo)
-master_passphrase   — lives in ~/.llcRentalTracker/config.json (never in repo,
-                       must be set manually on each host during initial setup)
-```
-
-**Keys rotation (rare — e.g., security incident)**
-```
-1. On PA: generate new keys.json.gpg (new LLC_GPG_PASSPHRASE + LLC_SECRET_KEY)
-2. Re-encrypt pw.json.gpg with new LLC_GPG_PASSPHRASE
-3. git add keys.json.gpg pw.json.gpg && git commit && git push
-4. All hosts: git pull + app restart
-5. Each host: wsCmd.py --setup to re-inject new secrets into local profile
-```
+| File | In Repo | Who writes | Pushed from |
+|---|---|---|---|
+| `books/Accts/pw.json.gpg` | ✅ BUS repo | `llcLogin_auth` (user mgmt) | **PA only** |
+| `books/Accts/*.json` | ✅ BUS repo | App save actions | **PA only** |
+| `~/.llcRentalTracker/config.json` | ❌ Never | `wsCmd.py --newBus/--setup` | Never pushed |
+| `~/.MultiTaskWS/config.json` | ❌ Never | `pyMultiTaskWS/wsCmd.py --setup` | Never pushed |
+| `keys.json.gpg` | **Removed** | — was a prior-design workaround | — |
 
 ---
 
-### Workflow 4 — Dev Work (code changes)
+## 8. User DB Schema
 
-**Rule: Dev work NEVER touches `pw.json.gpg` or `keys.json.gpg`.**
-
-These files live in `LLC-WBGroup` (Business Repo). Dev work lives in `llcRentalTracker`
-(App Code Repo). The repos are separate by design.
-
-**What each repo holds**
-
-| `llcRentalTracker` (code) | `LLC-WBGroup` (data) |
-|---|---|
-| Python, HTML, CSS, Markdown | `*.json` accounting data |
-| NO `.gpg` files, NO data | `keys.json.gpg` ← pushed by PA only |
-| Dev: branch, commit, push anytime | `pw.json.gpg`  ← pushed by PA only |
-
-**Local dev session — safe pattern**
-```bash
-# 1. Pull latest code
-cd ~/pyTrackers/llcRentalTracker && git pull
-
-# 2. Pull latest data (gets PA's pw.json.gpg — never modify it locally)
-cd ~/LLC-WBGroup && git pull
-
-# 3. Verify local login works (optional sanity check)
-gpg --batch --decrypt \
-    --passphrase "$(python3 -c "import json; from pathlib import Path; \
-      print(json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())['master_passphrase'])")" \
-    ~/LLC-WBGroup/books/Accts/keys.json.gpg
-
-# 4. Make code changes in llcRentalTracker — safe to commit/push anytime
-# 5. NEVER: git add *.gpg   NEVER: modify books/Accts/pw.json.gpg
-```
-
-**If dev accidentally modifies `pw.json.gpg` or `keys.json.gpg`**
-```bash
-# Reset to last GitHub version immediately:
-cd ~/LLC-WBGroup
-git checkout -- books/Accts/pw.json.gpg
-git checkout -- books/Accts/keys.json.gpg
-# These files should never be locally modified
-```
-
----
-
-### Workflow 5 — Recover Keys & Passwords
-
-**Scenario A — Forgot a user's password (normal user)**
-```
-Option 1 (preferred): Any llcManager logs in → Manage Users → reset password
-Option 2: llcgroupmgr logs in → Manage Users → reset password
-```
-
-**Scenario B — Forgot llcgroupmgr password (only admin locked out)**
-```bash
-# On PA console — decrypt pw.json.gpg, edit the hash, re-encrypt:
-python3 - << 'EOF'
-import json, hashlib, subprocess, os
-from pathlib import Path
-
-cfg   = json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())
-mpp   = cfg['master_passphrase']
-keys  = json.loads(subprocess.run(
-    ['gpg','--batch','--decrypt','--passphrase', mpp,
-     str(Path('~/LLC-WBGroup/books/Accts/keys.json.gpg').expanduser())],
-    capture_output=True, check=True).stdout)
-gpg_pp = keys['LLC_GPG_PASSPHRASE']
-
-pw_file = Path('~/LLC-WBGroup/books/Accts/pw.json.gpg').expanduser()
-users   = json.loads(subprocess.run(
-    ['gpg','--batch','--decrypt','--passphrase', gpg_pp, str(pw_file)],
-    capture_output=True, check=True).stdout)
-
-new_password = input('New password for llcgroupmgr: ')
-for u in users:
-    if u['username'] == 'llcgroupmgr':
-        u['password'] = hashlib.sha256(new_password.encode()).hexdigest()
-        print('Updated.')
-
-plaintext = json.dumps(users, indent=2).encode()
-subprocess.run(
-    ['gpg','--batch','--yes','--symmetric','--cipher-algo','AES256',
-     '--passphrase', gpg_pp, '--output', str(pw_file), '-'],
-    input=plaintext, check=True)
-
-# Push updated pw.json.gpg
-subprocess.run(['git','-C', str(pw_file.parent.parent.parent),
-                'add', str(pw_file)], check=True)
-subprocess.run(['git','-C', str(pw_file.parent.parent.parent),
-                'commit', '-m', 'auth: reset llcgroupmgr password'], check=True)
-subprocess.run(['git','-C', str(pw_file.parent.parent.parent),
-                'push'], check=True)
-print('Done — login with new password.')
-EOF
-```
-
-**Scenario C — Forgot `LLC_GPG_PASSPHRASE` (but have MASTER passphrase)**
-```bash
-# Decrypt keys.json.gpg to read it
-gpg --batch --decrypt \
-    --passphrase "<MASTER_PP>" \
-    ~/LLC-WBGroup/books/Accts/keys.json.gpg
-# Prints LLC_GPG_PASSPHRASE and LLC_SECRET_KEY in plain JSON
-```
-
-**Scenario D — Forgot MASTER passphrase**
-```
-Option 1: Read it from ~/.llcRentalTracker/config.json
-    python3 -c "import json; from pathlib import Path; \
-      print(json.loads((Path.home()/'.llcRentalTracker/config.json').read_text())['master_passphrase'])"
-
-Option 2 (config.json lost): keys.json.gpg is unrecoverable.
-    → Run full Workflow 1 (Setup New) with a new MASTER passphrase
-    → Generate new keys.json.gpg and pw.json.gpg
-    → Users must be re-registered
-```
-
-**Scenario E — `pw.json.gpg` corrupted or accidentally modified locally**
-```bash
-# Restore PA's authoritative version:
-cd ~/LLC-WBGroup
-git checkout -- books/Accts/pw.json.gpg
-# OR pull from GitHub if local already committed:
-git pull
-```
-
-**Scenario F — Need to move to a new PA account or host**
-```
-1. Clone both repos onto new host
-2. Copy ~/.llcRentalTracker/config.json from old host (contains master_passphrase)
-   OR re-add master_passphrase manually (Workflow 1, Step 3)
-3. python3 wsCmd.py --setup --llcName WBGroupLLC
-   → decrypts keys.json.gpg → verifies pw.json.gpg → ready
-4. Start app
-   (No key regeneration needed — same keys.json.gpg from repo)
-```
-
----
-
-## Original Design (unchanged sections)
-
-### User DB Schema
 ```json
 {
   "username":   "llcgroupmgr",
-  "password":   "<sha-256 hex>",
+  "password":   "<sha-256 hex of password>",
   "full_name":  "LLC Group Manager",
   "role":       "llcManager",
   "created_at": "2026-01-01T00:00:00"
 }
 ```
 
-### Seed User (after `--setup`)
-| Field | Value |
-|---|---|
-| `username` | `llcgroupmgr` |
-| `password` | `llcmanager` (SHA-256 stored) |
-| `role` | `llcManager` |
-
-**Change this password immediately after first login.**
+Seed user (created by `--setup`): `llcgroupmgr` / `llcManager0!` — **change on first login**.
 
 ### Roles
-| Role | Description |
+
+| Role | Access |
 |---|---|
-| `member` | Read access |
 | `llcManager` | Full operational access |
 | `bookkeeper` | Transaction entry |
 | `accountant` | Financial review |
+| `member` | Read-only |
 
-### GPG CLI Reference
-```bash
-# Decrypt to stdout
-gpg --batch --decrypt --passphrase "$LLC_GPG_PASSPHRASE" books/Accts/pw.json.gpg
+---
 
-# Decrypt keys.json.gpg (uses MASTER passphrase)
-gpg --batch --decrypt --passphrase "<MASTER_PP>" books/Accts/keys.json.gpg
+## 9. Troubleshooting
 
-# Re-encrypt pw.json.gpg with new passphrase
-gpg --batch --decrypt --passphrase "$OLD_PP" books/Accts/pw.json.gpg \
-  | gpg --batch --symmetric --cipher-algo AES256 \
-        --passphrase "$NEW_PP" --output books/Accts/pw.json.gpg
-```
+| Symptom | Cause | Fix |
+|---|---|---|
+| `/rentalTracker/login` returns 404 | Tracker not in platform Trackers list | Run `wsCmd.py --addTracker` + Reload |
+| 500 on login with `KeyError: 'year'` | Stale `.pyc` after git pull | Delete `__pycache__` dirs + Reload |
+| PDF popup redirects to login | Non-permanent session cookie | Fixed in v1.0: session always permanent |
+| `APP_GPG_PASSPHRASE missing` RuntimeError | `~/.llcRentalTracker/config.json` malformed | Run `wsCmd.py --newBus` again |
+| Namespace JSON not found | First run; auto-builds from IRS PDF | Run `python3 testForm.py --form <Form>` once |
 
-### Auth Flow (unchanged)
-```
-POST /login
-  → _load_users() → gpg --decrypt pw.json.gpg (using LLC_GPG_PASSPHRASE from env)
-  → json.loads() → find user → hash(password) compare
-  → session written → 302 home
-```
+---
+
+## 10. Prior Design (superseded — do not implement)
+
+The prior design used `master_passphrase` + `keys.json.gpg` as an intermediate layer.
+This was a workaround for the missing `llcRentalTracker` platform stanza (Bug 1 in
+`issue_trackerConfigSetup.md`). The Phase 2+3 migration eliminated this layer entirely.
+
+**Removed artifacts:**
+- `books/Accts/keys.json.gpg` — deleted from BUS repo.
+- `master_passphrase` in `~/.llcRentalTracker/config.json` — field removed.
+- `LLC_GPG_PASSPHRASE` / `LLC_SECRET_KEY` in `llcProfile MultiTaskWS_Config` — removed.
+
+The `issue_trackerConfigSetup.md` document in `pyMultiTaskWS/docs/` is the complete
+migration log and is retained for historical reference.
