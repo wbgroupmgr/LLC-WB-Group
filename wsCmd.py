@@ -29,6 +29,9 @@ import platform
 import secrets
 import subprocess
 import sys
+import time
+import urllib.request
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -377,7 +380,128 @@ class WsCmd:
             print(f"  WARNING: addTracker failed (OK for standalone): {err}")
             
 
+    # ── PA config helpers ─────────────────────────────────────────────────────
+
+    def _pa_cfg(self) -> dict:
+        """Return the 'pa' stanza from config.json, or {} if not set."""
+        return _sp.read_config().get("pa", {})
+
+    def _pa_require(self) -> dict:
+        """Return PA config, prompting for any missing fields and saving them."""
+        cfg = _sp.read_config()
+        pa  = cfg.get("pa", {})
+        changed = False
+
+        for field, prompt, secret in [
+            ("username",  "PA username (e.g. wbgroupmgr)",               False),
+            ("api_token", "PA API token (Account → API token on PA)",     True),
+            ("domain",    "PA web app domain (e.g. wbgroupmgr.pythonanywhere.com)", False),
+            ("llc_repo",  "PA path to llcRentalTracker repo (e.g. /home/wbgroupmgr/llcRentalTracker)", False),
+        ]:
+            if not pa.get(field):
+                val = (getpass.getpass(f"  {prompt}: ").strip() if secret
+                       else input(f"  {prompt}: ").strip())
+                if not val:
+                    sys.exit(f"  ✗ {field} is required.")
+                pa[field] = val
+                changed = True
+
+        # bus_repos: {llcName: pa_path}
+        if not pa.get("bus_repos", {}).get(self.llc_name):
+            username = pa["username"]
+            default  = f"/home/{username}/LLC-WBGroup"
+            val = input(f"  PA path to BUS repo for {self.llc_name} [{default}]: ").strip()
+            pa.setdefault("bus_repos", {})[self.llc_name] = val or default
+            changed = True
+
+        if changed:
+            cfg["pa"] = pa
+            _sp.write_config(cfg)
+            print(f"  ✓ PA config saved → {_sp.CONFIG_FILE}")
+
+        return pa
+
     # ── public commands ───────────────────────────────────────────────────────
+
+    def configPA(self) -> None:
+        """Interactive: prompt for PA credentials and save to config.json."""
+        print()
+        print("=" * 64)
+        print(f"  Configure PythonAnywhere deployment  [{self.llc_name}]")
+        print("=" * 64)
+        print()
+        print("  API token: https://www.pythonanywhere.com/account/#api_token")
+        print()
+        pa = self._pa_require()
+        print()
+        print("  Current PA config:")
+        safe = {k: ("***" if k == "api_token" else v) for k, v in pa.items()}
+        for k, v in safe.items():
+            print(f"    {k}: {v}")
+        print()
+        print("  Test with:  python3 wsCmd.py --sync --llcName", self.llc_name)
+        print("=" * 64)
+
+    def sync(self, dry_run: bool = False) -> None:
+        """
+        Sync PA deployment from GitHub.
+
+        LLC repo  → git reset --hard origin/main  (code-only, PA never commits)
+        BUS repos → auto-commit PA data changes, then git pull --rebase + git push
+                    (preserves bookkeeper edits; replays them on top of code commits)
+
+        Reloads the PA web app after a successful sync.
+        """
+        print()
+        print("=" * 64)
+        print(f"  PA sync  [{self.llc_name}]  {'(dry run)' if dry_run else ''}")
+        print("=" * 64)
+
+        pa        = self._pa_require()
+        username  = pa["username"]
+        token     = pa["api_token"]
+        domain    = pa["domain"]
+        llc_repo  = pa["llc_repo"]
+        bus_repos = pa.get("bus_repos", {self.llc_name: f"/home/{username}/LLC-WBGroup"})
+
+        script = _build_sync_script(llc_repo, bus_repos)
+
+        if dry_run:
+            print("\n  ── sync script (dry run) ──────────────────────────────")
+            print(script)
+            print("  ── end script ─────────────────────────────────────────")
+            return
+
+        print(f"\n  Connecting to PA ({username}.pythonanywhere.com) …")
+        try:
+            _pa_req(username, token, "GET", "/cpu")   # lightweight auth check
+        except RuntimeError as e:
+            sys.exit(f"\n  ✗ PA API auth failed: {e}\n  Check api_token in {_sp.CONFIG_FILE}")
+
+        print("  Running sync script on PA …")
+        output = _pa_run_command(username, token, script, timeout_sec=180)
+
+        # Stream output to terminal
+        print()
+        for line in output.splitlines():
+            print("  |", line)
+
+        if "=== sync error ===" in output:
+            print()
+            print("  ✗ Sync failed — see output above for details.")
+            sys.exit(1)
+
+        print()
+        print(f"  Reloading web app ({domain}) …")
+        try:
+            _pa_reload_webapp(username, token, domain)
+            print("  ✓ Web app reloaded.")
+        except RuntimeError as e:
+            print(f"  ✗ Reload failed: {e}")
+
+        print()
+        print("  ✓ Sync complete.")
+        print("=" * 64)
 
     def setup(self, reset: bool = False) -> None:
         """Set up the LLC task app: verify passphrase, generate secret key, seed user DB."""
@@ -457,6 +581,130 @@ class WsCmd:
         app.run(host=addr, port=port, debug=debug, notebook=notebook)
 
 
+# ── PythonAnywhere API helpers ────────────────────────────────────────────────
+
+_PA_BASE = "https://www.pythonanywhere.com/api/v0/user/{username}"
+
+def _pa_req(username: str, token: str, method: str, path: str,
+            data: dict = None, timeout: int = 30) -> dict:
+    """Generic PA API call. Returns parsed JSON or raises on error."""
+    url     = (_PA_BASE.format(username=username) + path).rstrip("/") + "/"
+    headers = {"Authorization": f"Token {token}",
+               "Content-Type":  "application/json"}
+    body    = json.dumps(data).encode() if data else None
+    req     = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode()
+            return json.loads(raw) if raw.strip() else {}
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"PA API {method} {path} → HTTP {e.code}: {e.read().decode()[:400]}")
+
+
+def _pa_run_command(username: str, token: str, bash: str,
+                    poll_sec: float = 1.5, timeout_sec: int = 120) -> str:
+    """
+    Run a bash command on PA via the Consoles API.
+    Creates a throwaway console, sends the command, polls for output, returns it.
+    """
+    # Create a new Bash console
+    console = _pa_req(username, token, "POST", "/consoles",
+                      {"executable": "bash", "arguments": "", "working_directory": "/home/" + username})
+    cid = console["id"]
+
+    try:
+        # Send the command — append newline + exit so the console terminates cleanly
+        _pa_req(username, token, "POST", f"/consoles/{cid}/send_input",
+                {"input": bash + "\nexit 0\n"})
+
+        # Poll for output until idle or timeout
+        deadline = time.time() + timeout_sec
+        output   = ""
+        while time.time() < deadline:
+            time.sleep(poll_sec)
+            latest = _pa_req(username, token, "GET", f"/consoles/{cid}/get_latest_output")
+            chunk  = latest.get("output", "")
+            output += chunk
+            # Detect shell prompt (command finished) or explicit marker
+            if "=== sync done ===" in output or "=== sync error ===" in output:
+                break
+            if not chunk:
+                break
+        return output
+    finally:
+        try:
+            _pa_req(username, token, "DELETE", f"/consoles/{cid}")
+        except Exception:
+            pass
+
+
+def _pa_reload_webapp(username: str, token: str, domain: str) -> None:
+    """Touch the PA web app reload endpoint."""
+    _pa_req(username, token, "POST", f"/webapps/{domain}/reload")
+
+
+def _build_sync_script(llc_repo: str, bus_repos: dict) -> str:
+    """
+    Build the bash sync script that runs on PA.
+
+    LLC repo (code only):
+      git reset --hard origin/main  — PA never commits here; always safe.
+
+    BUS repos (data + config):
+      1. Auto-commit any uncommitted Accts data (bookkeeper edits not yet committed).
+      2. git pull --rebase origin main  — replays PA data commits on top of code commits.
+         No conflict expected (different file paths). On conflict: abort + report.
+      3. git push origin main  — propagate PA data commits back to GitHub.
+
+    Strategy justification:
+      rebase > merge for PA because PA's data commits should appear AFTER the
+      incoming code commits in the linear history (correct causality: "data was
+      entered after the bug was fixed"). Conflicts are rare (data files ≠ code files)
+      and surface cleanly with rebase --abort on failure.
+    """
+    bus_blocks = ""
+    for llc_name, bus_path in bus_repos.items():
+        bus_blocks += f"""
+echo ""
+echo "=== BUS sync: {llc_name} ({bus_path}) ==="
+cd "{bus_path}"
+# Stash .pyc and generated files that don't belong in commits
+git ls-files --others --exclude-standard | grep -E '\\.pyc$|\\.pdf$' | head -20 | xargs -r git checkout -- 2>/dev/null || true
+# Auto-commit uncommitted bookkeeper data
+if ! git diff --quiet -- books/Accts/ 2>/dev/null; then
+    git add books/Accts/*.json 2>/dev/null || true
+    git diff --staged --quiet || git commit -m "PA data: auto-commit before sync $(date '+%Y-%m-%d %H:%M')"
+    echo "  auto-committed PA bookkeeper changes"
+fi
+# pull --rebase: PA data commits land on top of incoming code commits
+git fetch origin
+if git rebase origin/main; then
+    git push origin main
+    echo "  ✓ BUS {llc_name}: $(git log --oneline -1)"
+else
+    git rebase --abort
+    echo "  ✗ BUS {llc_name}: rebase conflict — run manually on PA"
+    echo "    cd {bus_path} && git rebase origin/main"
+    echo "=== sync error ==="; exit 1
+fi
+"""
+
+    return f"""#!/bin/bash
+set -e
+echo "=== PA sync started: $(date '+%Y-%m-%d %H:%M:%S') ==="
+
+echo ""
+echo "=== LLC repo sync ({llc_repo}) ==="
+cd "{llc_repo}"
+git fetch origin
+git reset --hard origin/main
+echo "  ✓ LLC: $(git log --oneline -1)"
+{bus_blocks}
+echo ""
+echo "=== sync done ==="
+"""
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -471,6 +719,11 @@ examples:
   LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC
   LLC_GPG_PASSPHRASE=<pp> python3 wsCmd.py --start --llcName WBGroupLLC --port 5001 --load
   python3 wsCmd.py --start --host --llcName WBGroupLLC
+
+  # PA deployment (run from local once per session):
+  python3 wsCmd.py --configPA --llcName WBGroupLLC        # one-time: save PA creds
+  python3 wsCmd.py --sync --llcName WBGroupLLC            # sync + reload
+  python3 wsCmd.py --sync --llcName WBGroupLLC --dry-run  # preview script only
 """,
     )
 
@@ -489,6 +742,10 @@ examples:
                       help="Start the task app server")
     mode.add_argument("--addTracker", action="store_true",
                       help="Register this tracker in ~/.MultiTaskWS/config.json Trackers list")
+    mode.add_argument("--configPA", action="store_true",
+                      help="Save PythonAnywhere credentials (username, API token, paths) to config.json")
+    mode.add_argument("--sync", action="store_true",
+                      help="Sync PA from GitHub: LLC repo reset --hard; BUS repo pull --rebase + reload")
 
     # --newBus options
     ap.add_argument("--booksDir", default="books", metavar="DIR",
@@ -519,6 +776,10 @@ examples:
     ap.add_argument("--notebook", action="store_true",
                     help="[--start] Jupyter notebook display mode")
 
+    # --sync options
+    ap.add_argument("--dry-run", action="store_true", dest="dry_run",
+                    help="[--sync] Print the sync script without running it")
+
     return ap
 
 
@@ -538,7 +799,7 @@ def main():
         return
 
     if not args.llcName:
-        ap.error("--llcName is required for --setup and --start")
+        ap.error("--llcName is required for --setup, --start, --configPA, and --sync")
 
     # Resolve year: explicit arg > auto-detect latest config
     year = args.year or _latest_config_year(args.llcName)
@@ -558,7 +819,11 @@ def main():
         sys.exit(1)
     ws = WsCmd(args.llcName, year=year)
 
-    if args.setup:
+    if args.configPA:
+        ws.configPA()
+    elif args.sync:
+        ws.sync(dry_run=args.dry_run)
+    elif args.setup:
         ws.setup(reset=args.reset)
     else:
         ws.start(
