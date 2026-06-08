@@ -125,7 +125,10 @@ class Form4562(irsForm):
         (r'^f1_(8[6-9]|9[0-7])$',                   "Form4562.PartIII.MACRS.Other"),
         # Part III Section C ADS (Lines 20a-20e): f1_98..f1_127 = our f99..f128
         (r'^f1_(9[89]|1[01]\d|12[0-7])$',           "Form4562.PartIII.MACRS.ADS"),
-        # Page 2 — Part IV Summary (Line 22): first 4 standalone fields before checkboxes
+        # Page 2 standalone fields before checkboxes:
+        #   f2_1(F129)=Line 21 listed-property (Part IV, blank for W&B Group)
+        #   f2_2(F130)=Line 22 total depreciation (Part IV Summary — the fill target)
+        #   f2_3, f2_4 = adjacent Part IV/V fields
         (r'^f2_[1-4]$',                              "Form4562.PartIV.Summary"),
         # Page 2 — Part V Listed Property (Table_Ln26) + Part VI Amortization
         (r'^f2_',                                    "Form4562.PartV.ListedProp"),
@@ -236,15 +239,13 @@ class Form4562(irsForm):
             {
                 "part":    "Part IV — Summary (Line 22)",
                 "status":  "auto",
-                "summary": f"Line 22 (f129) = {d_fmt} → Form 1065 Line 16a → Form 8825 Line 14.",
+                "summary": f"Line 22 (f130/f2_2) = {d_fmt} → Form 1065 Line 16a → Form 8825 Line 14.",
                 "detail":  (
-                    "Line 22 is the sum of all depreciation from Parts II and III. "
-                    "For W&B Group this equals the Part III Line 19h deduction. "
-                    "f129 (shortName f2_1, first standalone text field on page 2) is the "
-                    "correct fid for Part IV Line 22. f153 (f2_18 inside Table_Ln26) is a "
-                    "Part V Listed Property table field and must remain blank. "
-                    "This figure flows to: Form 1065 Schedule K Line 16a (depreciation), "
-                    "and Form 8825 Line 14 (depreciation expense on the rental property)."
+                    "Page 2 standalone fields: f2_1(f129)=Line 21 'Listed property' (blank — no §280F assets). "
+                    "f2_2(f130)=Line 22 total depreciation — the Part IV summary field. "
+                    "f153 (f2_18 inside Table_Ln26) is Part V Listed Property table — leave blank. "
+                    "Line 22 = sum of Parts II + III. For W&B Group equals Line 19i col(g) = IS.depreciation. "
+                    "Flows to: Form 1065 Schedule K Line 16a, Form 8825 Line 14."
                 ),
             },
             {

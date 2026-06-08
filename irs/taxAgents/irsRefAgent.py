@@ -80,11 +80,11 @@ _F4562_SECTIONS = [
     {
         "id":    "PartIV",
         "name":  "Part IV — Summary (Line 22)",
-        # F129=f129 is the first standalone text field on page 2 (f2_1),
-        # before the Part V checkboxes and Table_Ln26. This is Part IV Line 22.
-        # F153 (f2_18, inside Table_Ln26 BodyRow2) is in the Listed Property table —
-        # it is Part V, NOT Line 22. Do not use F153 for the total depreciation.
-        "fids":  ["F129"],
+        # Page 2 standalone fields before the Part V checkboxes:
+        #   f2_1 (F129) = Line 21: Listed property (from Part V line 28) — BLANK for W&B Group
+        #   f2_2 (F130) = Line 22: Total depreciation summary — THIS is the one to fill
+        # F153 (f2_18, inside Table_Ln26) is Part V Listed Property table — also wrong.
+        "fids":  ["F130"],
         "ref":   "F4562-22",
     },
 ]
@@ -139,17 +139,16 @@ _F4562_REFERENCES = {
         ],
     },
     "F4562-22": {
-        "fields": ["F129"],
+        "fields": ["F130"],
         "cite":   "Form 4562 Part IV Instructions; Form 1065 Instructions Line 16a; IRC §446",
         "reason": [
-            "F129 (f129, shortName f2_1): first standalone text field on page 2, immediately "
-            "before the Part V checkboxes (c2_1/c2_2) and Table_Ln26. This is Part IV Line 22. "
-            "NOTE: F153 (f153, shortName f2_18, inside Table_Ln26 BodyRow2) is NOT Line 22 — "
-            "it is a field inside the Part V Listed Property table and must remain blank.",
-            "Line 22 = sum of Parts II + III depreciation. For W&B Group this equals Line 19i only "
+            "Page 2 standalone fields before the Part V checkboxes (c2_1/c2_2): "
+            "f2_1 (F129) = Line 21 'Listed property' (from Part V line 28) — BLANK for W&B Group. "
+            "f2_2 (F130) = Line 22 total depreciation — THIS is Part IV Summary. "
+            "NOTE: F153 (f2_18, inside Table_Ln26) is Part V Listed Property table — also wrong.",
+            "Line 22 = Parts II + III depreciation total. For W&B Group equals Line 19i col(g) only "
             "(no bonus depreciation Part II, no listed property Part V).",
-            "Flows to Form 1065 Line 16a (Depreciation not claimed on Schedule A or elsewhere). "
-            "Form 1065 Instructions p.17; Form 8825 Line 14 sourced independently from IS.depreciation.",
+            "Flows to Form 1065 Line 16a. Form 8825 Line 14 sourced independently from IS.depreciation.",
         ],
     },
 }

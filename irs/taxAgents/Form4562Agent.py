@@ -596,7 +596,9 @@ class AgentF4562_Summary(_SectionAgent):
     # f153 (f2_18, Table_Ln26 BodyRow2) is in the Part V Listed Property table — NOT Line 22.
     # IMPORTANT: loadFillDict() normalizes all fids to uppercase "F###" format.
     # These constants must match that format for fill.get() lookups to work.
-    _LINE22_FID = 'F129'   # Part IV Line 22 total depreciation (page 2, f2_1)
+    # Page 2 standalone fields: f2_1(F129)=Line21 listed-property (blank for W&B Group),
+    # f2_2(F130)=Line22 total depreciation — the one to fill.
+    _LINE22_FID = 'F130'   # Part IV Line 22 total depreciation (page 2, f2_2)
     _COL_G_FID  = 'F080'   # Line 19i_1 col (g) depreciation deduction — same value
 
     def pass2_audit(self) -> Dict[str, Any]:
