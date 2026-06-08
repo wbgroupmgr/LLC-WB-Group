@@ -74,33 +74,40 @@ def main():
     aid = BookToIRS(llc, form_name)
     aid._refreshStmtInstances()
 
-    # ── load namespace field info ──────────────────────────────────────────────
+    # ── load namespace field info (auto-build if missing) ─────────────────────
     form_cls  = aid._formClass()
     form_inst = form_cls(llc=llc)
     try:
         df_fields = form_inst.loadFieldsDF()
-    except FileNotFoundError as exc:
-        print(f"\nERROR: {exc}")
-        sys.exit(1)
+    except FileNotFoundError:
+        print(f"  namespace JSON missing — building from IRS PDF...")
+        try:
+            nspace = form_inst._buildNSpace()
+            form_inst.saveNSpace(nspace)
+            df_fields = form_inst.loadFieldsDF()
+            print(f"  namespace built: {len(nspace.get('fields', {}))} fields")
+        except Exception as exc:
+            print(f"\nERROR building namespace: {exc}")
+            sys.exit(1)
 
     fid_meta = {}
     for _, row in df_fields.iterrows():
         fid_meta[row["fid"]] = {
             "pdf_fid":   row.get("pdf_fid", ""),
+            "shortName": row.get("shortName", ""),
             "pdfField":  row.get("pdfField", ""),
             "location":  row.get("location", ""),
             "page":      row.get("page", ""),
-            "shortName": row.get("shortName", ""),
         }
 
     # ── collect mappings per source ───────────────────────────────────────────
-    W = {"src": 9, "fid": 6, "pdf_fid": 8, "loc": 32, "uas": 38, "val": 18}
+    W = {"src": 9, "fid": 6, "sn": 10, "loc": 30, "uas": 38, "val": 18}
     SEP = "  "
 
     def _hdr(label):
         return (f"{'SRC':{W['src']}}{SEP}{'fid':{W['fid']}}{SEP}"
-                f"{'pdf_fid':{W['pdf_fid']}}{SEP}{'location':{W['loc']}}{SEP}"
-                f"{'UAS path':{W['uas']}}{SEP}{'value':{W['val']}}")
+                f"{'shortName':{W['sn']}}{SEP}{'location':{W['loc']}}{SEP}"
+                f"{'UAS path':{W['uas']}}{SEP}{'value'}")
 
     print(f"\n{'='*110}")
     print(f"  BookToIRS Diagnostic — {form_name}")
@@ -144,7 +151,7 @@ def main():
             val  = fill_dict.get(norm_fid)
             meta = fid_meta.get(norm_fid, {})
             loc  = (meta.get("location") or "").replace(f"{form_name}.", "")
-            pdf_fid = meta.get("pdf_fid") or "?"
+            sn   = meta.get("shortName") or "?"
 
             val_str = _fmt(val)
             total_mapped += 1
@@ -152,7 +159,7 @@ def main():
                 total_blank += 1
             elif isinstance(val, float) and val == 0.0:
                 total_zero += 1
-            elif str(val) == "0" or str(val) == "0.0" or str(val) == "0.00":
+            elif str(val) in ("0", "0.0", "0.00"):
                 total_zero += 1
             else:
                 total_filled += 1
@@ -160,7 +167,7 @@ def main():
             print(
                 f"{src:{W['src']}}{SEP}"
                 f"{norm_fid:{W['fid']}}{SEP}"
-                f"{pdf_fid:{W['pdf_fid']}}{SEP}"
+                f"{sn:{W['sn']}}{SEP}"
                 f"{loc:{W['loc']}}{SEP}"
                 f"{str(uas):{W['uas']}}{SEP}"
                 f"{val_str}"

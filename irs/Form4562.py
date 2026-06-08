@@ -79,17 +79,19 @@ class Form4562(irsForm):
     IRS template : ``{irsDir}/Form4562_IRS.pdf``
     """
 
+    # Patterns match against XFA shortName (f1_N / c1_N / f2_N).
+    # Field sequence determined from Form4562_IRS.pdf namespace.
     LOCATION_RULES: List[Tuple[str, str]] = [
-        (r'^P1_Hdr',             "Form4562.Header"),
-        (r'^P1_L([1-9]|1[0-2])', "Form4562.PartI.Sec179"),
-        (r'^P2_',                "Form4562.PartII.SpecialDepr"),
-        (r'^P3_L1[7-8]',         "Form4562.PartIII.MACRS.Other"),
-        (r'^P3_L19',             "Form4562.PartIII.MACRS.RealProp"),
-        (r'^P3_L2[0-1]',         "Form4562.PartIII.MACRS.GDS"),
-        (r'^P4_',                "Form4562.PartIV.Summary"),
-        (r'^P5_',                "Form4562.PartV.ListedProp"),
-        (r'^P6_',                "Form4562.PartVI.Amortization"),
-        (r'^P',                  "Form4562.Other"),
+        (r'^f1_[2-4]$',                         "Form4562.Header"),
+        (r'^f1_([5-9]|1\d|2[0-5])$',            "Form4562.PartI.Sec179"),
+        (r'^c1_',                                "Form4562.PartII.SpecialDepr"),
+        (r'^f1_(2[6-9]|[3-5]\d|6[0-7])$',       "Form4562.PartIII.MACRS.Other"),
+        # Line 19h residential rental — 6 columns (b-g): f69-f74 → f1_68 to f1_73
+        (r'^f1_(6[89]|7[0-3])$',                 "Form4562.PartIII.MACRS.Line19h"),
+        (r'^f1_(7[4-9]|[89]\d|1[0-4]\d)$',       "Form4562.PartV.ListedProp"),
+        # Page 2: Part IV Summary (Line 22) + Part V listed property + Part VI amortization
+        (r'^f2_(1[0-9]|20)$',                    "Form4562.PartIV.Summary"),
+        (r'^f2_',                                 "Form4562.PartV.ListedProp"),
     ]
 
     _FILL_MAP:  Dict[str, Dict] = {}

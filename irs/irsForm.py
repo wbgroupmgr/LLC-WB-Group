@@ -275,8 +275,10 @@ class irsForm:
                     logical_key = ""
 
             label    = label_map.get(logical_key, "") if logical_key else ""
-            location = self._deriveLocation(logical_key) if logical_key else \
-                       f"{self.oID}.Pg{fi['page']}.Unknown"
+            # Try logical_key first (AcroForm); fall back to shortName (XFA sequential forms).
+            location = (self._deriveLocation(logical_key) if logical_key
+                        else self._deriveLocation(short)
+                             or f"{self.oID}.Pg{fi['page']}.Unknown")
 
             fields_ns[fid] = {
                 "fID":          fid,
@@ -769,12 +771,18 @@ class irsForm:
             return (page, seq_pg, prefix, seq_num)
         return (page, 999, 0, 0)
 
-    def _deriveLocation(self, logical_key: str) -> str:
-        """Return namespace location string; subclasses define LOCATION_RULES."""
+    def _deriveLocation(self, key: str) -> str:
+        """Return namespace location string, or '' if no rule matches.
+
+        Tries each (pattern, location) in LOCATION_RULES against ``key``.
+        Returns the matched location string, or empty string when no rule matches
+        (lets callers distinguish 'matched' from 'no match' before applying the
+        per-page Unknown fallback).
+        """
         for pattern, location in self.LOCATION_RULES:
-            if re.match(pattern, logical_key):
+            if re.match(pattern, key):
                 return location
-        return self._LOCATION_DEFAULT
+        return ""
 
     def _to_PDF(self, **kwargs):
         print(f"irsForm.{self.oID} _to_PDF Entry")
