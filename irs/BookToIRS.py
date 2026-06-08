@@ -904,15 +904,77 @@ class BookToIRS:
         out_path = form.saveFILL_FromDF(df)
         _logger.info("  wrote %s  (filled=%d blank=%d)", out_path, n_filled, n_blank)
 
-        return {
-            "fill_path":  str(out_path),
-            "pdf_fields": int(len(df)),
-            "filled":     n_filled,
-            "check":      n_check,
-            "complex":    n_complex,
-            "blank":      n_blank,
-            "ts":         int(time.time()),
+        # Phase 5 — Diagnose + save state (non-fatal; never blocks FILL.pdf)
+        regressions: list = []
+        try:
+            regressions = self._save_diagnose_state(_logger)
+        except Exception as _ds_exc:
+            _logger.warning("  diagnose_state save failed (non-fatal): %s", _ds_exc)
+
+        result = {
+            "fill_path":   str(out_path),
+            "pdf_fields":  int(len(df)),
+            "filled":      n_filled,
+            "check":       n_check,
+            "complex":     n_complex,
+            "blank":       n_blank,
+            "ts":          int(time.time()),
         }
+        if regressions:
+            result["regressions"] = regressions
+        return result
+
+    def _save_diagnose_state(self, logger=None) -> list:
+        """Run IRSDiagAgent.diagnose() and persist FormXXXX_diagnose_state.json.
+        Returns list of section_ids that regressed (empty if none).
+        Called by regenerate() after FILL.pdf is written."""
+        import logging as _log
+        _lg = logger or _log.getLogger("BookToIRS")
+
+        from irs.taxAgents.irsDiagAgent import IRSDiagAgent
+        from irs import formDiagState as _fds
+
+        diag_data = IRSDiagAgent(self.llc, self.formNm).diagnose()
+
+        # Resolve forms_dir from the form object (same dir as bookNS files)
+        form_cls  = self._formClass()
+        form_inst = form_cls(llc=self.llc)
+        # bookNS lives in forms_dir; derive it from the IS bookNS path
+        stmt_is   = self._stmtInstance("IS")
+        if stmt_is and hasattr(stmt_is, "_bkNS_path"):
+            forms_dir = Path(stmt_is._bkNS_path()).parent
+        else:
+            forms_dir = form_inst.irsDir  # fallback: same dir as IRS PDFs
+
+        llc_repo  = _fds.get_llc_repo_dir(self.llc)
+        bus_repo  = _fds.get_bus_repo_dir(forms_dir)
+        llc_sha   = _fds._git_sha(llc_repo) if llc_repo else "unknown"
+        bus_sha   = _fds._git_sha(bus_repo)  if bus_repo else "unknown"
+
+        prev_state = _fds.load(self.formNm, forms_dir)
+        new_state  = _fds.build_state(diag_data, llc_sha, bus_sha, prev_state)
+        _fds.save(new_state, forms_dir)
+
+        regressions = new_state.get("regressions", [])
+        if regressions:
+            _lg.warning("  REGRESSION: sections %s had VERIFIED values that changed",
+                        regressions)
+            _lg.warning("  LLC SHA: %s  BUS SHA: %s", llc_sha, bus_sha)
+        else:
+            _lg.info("  diagnose_state saved: %d sections  llc=%s  bus=%s",
+                     len(new_state.get("sections", {})), llc_sha, bus_sha)
+
+        # bookNS integrity check — warns if bookNS files changed since last VERIFY
+        integrity_mismatches = _fds.check_integrity(self.formNm, forms_dir)
+        if integrity_mismatches:
+            _lg.warning(
+                "  INTEGRITY WARNING: bookNS_%s Form4562 sections differ from last "
+                "VERIFIED state.  BUS repo bookNS changes must be committed before "
+                "regenerating.  Mismatched sources: %s",
+                integrity_mismatches, forms_dir,
+            )
+
+        return regressions
 
     # ── Per-partner K-1 pipeline ───────────────────────────────
     def _loadOwnersForK1(self) -> List[Dict]:

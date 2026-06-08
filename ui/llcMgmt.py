@@ -1577,6 +1577,95 @@ class llcMgmt:
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
 
+        @app.route("/api/aid/verify_section", methods=["POST"])
+        def aid_verify_section():
+            """Mark a section VERIFIED in FormXXXX_diagnose_state.json.
+
+            POST body: { "form": "Form4562", "section_id": "Header" }
+            Returns: { "ok": true, "section_id": ..., "verified_at": ...,
+                       "regressions": [...] }
+            """
+            try:
+                body      = request.get_json(force=True) or {}
+                raw_form  = (body.get("form") or "").strip()
+                section_id = (body.get("section_id") or "").strip()
+                form_nm   = _FORM_KEY_MAP.get(raw_form.lower(), raw_form) or raw_form
+                if form_nm not in AID_FORMS:
+                    return jsonify({"ok": False,
+                                    "error": f"Unknown form: {raw_form!r}"}), 400
+                if not section_id:
+                    return jsonify({"ok": False, "error": "section_id required"}), 400
+                _llc = getattr(self.eSession, "llc", None)
+                if _llc is None:
+                    return jsonify({"ok": False, "error": "no LLC session"}), 400
+
+                from irs import formDiagState as _fds
+                from pathlib import Path
+
+                # Resolve forms_dir (same logic as _save_diagnose_state)
+                aid     = _aid()
+                stmt_is = aid._stmtInstance("IS")
+                if stmt_is and hasattr(stmt_is, "_bkNS_path"):
+                    forms_dir = Path(stmt_is._bkNS_path()).parent
+                else:
+                    from irs.irsForm import irsForm
+                    forms_dir = Path(irsForm(llc=_llc).irsDir)
+
+                llc_repo = _fds.get_llc_repo_dir(_llc)
+                bus_repo = _fds.get_bus_repo_dir(forms_dir)
+                llc_sha  = _fds._git_sha(llc_repo) if llc_repo else "unknown"
+                bus_sha  = _fds._git_sha(bus_repo)  if bus_repo else "unknown"
+
+                state = _fds.verify_section(
+                    section_id, form_nm, forms_dir, llc_sha, bus_sha)
+                sec   = state["sections"].get(section_id, {})
+                return jsonify({
+                    "ok":           True,
+                    "section_id":   section_id,
+                    "verified_at":  sec.get("verified_at"),
+                    "regressions":  state.get("regressions", []),
+                })
+            except KeyError as err:
+                return jsonify({"ok": False, "error": str(err)}), 404
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/aid/diagnose_state")
+        def aid_diagnose_state():
+            """Return the persisted FormXXXX_diagnose_state.json for a form.
+
+            Query param: formNm (e.g. Form4562 or form4562)
+            """
+            try:
+                raw     = (request.args.get("formNm") or "").strip()
+                form_nm = _FORM_KEY_MAP.get(raw.lower(), raw) or "Form1065"
+                if form_nm not in AID_FORMS:
+                    return jsonify({"ok": False,
+                                    "error": f"Unknown form: {raw!r}"}), 400
+                _llc = getattr(self.eSession, "llc", None)
+                if _llc is None:
+                    return jsonify({"ok": False, "error": "no LLC session"}), 400
+
+                from irs import formDiagState as _fds
+                from pathlib import Path
+
+                aid     = _aid()
+                stmt_is = aid._stmtInstance("IS")
+                if stmt_is and hasattr(stmt_is, "_bkNS_path"):
+                    forms_dir = Path(stmt_is._bkNS_path()).parent
+                else:
+                    return jsonify({"ok": False, "error": "cannot resolve forms_dir"}), 500
+
+                state = _fds.load(form_nm, forms_dir)
+                return jsonify({"ok": True, "state": state,
+                                "form": form_nm, "has_state": bool(state)})
+            except HTTPException:
+                raise
+            except Exception as err:
+                return jsonify({"ok": False, "error": str(err)}), 500
+
         # ── Form 1065 Agent routes ─────────────────────────────────────────────
         # Pre-import at bind time so a missing file surfaces as a startup error,
         # not a silent 404.  Guarded so a missing taxAgents package degrades

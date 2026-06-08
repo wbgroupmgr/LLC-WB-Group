@@ -1,0 +1,237 @@
+flowchart LR
+
+%%  BookToIRS_DataFlow.mmd
+%%  Data-flow view of the IRS FILL.pdf generation pipeline.
+%%
+%%  ╔══════════════════════════════════════════════════════════╗
+%%  ║  CRITICAL PATH (orange border) = the path where a bad   ║
+%%  ║  bookNS entry produces a silently wrong FILL.pdf.        ║
+%%  ║  No automatic detection — only the Diagnose layer        ║
+%%  ║  (blue) + Bookkeeper VERIFY (green) make errors visible. ║
+%%  ╚══════════════════════════════════════════════════════════╝
+%%
+%%  Read left-to-right: raw data → resolve → merge → stamp → PDF.
+%%  Diagnose path runs in parallel; bookkeeper VERIFY closes the loop.
+
+
+
+%% ══════════════════════════════════════════════════════════════════
+%%  INPUT LAYER — required artifacts, states at pipeline entry
+%% ══════════════════════════════════════════════════════════════════
+
+subgraph IRS_PDF [" IRS Template "]
+    direction TB
+    IRSpdf["📄 Form{N}_IRS.pdf\n── blank IRS AcroForm ──\n/Tx text + /Btn checkbox\nfields with XFA paths"]
+end
+
+subgraph NAMESPACE [" Namespace Artifact "]
+    direction TB
+    NS_exist{"namespace.json\nexists?"}
+    NS_JSON["📋 Form{N}_namespace.json\n── GENERATED from IRS PDF ──\nfid → pdfField, fType,\npage, location, checkedValue\n(277 fields for Form4562)"]
+    NS_build["irsForm._buildNSpace()\napply LOCATION_RULES\n(XFA shortName → section label)"]
+    LOCATION["⚙ Form{N}.LOCATION_RULES\n── embedded in irs/Form{N}.py ──\nregex → section label\nex: f1_74..f1_85 → PartIII.Line19i"]
+end
+
+subgraph BOOKNS [" BookNS Mapping Tables (operator-authored) "]
+    direction TB
+    BN_P["📝 bookNS_Profile.json\nForm4562 section:\n  f1 → Profile.entity_name\n  f2 → Profile.F1065.A_bus_act\n  f3 → Profile.entity.ein"]
+    BN_B["📝 bookNS_BS.json\nForm4562 section:\n  f75 → BS.placed_in_service_date\n  f76 → Acct.Fixed.Tangible.InService"]
+    BN_I["📝 bookNS_IS.json\nForm4562 section:\n  f4  → Val.1,220,000\n  f20 → Val.0\n  f21 → Val.0\n  f80 → Acct.Exp.Depreciation\n  f130 → Acct.Exp.Depreciation"]
+    BN_G["📝 bookNS_GL.json\nForm4562 section:\n  (empty for Form4562)"]
+end
+
+subgraph BOOKS [" Live Ledger Books "]
+    direction TB
+    DB_Profile["👤 llcProfile_{llc}.json\nentity, EIN, A_bus_act,\nowners, F1065 fields"]
+    DB_Assets["💰 llcAssets_{llc}.json\nfixed assets, InService\ndates, costs, propNm"]
+    DB_ExpRev["📊 llcExpRev_{llc}.json\nrental income, expenses\ndepreciation entries"]
+end
+
+subgraph GIT_INTEGRITY [" Cross-Repo Integrity "]
+    direction TB
+    LLC_SHA["🔖 LLC git SHA\n── llcRentalTracker ──\nPython source version\nat regenerate() time"]
+    BUS_SHA["🔖 BUS git SHA\n── LLC-WBGroup ──\nbookNS data version\nat regenerate() time"]
+    SHA_WARN{"bookNS SHA\nmatches\nbookNS_integrity.json?"}
+    SHA_ALERT["⚠ INTEGRITY WARNING\nbookNS file differs from\nlast verified state.\nCommit BUS repo or\nre-run verification."]
+    LLC_SHA --> SHA_WARN
+    BUS_SHA --> SHA_WARN
+    SHA_WARN -->|"mismatch"| SHA_ALERT
+end
+
+%% ══════════════════════════════════════════════════════════════════
+%%  PROCESSING LAYER — state transitions
+%% ══════════════════════════════════════════════════════════════════
+
+subgraph PHASE1 [" Phase 1 — Namespace Resolution "]
+    direction TB
+    P1_check["check: ns_path.exists()?"]
+    P1_load["loadFieldsDF()\nread namespace JSON\nnormalize fids → F### uppercase\njoin with IRS PDF /FT data"]
+    P1_df["🗂 df_fields\n277 rows × {fid, pdfField,\nfType, pdfFT, page,\ncheckedValue, location}"]
+end
+
+subgraph PHASE2 [" Phase 2 — Value Resolution (× 4 sources) "]
+    direction TB
+    P2_refresh["_refreshStmtInstances()\ncreate fresh stmt objects\n(Profile, BS, IS, GL)"]
+    P2_loop["for each src in\n[Profile → BS → IS → GL]\n(priority order)"]
+
+    subgraph RESOLVE [" Per-Source Resolution "]
+        direction LR
+        R1["loadBookNS(src)\nread bookNS_{src}.json\nfilter to Form{N} section\nreturn [ [fid, UAS], ... ]"]
+        R2["stmt{SRC}_Tax.loadFillDict(Form{N})\n── UAS resolver ──\nProfile.* → llcProfile cell\nAcct.*    → BS/IS balance\nIS.*      → taxAggregate()\nBS.*      → taxAggregate()\nVal.*     → literal string\nCplx.*    → Complex sentinel"]
+        R3["normalized output\n{ F001: 'W&B Group, LLC'\n  F004: 1220000\n  F075: '8/2025'\n  F080: 1903.13 ... }"]
+        R1 --> R2 --> R3
+    end
+
+    P2_collect["collect all source rows\n{ fid, fval, source }"]
+    P2_dedup["priority dedup\nhas_val DESC + prio ASC\nProfile=0 > BS=1 > IS=2 > GL=3\ndrop_duplicates(fid, keep=first)"]
+    P2_book["🗂 df_book\nN rows × {fid, fval, source}\nhighest-priority value per fid"]
+
+    P2_refresh --> P2_loop --> RESOLVE --> P2_collect --> P2_dedup --> P2_book
+end
+
+subgraph PHASE3 [" Phase 3 — Merge + Status "]
+    direction TB
+    P3_merge["df_fields.merge(df_book, on=fid, how=LEFT)\nall IRS fids kept\nunmatched → fval=NaN"]
+    P3_status["status assignment per row:\n  fval present  → filled\n  fval=CHECK    → check (/Btn toggle)\n  fval=Complex  → complex (skip)\n  fval=NaN/''   → blank"]
+    P3_df["🗂 df (final)\n277 rows × {fid, pdfField, fType,\npdfFT, page, value, status}"]
+    P3_merge --> P3_status --> P3_df
+end
+
+subgraph PHASE4 [" Phase 4 — PDF Stamp "]
+    direction TB
+    P4_open["PdfReader(Form{N}_IRS.pdf)\nclone_from → PdfWriter"]
+    P4_loop["for each row where value ≠ None:\n  /Tx → update_page_form_field_values()\n  /Btn + value==CHECK → toggle ON\n  /Btn + other → skip (no corruption)"]
+    P4_write["PdfWriter.write(Form{N}_FILL.pdf)\natomic disk write"]
+    P4_open --> P4_loop --> P4_write
+end
+
+subgraph PHASE5 [" Phase 5 — Diagnose + State Save "]
+    direction TB
+    P5_diag["IRSDiagAgent.diagnose()\nrun after each regenerate()\ncollect: section fields,\nUAS paths, resolved values\n+ LLC SHA + BUS SHA"]
+    P5_load_prev["load previous\nFormXXXX_diagnose_state.json\n(if exists)"]
+    P5_regcheck["compare VERIFIED sections:\nnew fields_hash vs saved hash\nif changed → REGRESSION"]
+    P5_save["save FormXXXX_diagnose_state.json\n{form, llc, year, generated_at,\nllc_sha, bus_sha,\nsections: {id, name,\n  agent_state, verify_state,\n  verified_at, fields_hash,\n  fields: [{fid,uas,value}]\n}}"]
+    P5_diag --> P5_load_prev --> P5_regcheck --> P5_save
+end
+
+%% ══════════════════════════════════════════════════════════════════
+%%  KNOWLEDGE LAYER — agents inform but do NOT modify fill pipeline
+%% ══════════════════════════════════════════════════════════════════
+
+subgraph AGENTS [" Agent Knowledge Layer "]
+    direction TB
+    IRSREF["📚 irsRefAgent.py\n── static IRS knowledge ──\nSECTIONS: fid groups per part\nREFERENCES: IRC citations\nField purpose explanations"]
+    SECAGENT["🔍 Form{N}Agent\n+ Section Agents (×6 for Form4562)\n── audit rules ──\npass1: fill completeness\npass2: IRS compliance checks\n(Books-First, §179, MACRS formula)\nRules fire against fill_dict\nfrom loadFillDict() — same data"]
+    DIAGAGENT["🩺 IRSDiagAgent\ndiagnose() organizes fill_dict\nby irsRefAgent.SECTIONS\nshows fid/UAS/value per section\n+ unmapped entries"]
+    SESSSTATE["💾 Form{N}_session_state.json\nAgent GO/NEEDS_FIXING state\nhalt/resolve/review counts\nper section agent"]
+    BOOKKEEPER["👤 Bookkeeper VERIFY\n── human checkpoint ──\nGO → review fields/values\nclick VERIFY SECTION\nmarks section VERIFIED\nin diagnose_state.json\nwith SHA + timestamp"]
+
+    IRSREF -->|"section fids + citations"| DIAGAGENT
+    SECAGENT -->|"audit issues list"| SESSSTATE
+    SECAGENT -->|"fill_dict from loadFillDict()"| SESSSTATE
+    SESSSTATE -->|"agent_state per section"| BOOKKEEPER
+    DIAGAGENT -->|"fid/UAS/value per section"| BOOKKEEPER
+end
+
+%% ══════════════════════════════════════════════════════════════════
+%%  OUTPUT LAYER
+%% ══════════════════════════════════════════════════════════════════
+
+subgraph OUTPUT [" Outputs "]
+    direction TB
+    FILL["✅ Form{N}_FILL.pdf\n── filled IRS form ──\nN fields stamped\n(Form4562: ~10 fields filled\n of 277 total AcroForm fields)"]
+    DIAG_STATE["📋 FormXXXX_diagnose_state.json\n── pipeline integrity record ──\nper section:\n  verify_state: UNCONFIRMED\n               VERIFIED ✓\n               REGRESSION ⚠\n  fields_hash: sha256(fid+value)\n  verified_at + llc_sha + bus_sha\nLives in BUS repo:\n  books/2025/Forms/\nVersioned alongside bookNS files"]
+    DIAG_OUT["📊 Guided Review (browser)\nSections: Header, PartI, PartIII, PartIV\nPer-fid: shortName, UAS, value\nIRS Ref: IRC citations per section\n+ Unmapped: bookNS fids not in sections\n+ Agent state: GO / NEEDS_FIXING\n+ VERIFY button per GO section\n+ REGRESSION banner if detected"]
+    REGRESS["🚨 REGRESSION Report\n── emitted when VERIFIED section\n   has changed field values ──\nLLC git status (source code)\nBUS git status (bookNS data)\nChanged section: name + fids\nOld values vs New values\nAction: investigate BOTH repos\nbefore next filing submission"]
+    SUMMARY["📈 regenerate() return\n{ fill_path, pdf_fields,\n  filled, blank, check,\n  complex, ts }"]
+end
+
+%% ══════════════════════════════════════════════════════════════════
+%%  CONNECTIONS — artifact flow
+%% ══════════════════════════════════════════════════════════════════
+
+%% Namespace path
+IRSpdf -->|"PdfReader.get_fields()\nparse XFA/AcroForm"| NS_build
+LOCATION -->|"regex pattern match\non XFA shortName"| NS_build
+NS_build -->|"build if missing"| NS_JSON
+NS_exist -->|"missing"| NS_build
+NS_exist -->|"exists → read"| NS_JSON
+
+%% Namespace → Phase 1
+NS_JSON --> P1_check
+IRSpdf -->|"re-read for /FT data"| P1_load
+P1_check -->|"load"| P1_load
+P1_load --> P1_df
+
+%% BookNS → Phase 2  [CRITICAL PATH — bad fid here = silent wrong fill]
+BN_P -->|"Form{N} section\n[ [fid, UAS], ... ]"| R1
+BN_B -->|"Form{N} section"| R1
+BN_I -->|"Form{N} section"| R1
+BN_G -->|"Form{N} section\n(empty)"| R1
+
+%% Books → Phase 2
+DB_Profile -->|"entity fields"| R2
+DB_Assets -->|"BS.placed_in_service_date\nAcct.Fixed.Tangible.InService"| R2
+DB_ExpRev -->|"IS.depreciation\nAcct.Exp.Depreciation"| R2
+
+%% Phase flow [CRITICAL PATH]
+P1_df -->|"fid metadata"| P3_merge
+P2_book -->|"resolved values"| P3_merge
+P3_df --> PHASE4
+P4_write --> FILL
+P4_write --> SUMMARY
+
+%% Phase 4 → Phase 5 (diagnose runs after every FILL generation)
+P4_write -->|"trigger diagnose\nafter FILL written"| P5_diag
+LLC_SHA -->|"captured at\nregenerate() start"| P5_diag
+BUS_SHA -->|"captured at\nregenerate() start"| P5_diag
+P5_regcheck -->|"VERIFIED section\nfield values changed"| REGRESS
+P5_save --> DIAG_STATE
+
+%% Integrity check path
+SHA_WARN -->|"match → proceed"| R1
+
+%% Agent / Diagnostic parallel path
+BN_P & BN_B & BN_I -->|"same bookNS read\nvia aid.loadBookNS()"| DIAGAGENT
+DB_Profile & DB_Assets & DB_ExpRev -->|"same value resolution\nvia loadFillDict()"| DIAGAGENT
+BN_P & BN_B & BN_I -->|"loadFillDict()\nsame data"| SECAGENT
+DB_Profile & DB_Assets & DB_ExpRev --> SECAGENT
+DIAGAGENT --> DIAG_OUT
+SESSSTATE --> DIAG_OUT
+
+%% Bookkeeper loop — human verification closes the integrity circuit
+DIAG_STATE -->|"load verify_state\nper section"| BOOKKEEPER
+BOOKKEEPER -->|"VERIFY SECTION\n→ POST /api/aid/verify_section\n→ write VERIFIED + SHA + hash"| DIAG_STATE
+BOOKKEEPER --> DIAG_OUT
+
+%% Regression report surface
+REGRESS --> DIAG_OUT
+
+%% ══════════════════════════════════════════════════════════════════
+%%  STYLE
+%% ══════════════════════════════════════════════════════════════════
+classDef artifact    fill:#e8f4fd,stroke:#2196F3,color:#000
+classDef process     fill:#e8f5e9,stroke:#4CAF50,color:#000
+classDef knowledge   fill:#fff3e0,stroke:#FF9800,color:#000
+classDef output      fill:#f3e5f5,stroke:#9C27B0,color:#000
+classDef datafile    fill:#fce4ec,stroke:#E91E63,color:#000
+classDef decision    fill:#fffde7,stroke:#FFC107,color:#000
+classDef critpath    fill:#fff8f0,stroke:#FF6D00,stroke-width:3px,color:#000
+classDef integrity   fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
+classDef regression  fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+classDef verified    fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
+
+class IRSpdf,NS_JSON,BN_P,BN_B,BN_I,BN_G artifact
+class DB_Profile,DB_Assets,DB_ExpRev datafile
+class LOCATION,NS_build,P1_load,P2_refresh,P2_loop,P2_collect,P2_dedup,R1,R2,R3,P3_merge,P3_status,P4_open,P4_loop,P4_write process
+class P1_df,P2_book,P3_df datafile
+class IRSREF,SECAGENT,DIAGAGENT,SESSSTATE knowledge
+class FILL,DIAG_OUT,SUMMARY output
+class NS_exist,P1_check,SHA_WARN decision
+class DIAG_STATE,BOOKKEEPER verified
+class REGRESS regression
+class SHA_ALERT,LLC_SHA,BUS_SHA integrity
+class P5_diag,P5_load_prev,P5_regcheck,P5_save process
+
+%% Critical path — bookNS to FILL (where errors are invisible without diagnose layer)
+class BN_P,BN_B,BN_I,R1,R2,R3,P2_dedup,P2_book,P3_merge,P3_status,P4_loop,P4_write,FILL critpath

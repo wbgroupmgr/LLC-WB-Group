@@ -47,6 +47,21 @@ Every IRS form field value must be sourced from the Financial Books — never fr
 - **After every commit (or set of commits), always `git push origin main`** — pushing to the remote is a required step, not optional. PA (PythonAnywhere) pulls from this repo; untracked local commits block PA syncs.
 - `.claude/sessionLogs/` is gitignored — do not commit session log files.
 
+#### Cross-Repo Commit Rule (IRS Form fid corrections)
+
+**IRS form fid corrections span two repos. Both must be committed together.**
+
+When any of the following change in the LLC repo:
+- `irs/Form4562.py` (LOCATION_RULES, fid ranges)
+- `irs/taxAgents/irsRefAgent.py` (SECTIONS fid lists)
+- Any section agent fid reference
+
+...the corresponding `bookNS_{src}.json` sections in the **BUS repo** (`books/2025/Forms/`) must also be updated and committed **in the same session**, not left as uncommitted local changes.
+
+**How the split happened (root cause, Jun 2026):** The BUS repo was initialized with stale fids (f74, f153, f69-f73) from a prior PDF version. LLC commits `7255581`→`b0ebdbf` corrected the fids in Python but never triggered a BUS commit. PA's `git pull` only pulls the LLC repo — it got stale bookNS data and produced wrong FILL.pdf output.
+
+**Enforcement:** `irs/bookNS_integrity.json` (in this repo) records SHA256 of each bookNS Form section at last VERIFIED state. `formDiagState.check_integrity()` warns on every `regenerate()` if they drift. The warning is logged — if you see `INTEGRITY WARNING` in the server log, the BUS repo has uncommitted bookNS changes.
+
 #### Design Workflow
 
 - when doing `enhancements` / `major refactoring` we will discuss the issues and goals, then we'll work together to developed a multi-task plan.

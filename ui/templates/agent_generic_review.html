@@ -64,6 +64,36 @@
     .no-issues { color: #166534; font-size: 12px; padding: 6px 0; }
     .run-bar { padding: 14px 18px; display: flex; gap: 10px; align-items: center; }
     .ts-label { font-size: 11px; color: #9ca3af; margin-left: auto; }
+    /* Bookkeeper VERIFY per-section */
+    .verify-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 18px 6px; border-top: 1px solid #f3f4f6;
+        background: #f9fafb;
+    }
+    .btn-verify {
+        background: #dcfce7; color: #166534; border: 1px solid #86efac;
+        border-radius: 6px; padding: 4px 14px; font-size: 12px; font-weight: 700;
+        cursor: pointer;
+    }
+    .btn-verify:hover { background: #bbf7d0; }
+    .btn-verify:disabled { opacity: 0.5; cursor: default; }
+    .badge-verified {
+        background: #166534; color: white; border-radius: 10px;
+        font-size: 10px; font-weight: 700; padding: 2px 8px; letter-spacing: 0.03em;
+    }
+    .badge-regression {
+        background: #c62828; color: white; border-radius: 10px;
+        font-size: 10px; font-weight: 700; padding: 2px 8px; letter-spacing: 0.03em;
+    }
+    .badge-unconfirmed {
+        background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db;
+        border-radius: 10px; font-size: 10px; padding: 2px 8px;
+    }
+    .regression-banner {
+        background: #ffebee; border: 1px solid #ef9a9a;
+        border-radius: 6px; padding: 10px 14px; margin: 10px 18px;
+        font-size: 12px; color: #c62828;
+    }
     /* Bookkeeper confirmation buttons (confirm_required issues) */
     .btn-confirm-yes {
         background: #dcfce7; color: #166534; border: 1px solid #86efac;
@@ -102,14 +132,22 @@
         {% if fix_count %}<span class="badge badge-fix">✗ {{ fix_count }} Needs Fixing</span>{% endif %}
         {% if go_count  %}<span class="badge badge-go">● {{ go_count }} GO</span>{% endif %}
         {% if ns_count  %}<span class="badge badge-ns">○ {{ ns_count }} Not Started</span>{% endif %}
+        <span id="verifiedCount" style="display:none" class="badge badge-go"></span>
         {% if summary.last_run %}
             <span style="margin-left:auto;font-size:11px;color:#9ca3af">Last run: {{ summary.last_run }}</span>
         {% endif %}
     </div>
 
+    {# Regression banner — shown by JS when diagnose_state has regressions #}
+    <div id="regressionBanner" class="regression-banner" style="display:none">
+        <strong>⚠ REGRESSION DETECTED</strong> — previously VERIFIED sections have changed field values.
+        <span id="regressionDetail"></span><br>
+        <small>Check: LLC git status (Python source) and BUS git status (bookNS data) to identify the cause.</small>
+    </div>
+
     {# Per-section collapsible panels #}
     {% for sec in sections %}
-    <div class="section-block">
+    <div class="section-block" id="secblock-{{ sec.section_id or sec.label | replace(' ','_') }}">
         <div class="section-head" onclick="this.nextElementSibling.classList.toggle('open')">
             {% if sec.state == 'GO' %}
                 <span class="state-go">● GO</span>
@@ -119,6 +157,8 @@
                 <span class="state-ns">○ Not Started</span>
             {% endif %}
             <span class="section-title">{{ sec.label }}</span>
+            {# Verify state badge — populated by JS from diagnose_state; keyed by diag_sec_id #}
+            <span class="verify-badge" data-section-id="{{ sec.diag_sec_id or '' }}"></span>
             <span class="section-summary">{{ (sec.summary or '')[:80] }}</span>
             <span style="font-size:11px;color:#9ca3af">▼</span>
         </div>
@@ -188,6 +228,16 @@
             {% else %}
                 <div class="no-issues">✓ No issues — this section is ready</div>
             {% endif %}
+        </div>
+        {# VERIFY bar — shown by JS when section is GO, diag_sec_id is set, and not yet verified #}
+        <div class="verify-bar" id="vbar-{{ sec.diag_sec_id or '' }}" style="display:none">
+            <button class="btn-verify"
+                    onclick="verifySection('{{ sec.diag_sec_id or '' }}', '{{ form_key }}', this)">
+                ✓ VERIFY SECTION
+            </button>
+            <span class="verify-hint" style="font-size:11px;color:#6b7280">
+                Bookkeeper: confirm field values are correct and match the books
+            </span>
         </div>
     </div>
     {% endfor %}
@@ -330,6 +380,127 @@ function issueConfirm(btn, ruleId, choice) {
         }
     });
 })();
+
+// ── Diagnose State — VERIFY / regression ────────────────────────────────────
+const _DIAG_STATE_URL  = _SCRIPT_ROOT + '/api/aid/diagnose_state?formNm={{ form_key | urlencode }}';
+const _VERIFY_URL      = _SCRIPT_ROOT + '/api/aid/verify_section';
+const _FORM_KEY        = '{{ form_key }}';
+
+// Map Jinja section_id values to the section blocks.
+// section_id comes from the agent summary; may be empty for some agents.
+// We match by section_id attr on the verify-badge spans.
+
+function _applyDiagState(state) {
+    if (!state || !state.sections) return;
+    const secs = state.sections;  // { section_id → SectionState }
+    let verifiedCount = 0;
+
+    // Apply verify_state to each section block
+    document.querySelectorAll('.verify-badge[data-section-id]').forEach(badge => {
+        const sid = badge.getAttribute('data-section-id');
+        if (!sid) return;
+        const sec = secs[sid];
+        if (!sec) return;
+
+        const vs = sec.verify_state;
+        if (vs === 'VERIFIED') {
+            verifiedCount++;
+            badge.innerHTML = `<span class="badge-verified">✓ VERIFIED</span>`;
+            // Hide the verify bar (already verified)
+            const vbar = document.getElementById('vbar-' + sid);
+            if (vbar) vbar.style.display = 'none';
+        } else if (vs === 'REGRESSION') {
+            badge.innerHTML = `<span class="badge-regression">⚠ REGRESSION</span>`;
+            const vbar = document.getElementById('vbar-' + sid);
+            if (vbar) vbar.style.display = 'none';
+        } else {
+            badge.innerHTML = `<span class="badge-unconfirmed">○ unconfirmed</span>`;
+        }
+    });
+
+    // Show VERIFY bars for GO sections that are UNCONFIRMED
+    document.querySelectorAll('.section-block').forEach(block => {
+        const badge  = block.querySelector('.verify-badge[data-section-id]');
+        const stateEl = block.querySelector('.state-go');
+        if (!badge || !stateEl) return;
+        const sid = badge.getAttribute('data-section-id');
+        if (!sid) return;
+        const sec = secs[sid];
+        const vs  = sec ? sec.verify_state : 'UNCONFIRMED';
+        const vbar = document.getElementById('vbar-' + sid);
+        if (vbar && vs === 'UNCONFIRMED') vbar.style.display = 'flex';
+    });
+
+    // Verified count chip
+    if (verifiedCount > 0) {
+        const chip = document.getElementById('verifiedCount');
+        if (chip) {
+            chip.textContent = '✓ ' + verifiedCount + ' Verified';
+            chip.style.display = '';
+        }
+    }
+
+    // Regression banner
+    const regressions = state.regressions || [];
+    if (regressions.length) {
+        const banner = document.getElementById('regressionBanner');
+        const detail = document.getElementById('regressionDetail');
+        if (banner) banner.style.display = '';
+        if (detail) detail.textContent = ' Sections: ' + regressions.join(', ') + '.';
+    }
+}
+
+async function loadDiagState() {
+    try {
+        const r    = await fetch(_DIAG_STATE_URL);
+        const data = await r.json();
+        if (data.ok && data.has_state) _applyDiagState(data.state);
+    } catch (_) { /* non-fatal */ }
+}
+
+async function verifySection(sectionId, formKey, btn) {
+    if (!sectionId) { alert('No section_id — run Form Agent first to generate diagnose state.'); return; }
+    btn.disabled = true;
+    btn.textContent = '⏳ Saving…';
+    try {
+        const r    = await fetch(_VERIFY_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({form: formKey, section_id: sectionId}),
+        });
+        const data = await r.json();
+        if (data.ok) {
+            // Update badge inline
+            const badge = document.querySelector(`.verify-badge[data-section-id="${sectionId}"]`);
+            if (badge) badge.innerHTML = `<span class="badge-verified">✓ VERIFIED</span>`;
+            const vbar = document.getElementById('vbar-' + sectionId);
+            if (vbar) vbar.style.display = 'none';
+            // Refresh count
+            const chip = document.getElementById('verifiedCount');
+            if (chip) {
+                const cur = parseInt(chip.textContent.replace(/\D/g,'')) || 0;
+                chip.textContent = '✓ ' + (cur + 1) + ' Verified';
+                chip.style.display = '';
+            }
+            // If this cleared the last regression, hide banner
+            if ((data.regressions || []).length === 0) {
+                const banner = document.getElementById('regressionBanner');
+                if (banner) banner.style.display = 'none';
+            }
+        } else {
+            btn.disabled = false;
+            btn.textContent = '✓ VERIFY SECTION';
+            alert('Verify failed: ' + (data.error || 'unknown error'));
+        }
+    } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '✓ VERIFY SECTION';
+        alert('Verify error: ' + err);
+    }
+}
+
+// Load diagnose state on page load
+document.addEventListener('DOMContentLoaded', loadDiagState);
 
 // ── BookToIRS Diagnostic panel ───────────────────────────────────────────────
 const _DIAG_URL  = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}';

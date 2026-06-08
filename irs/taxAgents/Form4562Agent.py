@@ -251,6 +251,7 @@ class AgentF4562_Sec179(_SectionAgent):
 
     LABEL            = 'Section 179 (Part I)'
     AGENT_KEY        = 'AgentF4562_Sec179'
+    DIAG_SEC_ID      = 'PartI'
     LOGICAL_PREFIXES = ['F45S_']
 
     # 2024 statutory limit (Rev. Proc. 2023-34)
@@ -361,6 +362,7 @@ class AgentF4562_MACRS(_SectionAgent):
 
     LABEL            = 'MACRS Depreciation (Part III Line 19i — Residential Rental)'
     AGENT_KEY        = 'AgentF4562_MACRS'
+    DIAG_SEC_ID      = 'PartIII-19i'
     LOGICAL_PREFIXES = ['F45M_']
 
     _RECOVERY_PERIOD  = 27.5  # residential rental, IRC §168(c)(1)
@@ -590,6 +592,7 @@ class AgentF4562_Summary(_SectionAgent):
 
     LABEL            = 'Summary Line 22 (Part IV)'
     AGENT_KEY        = 'AgentF4562_Summary'
+    DIAG_SEC_ID      = 'PartIV'
     LOGICAL_PREFIXES = ['F45L_']
 
     # Correct fid for Part IV Line 22 (first standalone text field on page 2, f2_1).
@@ -714,6 +717,7 @@ class AgentF4562_SpecialDepr(_SectionAgent):
 
     LABEL            = 'Special Depreciation (Part II)'
     AGENT_KEY        = 'AgentF4562_SpecialDepr'
+    DIAG_SEC_ID      = ''
     LOGICAL_PREFIXES = ['F45D_']
 
     def pass2_audit(self) -> Dict[str, Any]:
@@ -791,6 +795,7 @@ class AgentF4562_ListedProp(_SectionAgent):
 
     LABEL            = 'Listed Property (Part V)'
     AGENT_KEY        = 'AgentF4562_ListedProp'
+    DIAG_SEC_ID      = ''
     LOGICAL_PREFIXES = ['F45P_']
 
     def pass2_audit(self) -> Dict[str, Any]:
@@ -874,6 +879,7 @@ class AgentF4562_Amortization(_SectionAgent):
 
     LABEL            = 'Amortization (Part VI)'
     AGENT_KEY        = 'AgentF4562_Amortization'
+    DIAG_SEC_ID      = ''
     LOGICAL_PREFIXES = ['F45A_']
 
     def pass2_audit(self) -> Dict[str, Any]:
@@ -1003,6 +1009,8 @@ class Form4562Agent(IRSFormsAgent):
                        else self._first_halt_message(issues))
 
             sections_state[agent.AGENT_KEY] = {
+                'section_id':    agent.AGENT_KEY,
+                'diag_sec_id':   getattr(agent, 'DIAG_SEC_ID', ''),
                 'label':         agent.LABEL,
                 'state':         state,
                 'summary':       summary,

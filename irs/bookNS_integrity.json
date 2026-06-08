@@ -1,0 +1,12 @@
+{
+  "_doc": "bookNS section hashes at last VERIFIED state per form. Managed by irs/formDiagState.py. Updated automatically when bookkeeper clicks VERIFY SECTION. Committed to LLC repo so PA can detect BUS/LLC drift on startup. If check_integrity() returns non-empty mismatches, the BUS bookNS files have changed since the last verified state — commit the BUS repo before regenerating.",
+  "Form4562": {
+    "bookNS_IS": "652518d225e96bd7",
+    "bookNS_BS": "84de1371c79d86c4",
+    "bookNS_Profile": "07081529681e4097",
+    "bookNS_GL": "4f53cda18c2baa0c",
+    "verified_at": "2026-06-08T00:00:00",
+    "bus_sha": "f629ae9",
+    "_note": "Seeded from corrected bookNS (post Form4562 fid fixes b0ebdbf). BUS bookNS not yet committed — this seed reflects the corrected LOCAL state. Integrity will auto-update on first VERIFY SECTION."
+  }
+}
