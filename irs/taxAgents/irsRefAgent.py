@@ -45,54 +45,42 @@ _F4562_REFERENCES = {
     "F4562-H": {
         "fields": ["F002", "F003", "F004"],
         "cite":   "Form 4562 Instructions, Top of Form (Lines A–C)",
-        "reason": (
-            "F002 (Name) and F003 (EIN): copied from Form 1065 — same entity. "
-            "F004 (Business activity, f4): code 531110 = 'Lessors of Residential Buildings "
-            "and Dwellings' per NAICS. IRS Form 4562 Line A requires the principal business "
-            "activity code from the IRS Table of Business Activity Codes (2024 Instructions "
-            "for Form 4562, p.1). Code 531110 matches a residential rental LLC whose sole "
-            "activity is leasing single-family homes."
-        ),
+        "reason": [
+            "F002 Name: copied from Form 1065 — same entity.",
+            "F003 EIN: partnership EIN from llcProfile, same as Form 1065 header.",
+            "F004 Business activity (f4): code 531110 = Lessors of Residential Buildings and Dwellings per NAICS. "
+            "IRS Form 4562 Line A requires the principal business activity code from the IRS Table of Business Activity Codes (2024 Instructions for Form 4562, p.1).",
+        ],
     },
     "F4562-179": {
         "fields": ["F005", "F021", "F026"],
         "cite":   "IRC §179(b)(1); Rev. Proc. 2024-40; Form 4562 Part I Instructions",
-        "reason": (
-            "F005 (f5, Line 1): $1,220,000 is the 2025 §179 dollar limitation, "
-            "inflation-adjusted per IRC §179(b)(1) and Rev. Proc. 2024-40. "
-            "This is a statutory constant — it does not come from the books. "
-            "F021 (Line 12): $0 §179 deduction because residential rental real property "
-            "(the building structure) is explicitly excluded from §179 by IRC §179(d)(1)(B). "
-            "F026 (Line 13): $0 carry-over from prior year — no §179 property was elected "
-            "in a prior year."
-        ),
+        "reason": [
+            "F005 Line 1 (f5): $1,220,000 is the 2025 §179 dollar limitation, inflation-adjusted per IRC §179(b)(1) and Rev. Proc. 2024-40. Statutory constant — not sourced from the books.",
+            "F021 Line 12: $0 §179 deduction. Residential rental real property is explicitly excluded from §179 by IRC §179(d)(1)(B).",
+            "F026 Line 13: $0 carry-over. No §179 election was made in any prior year.",
+        ],
     },
     "F4562-19h": {
         "fields": ["F069", "F070", "F071", "F072", "F073", "F074"],
         "cite":   "IRC §168(c)(1), §168(d)(2); Form 4562 Part III Section B Instructions",
-        "reason": (
-            "Line 19h = Residential rental property (27.5-year GDS class). "
-            "F069 (b) Date placed in service: from books (earliest InService date in llcAssets). "
-            "F070 (c) Basis: depreciable cost from Acct.Fixed.Tangible.InService — NOTE: "
-            "land value is included and must be removed before filing (land is not depreciable "
-            "per IRC §1016; see CPA note in Form4562._CPA_NOTES). "
-            "F071 (d) 27.5 years: GDS recovery period for residential rental per IRC §168(c)(1). "
-            "F072 (e) MM: mid-month convention required for real property per IRC §168(d)(2). "
-            "F073 (f) S/L: straight-line method required for GDS residential rental per IRC §168(b)(3). "
-            "F074 (g) Depreciation deduction: current-year amount from Acct.Exp.Depreciation."
-        ),
+        "reason": [
+            "F069 (b) Date placed in service: earliest InService date from llcAssets (Acct.Fixed.Tangible.InService records).",
+            "F070 (c) Basis for depreciation: Acct.Fixed.Tangible.InService balance. ⚠ Land value is included — land is NOT depreciable (IRC §1016). Must be removed before filing; see CPA notes.",
+            "F071 (d) Recovery period — 27.5 years: required GDS period for residential rental property per IRC §168(c)(1).",
+            "F072 (e) Convention — MM: mid-month convention required for real property placed in service during the year per IRC §168(d)(2).",
+            "F073 (f) Method — S/L: straight-line method required for GDS residential rental per IRC §168(b)(3). Declining balance not permitted.",
+            "F074 (g) Depreciation deduction: current-year amount sourced from Acct.Exp.Depreciation in the IS.",
+        ],
     },
     "F4562-22": {
         "fields": ["F153"],
         "cite":   "Form 4562 Part IV Instructions; Form 1065 Instructions, Line 16a",
-        "reason": (
-            "F153 (f153, Line 22): sum of all depreciation from Parts II and III. "
-            "For W&B Group in 2025 this equals Part III Line 19h only — there is no "
-            "bonus depreciation (Part II, §168(k)) and no listed property (Part V). "
-            "Line 22 flows directly to Form 1065, Line 16a ('Depreciation not claimed "
-            "on Schedule A or elsewhere on return') per Form 1065 Instructions p.17. "
-            "It also flows to Form 8825 Line 14 (depreciation expense on rental property)."
-        ),
+        "reason": [
+            "F153 Line 22: sum of all depreciation from Parts II and III. For W&B Group equals Line 19h only — no bonus depreciation (Part II, §168(k)) and no listed property (Part V).",
+            "Flows to Form 1065 Line 16a: Depreciation not claimed on Schedule A or elsewhere (Form 1065 Instructions p.17).",
+            "Also flows to Form 8825 Line 14: depreciation expense on the rental property.",
+        ],
     },
 }
 
@@ -125,30 +113,30 @@ _F8825_REFERENCES = {
     "F8825-INC": {
         "fields": [],
         "cite":   "IRC §61; Form 8825 Instructions, Lines 2a–2c",
-        "reason": (
-            "Rental income reported on Form 8825 Line 2a (gross rents) and 2b (other income). "
-            "Source: Acct.Rev.Rent and Acct.Rev.Fees.Other from the books. "
-            "Required for each rental property separately; aggregated at form totals level."
-        ),
+        "reason": [
+            "Line 2a Gross rents: sourced from Acct.Rev.Rent per property.",
+            "Line 2b Other income: sourced from Acct.Rev.Fees.Other.",
+            "Each property column (A–H) is filled separately; form totals aggregate all properties.",
+        ],
     },
     "F8825-EXP": {
         "fields": [],
         "cite":   "IRC §162, §168, §163; Form 8825 Instructions, Lines 5–16",
-        "reason": (
-            "Ordinary and necessary rental expenses per IRC §162. "
-            "Repairs (Line 11): Acct.Exp.Repair. Utilities (Line 12): Acct.Exp.Util. "
-            "Depreciation (Line 14): Acct.Exp.Depreciation — same amount as Form 4562 Line 22. "
-            "Other expenses (Line 17): Acct.Exp.Operating + Acct.Exp.Other combined."
-        ),
+        "reason": [
+            "Line 11 Repairs: Acct.Exp.Repair — ordinary and necessary repair costs per IRC §162.",
+            "Line 12 Utilities: Acct.Exp.Util.",
+            "Line 14 Depreciation: Acct.Exp.Depreciation — must equal Form 4562 Line 22.",
+            "Line 17 Other: Acct.Exp.Operating + Acct.Exp.Other combined.",
+        ],
     },
     "F8825-TOT": {
         "fields": [],
         "cite":   "Form 8825 Instructions, Lines 17–20; Form 1065 Schedule K Line 2",
-        "reason": (
-            "Line 18 = total expenses. Line 19a = net income/loss per property. "
-            "Line 20 = total net rental income/loss across all properties. "
-            "Flows to Form 1065 Schedule K Line 2 (net rental real estate income/loss)."
-        ),
+        "reason": [
+            "Line 18: total expenses across all properties.",
+            "Line 19a: net income/loss per property (rents minus expenses).",
+            "Line 20: total net rental income/loss — flows to Form 1065 Schedule K Line 2.",
+        ],
     },
 }
 
@@ -185,37 +173,37 @@ _F1065_REFERENCES = {
     "F1065-H": {
         "fields": [],
         "cite":   "Form 1065 Instructions, Top of Form",
-        "reason": (
-            "Entity name, EIN, address, tax year, and accounting method from the LLC profile. "
-            "Business activity code 531110 (Lessors of Residential Buildings) per NAICS."
-        ),
+        "reason": [
+            "Entity name, EIN, and address: from llcProfile.",
+            "Tax year and accounting method: from llcProfile F1065 section.",
+            "Business activity code 531110 (Lessors of Residential Buildings) per NAICS.",
+        ],
     },
     "F1065-INC": {
         "fields": [],
         "cite":   "IRC §61; Form 1065 Instructions, Lines 1–7",
-        "reason": (
-            "Gross income from rental activity flows from Form 8825 Line 20 to "
-            "Form 1065 Line 2 (net rental real estate income). "
-            "Ordinary income items sourced from Acct.Rev.* accounts in the books."
-        ),
+        "reason": [
+            "Line 2: net rental real estate income/loss flows from Form 8825 Line 20.",
+            "Ordinary income items sourced from Acct.Rev.* accounts in the books.",
+        ],
     },
     "F1065-DED": {
         "fields": [],
         "cite":   "IRC §162, §163, §164, §168; Form 1065 Instructions, Lines 8–21",
-        "reason": (
-            "Ordinary deductions sourced from Acct.Exp.* accounts. "
-            "Line 16a (depreciation): equals Form 4562 Line 22. "
-            "Rental expenses flow through Form 8825 and are netted before reaching Form 1065."
-        ),
+        "reason": [
+            "Ordinary deductions sourced from Acct.Exp.* accounts.",
+            "Line 16a Depreciation: must equal Form 4562 Line 22.",
+            "Rental expenses flow through Form 8825 and are netted before reaching Form 1065.",
+        ],
     },
     "F1065-K": {
         "fields": [],
         "cite":   "IRC §702, §704; Form 1065 Schedule K Instructions",
-        "reason": (
-            "Each partner's distributive share is allocated per ownership percentages "
-            "in llcProfile propOwners. Schedule K Line 2 = rental net income/loss. "
-            "Partners report their K-1 amounts on their individual returns."
-        ),
+        "reason": [
+            "Each partner's distributive share allocated per ownership % in llcProfile propOwners.",
+            "Schedule K Line 2: rental net income/loss (from Form 8825).",
+            "Partners report their K-1 amounts on Schedule E of Form 1040.",
+        ],
     },
 }
 
@@ -246,27 +234,27 @@ _SCHK1_REFERENCES = {
     "K1-PI": {
         "fields": [],
         "cite":   "Form 1065 Schedule K-1 Instructions, Part I",
-        "reason": (
-            "Partnership EIN, name, and address from the LLC profile. "
-            "Required on each partner's K-1 for cross-referencing to Form 1065."
-        ),
+        "reason": [
+            "Partnership EIN, name, and address from llcProfile.",
+            "Required on each K-1 so partners can cross-reference to Form 1065.",
+        ],
     },
     "K1-PII": {
         "fields": [],
         "cite":   "Form 1065 Schedule K-1 Instructions, Part II",
-        "reason": (
-            "Partner TIN, name, address, and ownership percentage from llcProfile propOwners. "
-            "Profit/loss/capital sharing ratios used for income allocation per IRC §704(b)."
-        ),
+        "reason": [
+            "Partner TIN, name, and address from llcProfile propOwners.",
+            "Profit/loss/capital sharing ratios used for income allocation per IRC §704(b).",
+        ],
     },
     "K1-PIII": {
         "fields": [],
         "cite":   "IRC §702; Form 1065 Schedule K-1 Instructions, Part III",
-        "reason": (
-            "Box 2: net rental real estate income/loss — each partner's share of "
-            "Form 8825 net income, allocated by ownership percentage. "
-            "Partners report Box 2 on Schedule E of Form 1040."
-        ),
+        "reason": [
+            "Box 2: net rental real estate income/loss — each partner's share of Form 8825 net income.",
+            "Allocated by ownership percentage from llcProfile.",
+            "Partners report Box 2 on Schedule E of Form 1040.",
+        ],
     },
 }
 

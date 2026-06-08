@@ -271,21 +271,29 @@ class IRSDiagAgent:
             if sec["cite"] or sec["reason"]:
                 lines.append("")
                 lines.append(f"  IRS Ref [{sec['ref_id']}]: {sec['cite']}")
-                # Word-wrap the reason at ~90 chars
                 reason = sec["reason"]
-                words  = reason.split()
-                line_buf: List[str] = []
-                cur_len = 0
-                for w in words:
-                    if cur_len + len(w) + 1 > 88:
-                        lines.append("    " + " ".join(line_buf))
-                        line_buf = [w]
-                        cur_len  = len(w)
-                    else:
-                        line_buf.append(w)
-                        cur_len += len(w) + 1
-                if line_buf:
-                    lines.append("    " + " ".join(line_buf))
+                bullets = reason if isinstance(reason, list) else [reason]
+                for bullet in bullets:
+                    # Word-wrap each bullet at ~88 chars with hanging indent
+                    words    = bullet.split()
+                    prefix   = "    • "
+                    hang     = "      "
+                    line_buf: List[str] = []
+                    cur_len  = 0
+                    first    = True
+                    for w in words:
+                        if cur_len + len(w) + 1 > 88:
+                            pfx = prefix if first else hang
+                            lines.append(pfx + " ".join(line_buf))
+                            line_buf = [w]
+                            cur_len  = len(w)
+                            first    = False
+                        else:
+                            line_buf.append(w)
+                            cur_len += len(w) + 1
+                    if line_buf:
+                        pfx = prefix if first else hang
+                        lines.append(pfx + " ".join(line_buf))
 
         if data["unmapped"]:
             lines.append("")

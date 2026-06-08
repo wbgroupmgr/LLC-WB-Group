@@ -391,7 +391,11 @@ function _renderDiag(data) {
         // IRS reference
         if (sec.cite || sec.reason) {
             html += `<div class="diag-cite">📖 ${sec.cite}</div>`;
-            html += `<div class="diag-reason">${sec.reason.replace(/\n/g,'<br>')}</div>`;
+            const reasonHtml = Array.isArray(sec.reason)
+                ? '<ul style="margin:4px 0 0 0;padding-left:18px">' +
+                  sec.reason.map(b => `<li>${b}</li>`).join('') + '</ul>'
+                : `<p style="margin:4px 0 0 0">${(sec.reason||'').replace(/\n/g,'<br>')}</p>`;
+            html += `<div class="diag-reason">${reasonHtml}</div>`;
         }
         html += `</div>`;
     }
