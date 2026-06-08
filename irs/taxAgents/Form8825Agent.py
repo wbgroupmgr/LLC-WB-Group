@@ -96,27 +96,60 @@ class _SectionAgent(IRSFormsAgent):
             self._assets = []
         return self._assets
 
+    def _get_cip_propNms(self) -> set:
+        """Return propNm values that are truly InConstruction (not yet placed in service).
+
+        A property is CIP iff it has ≥1 Acct.Fixed.Tangible.InConstruction entry
+        AND has NO Acct.Fixed.Tangible.InService entry in the GL.
+        Properties that have BOTH (e.g., a misclassified legacy entry + real InService
+        records) are considered placed-in-service and excluded from the CIP set.
+
+        Source: GL rows (authoritative — merges llcAssets + llcExpRev + all DBs).
+        RV_RV1: InConstruction entries in llcExpRev, no InService → CIP.
+        H_805HighMesa: one misclassified InConstruction + real InService → NOT CIP.
+        """
+        has_cip: set     = set()
+        has_inservice: set = set()
+        try:
+            from ledger.stmtGL import stmtGL
+            gl = stmtGL(self.llc)
+            for r in (gl._rows or []):
+                prop  = r.get('propNm', '')
+                if not prop:
+                    continue
+                acct_ = str(r.get('acct', '') or '').lower()
+                if 'inconstruction' in acct_:
+                    has_cip.add(prop)
+                elif 'inservice' in acct_:
+                    has_inservice.add(prop)
+        except Exception:
+            pass
+        return has_cip - has_inservice
+
     def _active_property_rows(self) -> List[Dict]:
         """Return one representative row per active rental property from llcAssets.
         Active = has Acct.Fixed.Tangible.InService entry (placed in service).
+        InConstruction properties are explicitly excluded — they have no rental activity.
         """
-        rows = self._get_assets()
+        rows    = self._get_assets()
+        cip     = self._get_cip_propNms()
         seen_props: set = set()
         result = []
         for r in rows:
             acct = str(r.get('acct', '')).lower()
             prop = r.get('propNm', '')
-            if ('tangible.inservice' in acct or 'fixed.tangible' in acct) and prop:
+            # Only InService (not InConstruction) properties appear on Form 8825
+            if 'tangible.inservice' in acct and prop and prop not in cip:
                 if prop not in seen_props:
                     seen_props.add(prop)
                     result.append(r)
-        # Also include any row whose propNm appears in IS rent_income mapping
+        # Fallback: rent_income > 0 but no InService asset record
         if not result and self._get_is_agg('rent_income') > 0:
-            # Fallback: return unique propNm rows from any Fixed account
             for r in rows:
                 acct = str(r.get('acct', '')).lower()
                 prop = r.get('propNm', '')
-                if 'fixed' in acct and prop and prop not in seen_props:
+                if ('fixed' in acct and 'inconstruction' not in acct
+                        and prop and prop not in cip and prop not in seen_props):
                     seen_props.add(prop)
                     result.append(r)
         return result
@@ -229,8 +262,11 @@ class AgentF8825_Properties(_SectionAgent):
 
     def pass5_summarize(self) -> str:
         active = self._active_property_rows()
+        cip    = self._get_cip_propNms()
+        cip_note = (f" {len(cip)} CIP excluded ({', '.join(sorted(cip))})." if cip else "")
         return (f"Properties: {len(active)} active propert{'y' if len(active)==1 else 'ies'} "
-                f"on Form 8825 ({', '.join(r.get('propNm', str(r)) for r in active)}).")
+                f"on Form 8825 ({', '.join(r.get('propNm', str(r)) for r in active)})."
+                + cip_note)
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
@@ -255,26 +291,51 @@ class AgentF8825_Properties(_SectionAgent):
 
     def _rule_under_construction(self):
         """
-        F8PR-R02: Under-construction properties detected → excluded from Form 8825.
-        IRC §168: depreciation starts when the property is placed in service.
-        Construction-in-progress assets are capitalized but not yet depreciated
-        and have no rental income to report.
+        F8PR-R02: Under-construction (CIP) properties detected → excluded from Form 8825.
+
+        IRC §168(a): MACRS depreciation begins when property is placed in service.
+        CIP assets have no placed-in-service date → no Form 8825 column, no Line 2a
+        income, no Line 14 depreciation.
+
+        CRITICAL — Pre-placed-in-service expenses (IRC §263):
+          Expenses incurred before a CIP asset is placed in service are NOT deductible
+          as current rental expenses. They must be CAPITALIZED (IRC §263(a) + Treasury
+          Reg. §1.263(a)-2(a)): amounts paid to produce tangible property must be
+          capitalized as part of the asset's depreciable basis. This includes:
+            - Construction materials (Lowe's, Wimberley Ace, Harbor Freight)
+            - Fabrication costs (Rodco Steel, Laird Plastics)
+            - Installation supplies (Amazon construction items)
+          Books fix required: reclassify Acct.Exp.Repair + Acct.Exp.Other entries for
+          CIP properties → Acct.Fixed.Tangible.InConstruction.{propNm}.
+
+          Exception: IRC §195 start-up costs (organizational/pre-opening fees such as
+          permits or professional fees) may be deductible via a §195 election on Form
+          1065 page 1 (NOT Form 8825). Construction materials do not qualify.
+
+        W&B Group 2025 — RV_RV1:
+          Status: Acct.Fixed.Tangible.InConstruction (Bill of Sale 2025-12-29).
+          Excluded from Form 8825 entirely.
+          Pre-service expenses in Acct.Exp.Repair / Acct.Exp.Other → must be
+          capitalized. F8EX-R05 will flag the dollar impact on IS totals.
+
+        Detection: checks Ledger field (asset account) for 'InConstruction' —
+        the CIP pattern is Ledger='Acct.Fixed.Tangible.InConstruction'.
         """
-        rows = self._get_assets()
-        uc = [r for r in rows
-              if str(r.get('acctSub', r.get('status', ''))).lower()
-                 in ('under_construction', 'construction', 'cip',
-                     'acct.fixed.tangible.construction')]
-        if uc:
-            names = ', '.join(r.get('propNm', str(r)) for r in uc)
+        cip = self._get_cip_propNms()
+        if cip:
+            names = ', '.join(sorted(cip))
             return self.format_issue(
                 'F8PR-R02', self.WARN,
-                f"Under-construction asset(s) detected: {names}. "
-                f"These are excluded from Form 8825 (IRC §168 — MACRS starts when placed in service). "
-                f"No income or depreciation is reportable for construction-in-progress.",
-                'IRC §168(a); Form 8825 Instructions',
-                "No action required. Once placed in service, create a new "
-                "Acct.Fixed.Tangible.InService record with the placed-in-service date.")
+                f"Under-construction (CIP) asset(s) detected: {names}. "
+                f"IRC §168(a): excluded from Form 8825 (no placed-in-service date). "
+                f"No Form 8825 column, no income, no depreciation for CIP property. "
+                f"IMPORTANT: pre-service expenses for {names} booked to Acct.Exp.* "
+                f"must be capitalized under IRC §263(a) — see F8EX-R05 for dollar impact.",
+                'IRC §168(a); IRC §263(a); Reg. §1.263(a)-2(a); Form 8825 Instructions',
+                f"No Form 8825 action. Fix books: reclassify Acct.Exp.Repair + "
+                f"Acct.Exp.Other for {names} → Acct.Fixed.Tangible.InConstruction.{{propNm}}. "
+                f"Once placed in service, create Acct.Fixed.Tangible.InService record "
+                f"with placed-in-service date.")
 
     def _rule_placed_in_service_date(self):
         """
@@ -330,18 +391,25 @@ class AgentF8825_Income(_SectionAgent):
       Pub 527 §1: rental income = rent received plus advance rent, security deposits
       applied to rent, services provided instead of rent.
       Books source: Acct.Rev.Rent.{propNm} in IS.
-      Fill field: F079 area (per-column gross rents).
+      Fill field: F023 (per-column gross rents, col A).
       IRS: "Enter the gross rents received or accrued for each property." (Form 8825 Instr)
 
     Line 2b (Other income):
       Pub 527: other rental income includes cancellation fees, property damaged by
       tenants (beyond deposit), and lease bonus payments.
-      Books source: Acct.Rev.Other.{propNm}.
+      Books source: Acct.Rev.Fees.Other.{propNm}.
 
     Line 2c (Total income):
       Computed = Line 2a + Line 2b. Not separately sourced from books.
 
-    W&B Group 2025: IS.rent_income = $4,000, IS.total_income = $4,400.
+    CIP property (RV_RV1) — income section:
+      Under-construction properties have ZERO income on Form 8825. They are excluded
+      from Form 8825 entirely (IRC §168 — no column, no lines). No income section
+      action required for CIP properties. The absence of income is not an error.
+      IRS Form 8825 Instructions: only placed-in-service properties have columns.
+
+    W&B Group 2025: IS.rent_income = $4,000, IS.total_income = $4,400 (H_805HighMesa only).
+    RV_RV1: $0 income — excluded from Form 8825, no Line 2a/2b entry.
     Books-First: IRC §446.
     """
 
@@ -456,6 +524,27 @@ class AgentF8825_Expenses(_SectionAgent):
       This means both forms are independently correct from books, and the
       cross-form audit confirms their consistency. No form-to-form data dependency.
 
+    CIP property expenses — what goes on Form 8825 Lines 11-17 (F8EX-R05):
+      Under-construction properties have NO deductible expenses on Form 8825.
+      IRC §263(a) + Reg. §1.263(a)-2(a): all pre-placed-in-service costs must be
+      CAPITALIZED (not expensed). They add to the asset's depreciable basis.
+      Form 8825 column for CIP: NONE. No Lines 11–17 entries for CIP property.
+
+      Specifically for RV_RV1 (2025):
+        - All Acct.Exp.Repair entries (construction materials, tools, fabrication)
+          → must be capitalized to Acct.Fixed.Tangible.InConstruction.RV_RV1
+        - All Acct.Exp.Other entries (supplies, hardware, permits/fees)
+          → capitalize (IRC §263), EXCEPT Hays County permit fees may qualify as
+            IRC §195 start-up costs (deductible via §195 election on Form 1065).
+        - Zero depreciation (IRC §168 — not yet placed in service).
+      If these expenses remain in Acct.Exp.* in the books, IS.total_expenses is
+      overstated and IS.net_rental (Form 8825 Line 21) is wrong → ERROR condition.
+
+    Line 18 (Total Expenses, Form-Level F104):
+      Correct value = sum of active-property expense subtotals only.
+      If CIP expenses remain in books: F104 (via IS.total_expenses) is overstated.
+      Books correction required before Form 8825 can be filed.
+
     W&B Group 2025: IS.depreciation = $1,903.13 → Line 14, fill field F079.
     IRC §469(c)(2): rental expenses are passive — all on Form 8825, never Form 1065 Page 1.
     """
@@ -466,6 +555,7 @@ class AgentF8825_Expenses(_SectionAgent):
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
+            self._rule_pre_service_expenses,
             self._rule_line14_blank,
             self._rule_line14_mismatch,
             self._rule_line14_xf_note,
@@ -479,6 +569,72 @@ class AgentF8825_Expenses(_SectionAgent):
                 f"Total expenses (Line 18 preview) = ${total:,.2f}.")
 
     # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_pre_service_expenses(self):
+        """
+        F8EX-R05: Pre-placed-in-service expenses detected for CIP property.
+        IRC §263(a) + Reg. §1.263(a)-2(a): amounts paid to produce (construct,
+        build, install) tangible property must be capitalized — they are NOT
+        currently deductible rental expenses. If CIP property expenses remain
+        booked to Acct.Exp.* accounts, IS.total_expenses is overstated, and
+        Form 8825 Line 18 (F104) and Line 21 (F113) are both wrong.
+
+        W&B Group 2025 — RV_RV1: Acct.Exp.Repair + Acct.Exp.Other entries
+        (Oct-Nov 2025 construction materials and supplies) must be reclassified
+        to Acct.Fixed.Tangible.InConstruction.RV_RV1.
+
+        Books-correction required BEFORE Form 8825 can be filed.
+        IRC §446: form values must equal correctly-stated books values.
+        """
+        cip = self._get_cip_propNms()
+        if not cip:
+            return None
+
+        # Load IS fill dict — per-property expenses come from _build_f8825_filldict
+        # which already filters CIP. Form-level total F104 comes from IS.total_expenses.
+        total_exp_books = self._get_is_agg('total_expenses')
+        fill = self._load_fill_dict()
+
+        # Sum expense subtotals across active-property columns from fill dict.
+        # F095 = col A (prop 0), F096 = col B (prop 1), etc. — expense subtotal per prop.
+        active_col_exp = 0.0
+        for col in range(4):
+            fid = f'F{95 + col:03d}'
+            active_col_exp += _safe_float(fill.get(fid, 0))
+        for col in range(4):
+            fid = f'F{95 + 119 + col:03d}'
+            active_col_exp += _safe_float(fill.get(fid, 0))
+        active_col_exp = round(active_col_exp, 2)
+
+        cip_exp = round(total_exp_books - active_col_exp, 2)
+        cip_names = ', '.join(sorted(cip))
+
+        if cip_exp > 1.00:
+            return self.format_issue(
+                'F8EX-R05', self.ERROR,
+                f"CIP property {cip_names} has ~${cip_exp:,.2f} in pre-placed-in-service "
+                f"expenses booked to Acct.Exp.* accounts. "
+                f"IRC §263(a): these must be CAPITALIZED to "
+                f"Acct.Fixed.Tangible.InConstruction.{{propNm}}, not expensed. "
+                f"Impact: Form 8825 F104 (Line 18 total expenses) is overstated by "
+                f"~${cip_exp:,.2f}; F113 (Line 21 net income/loss) is understated "
+                f"(more negative) by the same amount → Schedule K Line 2 and all "
+                f"K-1 Box 2 allocations are incorrect.",
+                'IRC §263(a); Reg. §1.263(a)-2(a); IRC §446 Books-First',
+                f"Fix books: in llcExpRev (or wherever the expenses are recorded), "
+                f"reclassify all Acct.Exp.Repair and Acct.Exp.Other entries for "
+                f"propNm='{cip_names}' to Acct.Fixed.Tangible.InConstruction. "
+                f"Exception: Hays County permit fees may qualify as IRC §195 start-up "
+                f"costs (deductible via §195 election on Form 1065, not Form 8825). "
+                f"Re-run regenerate() after books are corrected.")
+        elif cip:
+            return self.format_issue(
+                'F8EX-R05', self.INFO,
+                f"CIP property detected: {cip_names}. "
+                f"No pre-service expenses found in IS (either correctly capitalized "
+                f"or zero). No Form 8825 action needed for this property.",
+                'IRC §263(a); IRC §168(a)',
+                "No action required.")
 
     def _rule_line14_blank(self):
         """
@@ -594,17 +750,32 @@ class AgentF8825_NetIncome(_SectionAgent):
     IRS Knowledge Base — Form 8825 Lines 18–21 (Net Income/Loss)
 
     Line 19a (Net income/loss per property):
-      Computed: Line 2c − Line 18 = total income − total expenses.
+      Computed: Line 2c − Line 18 = total income − total expenses per column.
       For H_805HighMesa 2025: $4,400 − $4,793.50 = −$393.50.
+      CIP properties (RV_RV1): NO column → NO Line 19a entry.
 
-    Line 21 (Total net income/loss):
-      Sum of all Line 19a across all properties.
+    Line 20a (Total rental income, all columns, F103):
+      Sum of all column Line 2c values. Should equal IS.subtotal_rental_income.
+      For W&B Group 2025: $4,400 (H_805HighMesa only; RV_RV1 excluded).
+
+    Line 20b (Total rental expenses, all columns, F104):
+      Sum of all column Line 18 values. Should equal IS.subtotal_rental_expense
+      for ACTIVE (placed-in-service) properties ONLY.
+      RECONCILIATION: IS.total_expenses includes ALL Acct.Exp.* entries from all
+      properties. If CIP property expenses are NOT capitalized (remain in
+      Acct.Exp.*), IS.total_expenses > active-property expenses → F104 is overstated.
+      Books correction (IRC §263) required to bring IS.total_expenses in line.
+
+    Line 21 (Total net income/loss, F113):
+      Sum of all Line 19a across all active properties.
       IRS Form 8825 Instructions: "Enter this amount on Schedule K, line 2."
-      Books-First: Line 21 = IS.net_rental (IRC §446+703).
-      Fill field: F113 = −393.50 (verified).
+      Books-First: Line 21 = IS.net_rental for active properties only (IRC §446+703).
+      If CIP expenses remain in books: IS.net_rental is understated (more negative),
+      and F113 carries that error to Schedule K Line 2 → all K-1 Box 2 wrong.
+      W&B Group correct value (after books fix): H_805HighMesa net only = −$393.50.
 
     This is the KEY RECONCILIATION POINT:
-      Form 8825 Line 21 (= IS.net_rental) → Schedule K Line 2
+      Form 8825 Line 21 (= IS.net_rental, active props) → Schedule K Line 2
       Schedule K Line 2 × partner.pct → K-1 Box 2
 
     IRC §469(c)(2): rental activity is passive. The net rental loss flows to
@@ -619,6 +790,7 @@ class AgentF8825_NetIncome(_SectionAgent):
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
+            self._rule_cip_in_totals,
             self._rule_line21_blank,
             self._rule_line21_mismatch,
             self._rule_line21_confirmed,
@@ -635,6 +807,61 @@ class AgentF8825_NetIncome(_SectionAgent):
                 f"(${self._get_is_agg('depreciation'):,.2f}).")
 
     # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_cip_in_totals(self):
+        """
+        F8NI-R04: CIP property expenses embedded in Form 8825 totals (F104, F113).
+        When a CIP property has expenses booked to Acct.Exp.* (pre-placed-in-service
+        costs not yet capitalized), those expenses flow into IS.total_expenses and
+        IS.net_rental, which are the source values for:
+          F104 = Line 20b Total Rental Expenses
+          F113 = Line 21 Total Net Income/Loss → Schedule K Line 2 → K-1 Box 2
+
+        This rule re-fires only if F8EX-R05 is not catching the issue (i.e., the
+        per-column math missed the CIP gap). It checks if CIP props are present AND
+        the fill F104 > expected active expenses.
+
+        Books-First (IRC §446): F113 must equal IS.net_rental for active properties
+        only. CIP expenses must be removed from the books before the form can be
+        correctly prepared.
+        """
+        cip = self._get_cip_propNms()
+        if not cip:
+            return None
+
+        fill = self._load_fill_dict()
+        f104 = _safe_float(fill.get('F104', 0))
+        f113 = _safe_float(fill.get('F113', 0))
+        net_books = self._get_is_agg('net_rental') or self._get_is_agg('net_income')
+        total_exp_books = self._get_is_agg('total_expenses')
+
+        # Compute active-property expense total from per-column fids
+        active_col_exp = 0.0
+        for col in range(4):
+            active_col_exp += _safe_float(fill.get(f'F{95 + col:03d}', 0))
+        for col in range(4):
+            active_col_exp += _safe_float(fill.get(f'F{95 + 119 + col:03d}', 0))
+        active_col_exp = round(active_col_exp, 2)
+
+        cip_gap = round(total_exp_books - active_col_exp, 2)
+        cip_names = ', '.join(sorted(cip))
+
+        if cip_gap > 1.00 and (f104 > active_col_exp + 1.00 or abs(f113 - net_books) > 1.00):
+            return self.format_issue(
+                'F8NI-R04', self.ERROR,
+                f"Form 8825 totals include CIP property expenses. "
+                f"F104 (Line 20b total expenses) = ${f104:,.2f} but active-property "
+                f"column expenses sum to ${active_col_exp:,.2f}. "
+                f"Gap = ${cip_gap:,.2f} from {cip_names} pre-service expenses. "
+                f"F113 (Line 21 = ${f113:,.2f}) flows to Schedule K Line 2 and "
+                f"K-1 Box 2 — every partner's return is incorrect by ${cip_gap:,.2f}. "
+                f"Books correction required (IRC §263: capitalize CIP expenses).",
+                'IRC §263(a); IRC §446 Books-First; Form 8825 Line 21; IRC §702(a)',
+                f"Reclassify all Acct.Exp.* entries for propNm='{cip_names}' to "
+                f"Acct.Fixed.Tangible.InConstruction. Then re-run regenerate(). "
+                f"After correction: F104 drops by ${cip_gap:,.2f}; "
+                f"F113 rises by ${cip_gap:,.2f} (less negative).",
+                fids=['F104', 'F113'])
 
     def _rule_line21_blank(self):
         """

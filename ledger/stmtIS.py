@@ -674,9 +674,22 @@ class stmtIS_Tax(stmtIS):
                     prop_vals[propNm] = {}
                 prop_vals[propNm][line_key] = prop_vals[propNm].get(line_key, 0.0) + val
 
+        # Remove InConstruction (CIP) properties before Phase 2 so the single-property
+        # fallback activates correctly. CIP properties have no placed-in-service date
+        # and must not appear as Form 8825 columns (IRC §168; IRC §263).
+        cip = self._cip_propNms()
+        for cp in cip:
+            prop_vals.pop(cp, None)
+
+        if not prop_vals:
+            return {}
+
         # Phase 2: single-property fallback — recover values that were dropped
         # in Phase 1 due to missing propNm, using taxAggregates() as authority.
         # Directly maps line_key → taxAggregates() key for unambiguous 1-1 accounts.
+        # NOTE: taxAggregates() is propNm-agnostic; if CIP expenses remain in the books
+        # (not yet capitalized), these recovered values will include CIP amounts.
+        # F8EX-R05 and F8NI-R04 audit rules flag this books-correction requirement.
         _AGG_RECOVER: Dict[str, str] = {
             'gross_rents':  'rent_income',
             'other_income': 'other_income',
@@ -690,9 +703,6 @@ class stmtIS_Tax(stmtIS):
                 agg_val = round(float(agg.get(agg_key) or 0), 2)
                 if agg_val and not pv.get(line_key):
                     pv[line_key] = agg_val  # restore from authoritative source
-
-        if not prop_vals:
-            return {}
 
         # Compute derived subtotals per property
         for pv in prop_vals.values():
@@ -767,6 +777,34 @@ class stmtIS_Tax(stmtIS):
             r.setdefault('source', self.SOURCE_TAG)
         cols = ['fid', 'acct', 'fval', 'formNm', 'source']
         return pd.DataFrame(rows, columns=cols)
+
+    def _cip_propNms(self) -> set:
+        """Return propNm values that are truly InConstruction (not yet in service).
+
+        A property is CIP iff it has ≥1 Acct.Fixed.Tangible.InConstruction entry
+        AND has NO Acct.Fixed.Tangible.InService entry in the GL records.
+        Properties with both (e.g., a misclassified entry + real InService records)
+        are considered placed-in-service — InService dominates.
+
+        Source: self._gl_records (set by _build(), merges all DB sources).
+        Used by _build_f8825_filldict to exclude CIP from Form 8825 columns.
+        """
+        has_cip: set      = set()
+        has_inservice: set = set()
+        try:
+            gl_records = getattr(self, '_gl_records', []) or []
+            for r in gl_records:
+                prop = r.get('propNm', '')
+                if not prop:
+                    continue
+                acct_ = str(r.get('acct', '') or '').lower()
+                if 'inconstruction' in acct_:
+                    has_cip.add(prop)
+                elif 'inservice' in acct_:
+                    has_inservice.add(prop)
+        except Exception:
+            pass
+        return has_cip - has_inservice
 
     # ── UAS resolver ─────────────────────────────────────────────────────
 
