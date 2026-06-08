@@ -203,6 +203,10 @@ class llcMgmt:
 
         template_dir = Path(__file__).resolve().parent / "templates"
         self.app = Flask(__name__, template_folder=str(template_dir))
+        # Explicit session cookie settings — SameSite=Lax ensures the cookie is
+        # sent for top-level navigations including popup/new-tab opens.
+        self.app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        self.app.config["SESSION_COOKIE_PATH"]     = "/"
 
         import hashlib
         _key = os.environ.get("LLC_SECRET_KEY")

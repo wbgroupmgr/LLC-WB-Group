@@ -313,7 +313,11 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
         ChoiceLoader([existing, extra]) if existing else extra
     )
 
+    # "remember me" → 30 days; normal login → 8 hours.  Both are permanent
+    # cookies so the session survives across new windows/popups on the same browser.
+    # Non-permanent ("session") cookies are unreliable across new windows in some browsers.
     app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(days=30))
+    app.config.setdefault("SESSION_LIFETIME_DEFAULT", timedelta(hours=8))
 
     # ── /login ────────────────────────────────────────────────────────────────
     @app.route("/login", methods=["GET", "POST"])
@@ -346,8 +350,12 @@ def make_auth_routes(app: Flask, llc_name: str = "LLC") -> None:
                 _es = app.config.get("_esession")
                 if _es and hasattr(_es, "year"):
                     session["year"] = _es.year
-                if remember:
-                    session.permanent = True
+                # Always use a permanent (expiry-dated) cookie.  Non-permanent cookies
+                # are unreliable across new windows/popups in some browsers.
+                session.permanent = True
+                if not remember:
+                    from datetime import timedelta as _td
+                    app.permanent_session_lifetime = _td(hours=8)
 
                 next_url = (
                     request.form.get("next")
