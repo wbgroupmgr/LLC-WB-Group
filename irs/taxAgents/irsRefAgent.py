@@ -10,6 +10,38 @@ Two dicts per form:
 
 Reference IDs are short and stable: F4562-H, F4562-179, etc.
 Multiple fids may share one reference (e.g. all of Line 19h under F4562-19h).
+
+Field ID Naming Convention
+--------------------------
+  bookNS JSON uses lowercase sequential fIDs from the namespace: f2, f69, f129 etc.
+  This file documents the same fields as F002, F069, F129 (uppercase, for readability).
+  Both refer to the same AcroForm field — the sequential ID matches our namespace.json.
+
+  f1_N (IRS shortName in the PDF) vs our sequential fN:
+    The IRS PDF XFA uses shortNames like f1_2, f1_68, f2_1.
+    Our namespace assigns sequential IDs: f1_2 → our f2, f1_68 → our f69, f2_1 → our f129.
+    There is a natural +1 relationship between IRS shortName suffix and our fID ONLY for
+    page-1 fields (f1_N → our f(N+1) because f1_1 = our f1 is a pre-header year field).
+    Page-2 fields (f2_N) require adding the total count of page-1 fields as offset.
+
+Form 4562 Part Structure (IRS)
+-------------------------------
+  Part I   (Lines 1–13):    §179 expensing — NOT available for residential rental
+  Part II  (Lines 14–16):   Special/bonus depreciation — NOT for 27.5yr property
+  Part III (Lines 17–21):   MACRS depreciation
+    Section A: general depreciation elections
+    Section B: GDS (Lines 19a–19i, including Line 19h residential rental)
+    Section C: ADS (Lines 20a–20e)
+  Part IV  (Line 22):       Summary — TOTAL depreciation → Form 1065 Line 16a
+  Part V   (Lines 23–36):   Listed property (§280F vehicles) — BLANK for W&B Group
+  Part VI  (Lines 42–43):   Amortization — BLANK unless startup/org costs exist
+
+Part III Line 19 taxonomy (authoritative):
+  19a–19g: Personal/mixed-use MACRS classes (3yr, 5yr, 7yr, 10yr, 12yr, 15yr, 20yr, 25yr)
+  19h:     Residential rental property — 27.5yr, MM convention, S/L method (IRC §168(c)(1))
+  19i:     Nonresidential real property — 39yr GDS or 40yr ADS (IRC §168(c)(1))
+  Line 19i is emphatically NOT for residential rental — using it would misclassify the
+  property and apply the wrong recovery period (39yr instead of 27.5yr), violating IRC §168.
 """
 
 # ── Form 4562 ─────────────────────────────────────────────────────────────────
@@ -18,25 +50,36 @@ _F4562_SECTIONS = [
     {
         "id":    "Header",
         "name":  "Header",
+        # F002=f2 (Name), F003=f3 (EIN), F004=f4 (Business activity).
+        # f1 (shortName f1_1) is the pre-header year field — not a user entry.
+        # The first fillable header field is f2 (shortName f1_2 = Name).
         "fids":  ["F002", "F003", "F004"],
         "ref":   "F4562-H",
     },
     {
         "id":    "PartI",
         "name":  "Part I — §179 Deduction",
+        # F005=f5 (Line 1 dollar limit), F021=f21 (Line 12 deduction), F026=f26 (Line 13 carryover)
         "fids":  ["F005", "F021", "F026"],
         "ref":   "F4562-179",
     },
     {
         "id":    "PartIII-19h",
         "name":  "Part III — Line 19h (Residential Rental MACRS)",
+        # F069=f69 through F074=f74 are XFA SectionBTable.Line19h columns (b)-(g).
+        # These are the ONLY correct fids for residential rental (IRC §168(c)(1)).
+        # Line 19i (F075-F086) is nonresidential — using it would be an IRS violation.
         "fids":  ["F069", "F070", "F071", "F072", "F073", "F074"],
         "ref":   "F4562-19h",
     },
     {
         "id":    "PartIV",
         "name":  "Part IV — Summary (Line 22)",
-        "fids":  ["F153"],
+        # F129=f129 is the first standalone text field on page 2 (f2_1),
+        # before the Part V checkboxes and Table_Ln26. This is Part IV Line 22.
+        # F153 (f2_18, inside Table_Ln26 BodyRow2) is in the Listed Property table —
+        # it is Part V, NOT Line 22. Do not use F153 for the total depreciation.
+        "fids":  ["F129"],
         "ref":   "F4562-22",
     },
 ]
@@ -44,42 +87,59 @@ _F4562_SECTIONS = [
 _F4562_REFERENCES = {
     "F4562-H": {
         "fields": ["F002", "F003", "F004"],
-        "cite":   "Form 4562 Instructions, Top of Form (Lines A–C)",
+        "cite":   "Form 4562 Instructions, Top of Form (Lines A–C); IRC §6109",
         "reason": [
-            "F002 Name: copied from Form 1065 — same entity.",
-            "F003 EIN: partnership EIN from llcProfile, same as Form 1065 header.",
-            "F004 Business activity (f4): code 531110 = Lessors of Residential Buildings and Dwellings per NAICS. "
-            "IRS Form 4562 Line A requires the principal business activity code from the IRS Table of Business Activity Codes (2024 Instructions for Form 4562, p.1).",
+            "F002 (f2, shortName f1_2): Name(s) shown on return — same as Form 1065. "
+            "f1_1 (our f1) is the pre-header year-indicator field and is NOT the name field. "
+            "The Header pattern f1_2..f1_4 correctly identifies the three user-fillable header fields.",
+            "F003 (f3, shortName f1_3): Identifying number — partnership EIN from llcProfile.",
+            "F004 (f4, shortName f1_4): Business or activity to which this form relates. "
+            "Code 531110 = Lessors of Residential Buildings and Dwellings (NAICS). "
+            "Required by Form 4562 Instructions top of form.",
         ],
     },
     "F4562-179": {
         "fields": ["F005", "F021", "F026"],
-        "cite":   "IRC §179(b)(1); Rev. Proc. 2024-40; Form 4562 Part I Instructions",
+        "cite":   "IRC §179(b)(1), §179(d)(1)(B); Rev. Proc. 2024-40; Form 4562 Part I Instructions",
         "reason": [
-            "F005 Line 1 (f5): $1,220,000 is the 2025 §179 dollar limitation, inflation-adjusted per IRC §179(b)(1) and Rev. Proc. 2024-40. Statutory constant — not sourced from the books.",
-            "F021 Line 12: $0 §179 deduction. Residential rental real property is explicitly excluded from §179 by IRC §179(d)(1)(B).",
-            "F026 Line 13: $0 carry-over. No §179 election was made in any prior year.",
+            "F005 (f5, shortName f1_5): Line 1 — $1,220,000 dollar limitation (2025, Rev. Proc. 2024-40). "
+            "Statutory constant — not sourced from books. Entered even when §179 deduction is $0.",
+            "F021 (f21, shortName f1_21): Line 12 — $0 §179 deduction. "
+            "IRC §179(d)(1)(B): residential rental real property is explicitly excluded. "
+            "Any non-zero value here for a residential rental LLC is an IRS violation.",
+            "F026 (f26, shortName f1_26): Line 13 — $0 carryover. No §179 election in prior years.",
         ],
     },
     "F4562-19h": {
         "fields": ["F069", "F070", "F071", "F072", "F073", "F074"],
-        "cite":   "IRC §168(c)(1), §168(d)(2); Form 4562 Part III Section B Instructions",
+        "cite":   "IRC §168(c)(1), §168(d)(2), §168(b)(3)(B); Form 4562 Part III Section B Instructions",
         "reason": [
-            "F069 (b) Date placed in service: earliest InService date from llcAssets (Acct.Fixed.Tangible.InService records).",
-            "F070 (c) Basis for depreciation: Acct.Fixed.Tangible.InService balance. ⚠ Land value is included — land is NOT depreciable (IRC §1016). Must be removed before filing; see CPA notes.",
-            "F071 (d) Recovery period — 27.5 years: required GDS period for residential rental property per IRC §168(c)(1).",
-            "F072 (e) Convention — MM: mid-month convention required for real property placed in service during the year per IRC §168(d)(2).",
-            "F073 (f) Method — S/L: straight-line method required for GDS residential rental per IRC §168(b)(3). Declining balance not permitted.",
-            "F074 (g) Depreciation deduction: current-year amount sourced from Acct.Exp.Depreciation in the IS.",
+            "These six fids map to XFA path SectionBTable[0].Line19h[0].f1_68..f1_73 — "
+            "the six columns of the residential rental row (Line 19h). "
+            "This is the ONLY correct IRS row for 27.5-year MACRS residential rental property.",
+            "Line 19i (fids f75-f86, XFA Line19i_1/Line19i_2) is for NONRESIDENTIAL real "
+            "property (39yr GDS / 40yr ADS). Using Line 19i for residential rental would "
+            "violate IRC §168(c)(1) and overstate the recovery period.",
+            "F069 (f69, shortName f1_68): col (b) — month/year placed in service.",
+            "F070 (f70, shortName f1_69): col (c) — depreciable basis. ⚠ Land excluded per "
+            "IRC §167; Treas. Reg. §1.167(a)-2. Current value includes land — CPA must split.",
+            "F071 (f71, shortName f1_70): col (d) — 27.5 years (Val.27.5). Mandatory per IRC §168(c)(1).",
+            "F072 (f72, shortName f1_71): col (e) — MM (mid-month convention). Mandatory per IRC §168(d)(2).",
+            "F073 (f73, shortName f1_72): col (f) — S/L (straight-line). Mandatory per IRC §168(b)(3)(B).",
+            "F074 (f74, shortName f1_73): col (g) — depreciation deduction = IS.depreciation (Books-First, IRC §446).",
         ],
     },
     "F4562-22": {
-        "fields": ["F153"],
-        "cite":   "Form 4562 Part IV Instructions; Form 1065 Instructions, Line 16a",
+        "fields": ["F129"],
+        "cite":   "Form 4562 Part IV Instructions; Form 1065 Instructions Line 16a; IRC §446",
         "reason": [
-            "F153 Line 22: sum of all depreciation from Parts II and III. For W&B Group equals Line 19h only — no bonus depreciation (Part II, §168(k)) and no listed property (Part V).",
-            "Flows to Form 1065 Line 16a: Depreciation not claimed on Schedule A or elsewhere (Form 1065 Instructions p.17).",
-            "Also flows to Form 8825 Line 14: depreciation expense on the rental property.",
+            "F129 (f129, shortName f2_1): first standalone text field on page 2, immediately "
+            "before the Part V checkboxes (c2_1/c2_2) and Table_Ln26. This is Part IV Line 22. "
+            "NOTE: F153 (f153, shortName f2_18, inside Table_Ln26 BodyRow2) is NOT Line 22 — "
+            "it is a field inside the Part V Listed Property table and must remain blank.",
+            "Line 22 = sum of Parts II + III depreciation. For W&B Group this equals Line 19h only.",
+            "Flows to Form 1065 Line 16a (Depreciation not claimed on Schedule A or elsewhere). "
+            "Form 1065 Instructions p.17; Form 8825 Line 14 sourced independently from IS.depreciation.",
         ],
     },
 }

@@ -545,9 +545,21 @@ class AgentF4562_Summary(_SectionAgent):
     Part IV Line 22: Total depreciation claimed.
     For this LLC: Line 22 = Part III MACRS amounts = IS.depreciation.
 
+    Field mapping:
+      f129 (shortName f2_1, page 2 first standalone field) = Part IV Line 22.
+      f74  (shortName f1_73, page 1 Line19h col g)         = Part III Line 19h deduction.
+      Both must equal IS.depreciation (Books-First, IRC §446).
+
+    IMPORTANT — f153 is NOT Line 22:
+      f153 (shortName f2_18) is inside Table_Ln26 BodyRow2 — this is a row in the
+      Part V Listed Property table, NOT the Part IV Summary. Mapping IS.depreciation
+      to f153 puts the value in Part V (Listed Property) instead of Part IV (Summary),
+      leaving Line 22 blank and incorrectly filling a listed property cell.
+      bookNS_IS.json uses f129 for Line 22 (corrected from the prior f153 mapping).
+
     Line 22 is the CROSS-FORM AUDIT ANCHOR:
       LLCTaxAgent XF-R01 verifies:
-        Form 4562 Line 22 == Form 8825 Line 14 == IS.depreciation
+        Form 4562 Line 22 (f129) == Form 8825 Line 14 == IS.depreciation
 
     Both Form 4562 Line 22 and Form 8825 Line 14 are independently sourced
     from IS.depreciation (Books-First). The XF-R01 audit confirms they agree.
@@ -562,6 +574,11 @@ class AgentF4562_Summary(_SectionAgent):
     AGENT_KEY        = 'AgentF4562_Summary'
     LOGICAL_PREFIXES = ['F45L_']
 
+    # Correct fid for Part IV Line 22 (first standalone text field on page 2, f2_1).
+    # f153 (f2_18, Table_Ln26 BodyRow2) is in the Part V Listed Property table — NOT Line 22.
+    _LINE22_FID = 'f129'
+    _COL_G_FID  = 'f74'
+
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
             self._rule_line22_blank,
@@ -571,7 +588,7 @@ class AgentF4562_Summary(_SectionAgent):
 
     def pass5_summarize(self) -> str:
         depr = self._get_is_agg('depreciation')
-        return (f"Part IV Line 22 = ${depr:,.2f} (= IS.depreciation, Books-First). "
+        return (f"Part IV Line 22 (f129) = ${depr:,.2f} (= IS.depreciation, Books-First). "
                 f"Cross-form audit anchor: LLCTaxAgent XF-R01 will verify "
                 f"F4562 L22 == F8825 L14 == IS.depreciation.")
 
@@ -587,22 +604,23 @@ class AgentF4562_Summary(_SectionAgent):
         IRS: failure to claim depreciation does not allow a larger deduction
         in later years — the basis must be reduced by the amount allowable
         even if not claimed (IRC §1016(a)(2)).
+
+        fid: f129 (shortName f2_1) = first standalone text field on page 2 = Line 22.
+        bookNS_IS.json maps Acct.Exp.Depreciation → f129. Check that mapping is present.
         """
         fill   = self._load_fill_dict()
         depr   = self._get_is_agg('depreciation')
-        # F153 = bookNS Form4562 fid for Line 22 (Acct.Exp.Depreciation)
-        # F074 = Col (g) for Line 19h; both should equal IS.depreciation
-        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
+        line22 = _safe_float(fill.get(self._LINE22_FID) or fill.get(self._COL_G_FID) or 0)
         if depr > 0.01 and line22 < 0.01:
             return self.format_issue(
                 'F45L-R01', self.ERROR,
-                f"Form 4562 Part IV Line 22 (F153) is blank but IS.depreciation = ${depr:,.2f}. "
+                f"Form 4562 Part IV Line 22 (f129) is blank but IS.depreciation = ${depr:,.2f}. "
                 f"Line 22 must equal IS.depreciation (Books-First: IRC §446). "
                 f"CAUTION: IRC §1016(a)(2) requires basis reduction by the amount ALLOWABLE "
                 f"even if not claimed — failing to report depreciation now causes a double "
                 f"deduction problem at disposition.",
                 'IRC §168; IRC §1016(a)(2); IRC §446; Form 4562 Part IV Line 22',
-                "Verify bookNS_IS.json maps IS.depreciation → Form 4562 Line 22. "
+                "Verify bookNS_IS.json Form4562 section maps Acct.Exp.Depreciation → f129. "
                 "Re-run BookToIRS pipeline.",
                 fids=['F4562_L22'])
 
@@ -615,35 +633,37 @@ class AgentF4562_Summary(_SectionAgent):
         Form 8825 Line 14 is correct (which it should be, independently).
         A discrepancy here always indicates a books-mapping error — the fix is
         always to correct the mapping, not to adjust the form value manually.
+
+        fid: f129 (shortName f2_1, page 2 Part IV Line 22).
         """
         fill   = self._load_fill_dict()
         depr   = self._get_is_agg('depreciation')
-        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
+        line22 = _safe_float(fill.get(self._LINE22_FID) or fill.get(self._COL_G_FID) or 0)
         if line22 > 0.01 and abs(line22 - depr) > 1.00:
             return self.format_issue(
                 'F45L-R02', self.ERROR,
-                f"Form 4562 Line 22 (F153) = ${line22:,.2f} but IS.depreciation = ${depr:,.2f}. "
+                f"Form 4562 Line 22 (f129) = ${line22:,.2f} but IS.depreciation = ${depr:,.2f}. "
                 f"Discrepancy: ${abs(line22 - depr):,.2f}. Books-First violation (IRC §446). "
                 f"Line 22 is the XF-R01 cross-form audit anchor — if it doesn't match "
                 f"IS.depreciation, the cross-form audit will flag an inconsistency with "
                 f"Form 8825 Line 14 (also sourced from IS.depreciation).",
                 'IRC §446; IRC §703; Form 4562 Line 22; LLCTaxAgent XF-R01',
-                "Fix bookNS_IS.json Form4562 section: f153 must map to Acct.Exp.Depreciation. "
+                "Fix bookNS_IS.json Form4562 section: f129 must map to Acct.Exp.Depreciation. "
                 "Re-run BookToIRS pipeline.")
 
     def _rule_line22_confirmed(self):
         """
         F45L-R03: Line 22 = IS.depreciation confirmed — XF-R01 anchor is set.
-        F153 (Line 22) and F074 (Col g) both = IS.depreciation.
-        LLCTaxAgent XF-R01 will cross-check: F4562 F153 == Form 8825 F079 == IS.depreciation.
+        f129 (Line 22) and f74 (Col g Line 19h) both = IS.depreciation.
+        LLCTaxAgent XF-R01 will cross-check: F4562 f129 == Form8825 F079 == IS.depreciation.
         """
         fill   = self._load_fill_dict()
         depr   = self._get_is_agg('depreciation')
-        line22 = _safe_float(fill.get('F153') or fill.get('F074') or 0)
+        line22 = _safe_float(fill.get(self._LINE22_FID) or fill.get(self._COL_G_FID) or 0)
         if depr > 0.01 and abs(line22 - depr) <= 1.00:
             return self.format_issue(
                 'F45L-R03', self.INFO,
-                f"Form 4562 Part IV Line 22 = ${line22:,.2f} = IS.depreciation confirmed. "
+                f"Form 4562 Part IV Line 22 (f129) = ${line22:,.2f} = IS.depreciation confirmed. "
                 f"Cross-form audit anchor (XF-R01) is set. "
                 f"LLCTaxAgent will verify: F4562 L22 == F8825 L14 == IS.depreciation = ${depr:,.2f}.",
                 'Form 4562 Part IV; LLCTaxAgent XF-R01; IRC §446',

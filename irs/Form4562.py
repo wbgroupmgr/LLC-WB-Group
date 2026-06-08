@@ -81,17 +81,36 @@ class Form4562(irsForm):
 
     # Patterns match against XFA shortName (f1_N / c1_N / f2_N).
     # Field sequence determined from Form4562_IRS.pdf namespace.
+    #
+    # Naming note: f1_1 (our fID f1) is a pre-header system field (year indicator).
+    # The first user-fillable header field is f1_2 (our f2 = Name).  This is why
+    # the Header pattern starts at f1_2, not f1_1.  IRC and IRS instructions
+    # consistently label Name/EIN/Activity as the first three fields — they map
+    # to our f2/f3/f4, not f1/f2/f3.
     LOCATION_RULES: List[Tuple[str, str]] = [
-        (r'^f1_[2-4]$',                         "Form4562.Header"),
-        (r'^f1_([5-9]|1\d|2[0-5])$',            "Form4562.PartI.Sec179"),
-        (r'^c1_',                                "Form4562.PartII.SpecialDepr"),
-        (r'^f1_(2[6-9]|[3-5]\d|6[0-7])$',       "Form4562.PartIII.MACRS.Other"),
-        # Line 19h residential rental — 6 columns (b-g): f69-f74 → f1_68 to f1_73
-        (r'^f1_(6[89]|7[0-3])$',                 "Form4562.PartIII.MACRS.Line19h"),
-        (r'^f1_(7[4-9]|[89]\d|1[0-4]\d)$',       "Form4562.PartV.ListedProp"),
-        # Page 2: Part IV Summary (Line 22) + Part V listed property + Part VI amortization
-        (r'^f2_(1[0-9]|20)$',                    "Form4562.PartIV.Summary"),
-        (r'^f2_',                                 "Form4562.PartV.ListedProp"),
+        # f1_2..f1_4: Header — Name, EIN, Business/activity code
+        (r'^f1_[2-4]$',                              "Form4562.Header"),
+        # Part I §179 (Lines 1–13): f1_5..f1_25
+        (r'^f1_([5-9]|1\d|2[0-5])$',                "Form4562.PartI.Sec179"),
+        # Part II Special/Bonus depreciation: c1_* checkboxes
+        (r'^c1_',                                    "Form4562.PartII.SpecialDepr"),
+        # Part III Section A + Section B Lines 17–19g (up to 25-yr): f1_26..f1_67
+        (r'^f1_(2[6-9]|[3-5]\d|6[0-7])$',           "Form4562.PartIII.MACRS.Other"),
+        # Part III Section B Line 19h: Residential Rental 27.5yr GDS MM S/L
+        # Columns (b-g): f1_68..f1_73 = our f69-f74 — IRC §168(c)(1), §168(d)(2)
+        (r'^f1_(6[89]|7[0-3])$',                     "Form4562.PartIII.MACRS.Line19h"),
+        # Part III Section B Lines 19i-19j (nonresidential 39yr/40yr): f1_74..f1_97
+        # NOTE: These ARE Part III — not Part V Listed Property.
+        # Line 19i = nonresidential real property (IRC §168(c)(1): 39yr/40yr ADS).
+        # Line 19j = additional rows for multi-asset entries.
+        (r'^f1_(7[4-9]|[89]\d|9[0-7])$',            "Form4562.PartIII.MACRS.Other"),
+        # Part III Section C ADS (Lines 20a-20e): f1_98..f1_127
+        (r'^f1_(9[89]|1[01]\d|12[0-7])$',           "Form4562.PartIII.MACRS.ADS"),
+        # Page 2 — Part IV Summary (Line 22): first 4 standalone fields before checkboxes
+        # f2_1 = Line 22 total depreciation; f2_2..f2_4 = adjacent Part IV entries.
+        (r'^f2_[1-4]$',                              "Form4562.PartIV.Summary"),
+        # Page 2 — Part V Listed Property (Table_Ln26) + Part VI Amortization
+        (r'^f2_',                                    "Form4562.PartV.ListedProp"),
     ]
 
     _FILL_MAP:  Dict[str, Dict] = {}
@@ -200,10 +219,13 @@ class Form4562(irsForm):
             {
                 "part":    "Part IV — Summary (Line 22)",
                 "status":  "auto",
-                "summary": f"Line 22 = {d_fmt} (total depreciation) → Form 1065 Line 16a → Form 8825 Line 14.",
+                "summary": f"Line 22 (f129) = {d_fmt} → Form 1065 Line 16a → Form 8825 Line 14.",
                 "detail":  (
                     "Line 22 is the sum of all depreciation from Parts II and III. "
                     "For W&B Group this equals the Part III Line 19h deduction. "
+                    "f129 (shortName f2_1, first standalone text field on page 2) is the "
+                    "correct fid for Part IV Line 22. f153 (f2_18 inside Table_Ln26) is a "
+                    "Part V Listed Property table field and must remain blank. "
                     "This figure flows to: Form 1065 Schedule K Line 16a (depreciation), "
                     "and Form 8825 Line 14 (depreciation expense on the rental property)."
                 ),

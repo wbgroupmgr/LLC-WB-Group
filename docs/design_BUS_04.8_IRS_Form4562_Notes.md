@@ -92,8 +92,16 @@ ui.llcForm4562 (irs_pdf_view.html + stat chips + Review button)
 | f5 | P1_L1 | `Val.1,220,000` | 1,220,000 |
 | f21 | P1_L12 | `Val.0` | 0 |
 | f26 | P1_L17 | `Val.0` | 0 |
-| f74 | P3_L19h_g | `Acct.Exp.Depreciation` | 5,246.06 ⚠️ see §6 |
-| f153 | P4_L22 | `Acct.Exp.Depreciation` | 5,246.06 ⚠️ see §6 |
+| f74 | P3_L19h_g | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
+| f129 | P4_L22 | `Acct.Exp.Depreciation` | 1,903.13 ⚠️ see §6 |
+
+**f129 vs f153 — Part IV Line 22 location:**
+f129 (shortName f2_1) is the first standalone text field on page 2, before the Part V checkboxes
+(c2_1 etc.) and the Table_Ln26. This is Part IV Line 22 (total depreciation summary).
+
+f153 (shortName f2_18) is inside `Table_Ln26[0].BodyRow2` — this table is the Part V Listed
+Property table. f153 is a listed property row field and must remain blank for W&B Group.
+Prior mapping to f153 caused IS.depreciation to appear in Part V instead of Part IV Line 22.
 
 ---
 
