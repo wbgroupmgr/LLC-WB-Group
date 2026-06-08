@@ -487,6 +487,8 @@ examples:
                       help="Set up the task app (passphrase, deps, user DB)")
     mode.add_argument("--start", action="store_true",
                       help="Start the task app server")
+    mode.add_argument("--addTracker", action="store_true",
+                      help="Register this tracker in ~/.MultiTaskWS/config.json Trackers list")
 
     # --newBus options
     ap.add_argument("--booksDir", default="books", metavar="DIR",
@@ -529,6 +531,10 @@ def main():
             ap.error("--year is required for --newBus")
         provision_new_bus(args.newBus, year=args.year, books_dir=args.booksDir,
                           llc_name=args.llcName, force=args.force)
+        return
+
+    if args.addTracker:
+        WsCmd("").addTracker()
         return
 
     if not args.llcName:
