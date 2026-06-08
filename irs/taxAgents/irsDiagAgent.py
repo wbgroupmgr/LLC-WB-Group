@@ -188,17 +188,7 @@ class IRSDiagAgent:
             for fid in sec_def["fids"]:
                 entry = all_mapped.get(fid)
                 if entry is None:
-                    # fid in section definition but not in any bookNS source → show as unmapped
-                    fields.append({
-                        "fid":       fid,
-                        "shortName": "",
-                        "src":       "(not in bookNS)",
-                        "uas":       "",
-                        "value":     None,
-                        "value_fmt": "(not mapped)",
-                        "is_zero":   False,
-                    })
-                    continue
+                    continue   # not in bookNS → not mapped; skip silently
                 placed.add(fid)
                 val = entry["value"]
                 fields.append({
