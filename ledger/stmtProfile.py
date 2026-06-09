@@ -243,7 +243,15 @@ class stmtProfile(stmtDB):
             if isinstance(acct, str) and (acct == 'Cplx' or acct.startswith('Cplx.')):
                 out[fid] = 'Complex'
                 continue
-            if isinstance(acct, str) and acct.startswith('Profile.'):
+            if isinstance(acct, str) and acct.startswith('Profile.BookVal.'):
+                # Literal stored in bookNS_Profile.json["BookVal"] — not in cell index.
+                key = acct[len('Profile.BookVal.'):]
+                fval = None
+                for row in (bkNS.get('BookVal', []) or []):
+                    if isinstance(row, (list, tuple)) and len(row) >= 2 and row[0] == key:
+                        fval = str(row[1])
+                        break
+            elif isinstance(acct, str) and acct.startswith('Profile.'):
                 try:
                     fval = self.get(acct, 'value', None)
                 except Exception:
