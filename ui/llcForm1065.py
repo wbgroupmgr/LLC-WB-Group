@@ -147,8 +147,11 @@ class llcForm1065:
         prof = self._stmt_profile()
         pdf  = self.pdf_path()
         return {
-            'objectName': self.object_name(),
-            'formId':     self.FORM_ID,
+            'objectName':       self.object_name(),
+            'formId':           self.FORM_ID,
+            'agent_enabled':    True,
+            'agent_key':        'form1065',
+            'agent_strip_label': 'Form 1065 — Section Status',
             'pdfPath':    str(pdf) if pdf else '',
             'pdfPresent': pdf is not None,
             'sources': {

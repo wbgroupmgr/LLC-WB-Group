@@ -71,6 +71,40 @@
                   color: #78716c; margin: 8px 18px; }
     .run-bar { padding: 14px 18px; display: flex; gap: 10px; align-items: center; }
     .ts-label { font-size: 11px; color: #9ca3af; margin-left: auto; }
+    /* BookToIRS Diagnostic */
+    .diag-section { margin-bottom: 18px; }
+    .diag-section-head {
+        font-weight: 700; font-size: 13px; color: #1e3a8a;
+        border-bottom: 1px solid #bfdbfe; padding-bottom: 4px; margin-bottom: 8px;
+        display: flex; align-items: baseline; gap: 8px;
+    }
+    .diag-ref-chip {
+        font-size: 10px; font-family: monospace;
+        background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;
+        border-radius: 4px; padding: 1px 6px;
+    }
+    .diag-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 6px; }
+    .diag-table th {
+        text-align: left; color: #6b7280; font-weight: 600;
+        border-bottom: 1px solid #e5e7eb; padding: 3px 8px;
+    }
+    .diag-table td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; }
+    .diag-table td.fid  { font-family: monospace; color: #1e40af; }
+    .diag-table td.sn   { font-family: monospace; color: #6b7280; }
+    .diag-table td.uas  { color: #374151; }
+    .diag-table td.val  { font-weight: 600; color: #111827; }
+    .diag-table td.zero { font-weight: 600; color: #92400e; }
+    .diag-cite { font-size: 11px; color: #374151; font-style: italic; margin-bottom: 3px; }
+    .diag-reason {
+        font-size: 11px; color: #6b7280; line-height: 1.5;
+        background: #f8fafc; border-left: 3px solid #bfdbfe;
+        padding: 6px 10px; border-radius: 0 4px 4px 0;
+    }
+    @media print {
+        .review-header button, .run-bar { display: none !important; }
+        .section-body { display: block !important; }
+        #diagBody { display: block !important; }
+    }
 </style>
 {% endblock %}
 
@@ -179,9 +213,30 @@
     </div>
 </div>
 
+{# ── BookToIRS Diagnostic Frame (IRS Reference Agent) ──────────────────── #}
+<div class="review-panel" id="diagPanel" style="margin-top:12px">
+    <div class="review-header" style="cursor:pointer;user-select:none"
+         onclick="diagToggle()">
+        <h2>📊 BookToIRS Diagnostic — IRS Reference</h2>
+        <span style="font-size:12px;color:#bfdbfe;margin-right:8px" id="diagToggleIcon">▼</span>
+        <button type="button" class="btn btn-sm"
+                style="background:#1d4ed8;color:white;border:none;margin-left:auto;font-size:12px"
+                onclick="event.stopPropagation();diagLoad()">⟳ Refresh</button>
+        <button type="button" class="btn btn-sm"
+                style="background:#374151;color:white;border:none;margin-left:6px;font-size:12px"
+                onclick="event.stopPropagation();window.print()">🖨 Print</button>
+    </div>
+    <div id="diagBody" style="padding:12px 18px;display:none">
+        <div id="diagContent" style="font-size:12px;color:#6b7280">
+            Click Refresh to load diagnostic.
+        </div>
+    </div>
+</div>
+
 <script>
-const _START_URL = {{ url_for('agent_form1065_start') | tojson }};
-const _STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
+const _SCRIPT_ROOT = {{ request.script_root | tojson }};
+const _START_URL   = {{ url_for('agent_form1065_start') | tojson }};
+const _DIAG_URL    = _SCRIPT_ROOT + '/api/aid/diagnose?formNm=form1065';
 
 function runAgent(btn) {
     btn.disabled = true; btn.textContent = '⏳ Running…';
@@ -192,7 +247,7 @@ function runAgent(btn) {
           btn.disabled = false; btn.textContent = '▶ Re-run Form Agent';
           if (data.ok) {
               document.getElementById('runStatus').innerHTML =
-                  '<span style="color:#166534">✓ Done — reload page to see updated results</span>';
+                  '<span style="color:#166534">✓ Done — reloading…</span>';
               setTimeout(() => location.reload(), 1200);
           } else {
               document.getElementById('runStatus').innerHTML =
@@ -204,6 +259,86 @@ function runAgent(btn) {
           document.getElementById('runStatus').innerHTML =
               `<span style="color:#991b1b">Fetch error: ${err}</span>`;
       });
+}
+
+let _diagLoaded = false;
+
+function diagToggle() {
+    const body = document.getElementById('diagBody');
+    const icon = document.getElementById('diagToggleIcon');
+    const open = body.style.display === 'block';
+    body.style.display = open ? 'none' : 'block';
+    icon.textContent   = open ? '▼' : '▲';
+    if (!open && !_diagLoaded) diagLoad();
+}
+
+function diagLoad() {
+    const el = document.getElementById('diagContent');
+    el.innerHTML = '<span style="color:#6b7280">Loading…</span>';
+    document.getElementById('diagBody').style.display = 'block';
+    document.getElementById('diagToggleIcon').textContent = '▲';
+    fetch(_DIAG_URL)
+      .then(r => r.json())
+      .then(data => {
+          if (!data.ok) { el.innerHTML = `<span style="color:#991b1b">Error: ${data.error}</span>`; return; }
+          el.innerHTML = _renderDiag(data);
+          _diagLoaded  = true;
+      })
+      .catch(err => { el.innerHTML = `<span style="color:#991b1b">Fetch error: ${err}</span>`; });
+}
+
+function _renderDiag(data) {
+    let html = '';
+    const sections = data.sections || [];
+    for (const sec of sections) {
+        html += `<div class="diag-section">`;
+        html += `<div class="diag-section-head">`;
+        html += `${sec.name} <span class="diag-ref-chip">${sec.ref_id}</span>`;
+        html += `</div>`;
+        if (sec.fields && sec.fields.length) {
+            html += `<table class="diag-table"><thead><tr>
+                <th>fid</th><th>shortName</th><th>UAS path (books source)</th><th>Value</th>
+            </tr></thead><tbody>`;
+            for (const f of sec.fields) {
+                const valCls = f.is_zero ? 'zero' : 'val';
+                const valTxt = f.is_zero ? f.value_fmt + ' ← ZERO' : f.value_fmt;
+                html += `<tr>
+                    <td class="fid">${f.fid}</td>
+                    <td class="sn">${f.shortName}</td>
+                    <td class="uas">${f.uas}</td>
+                    <td class="${valCls}">${valTxt}</td>
+                </tr>`;
+            }
+            html += `</tbody></table>`;
+        }
+        if (sec.cite || sec.reason) {
+            html += `<div class="diag-cite">📖 ${sec.cite}</div>`;
+            const reasonHtml = Array.isArray(sec.reason)
+                ? '<ul style="margin:4px 0 0 0;padding-left:18px">' +
+                  sec.reason.map(b => `<li>${b}</li>`).join('') + '</ul>'
+                : `<p style="margin:4px 0 0 0">${(sec.reason||'').replace(/\n/g,'<br>')}</p>`;
+            html += `<div class="diag-reason">${reasonHtml}</div>`;
+        }
+        html += `</div>`;
+    }
+    const unmapped = data.unmapped || [];
+    if (unmapped.length) {
+        html += `<div class="diag-section">
+            <div class="diag-section-head" style="color:#92400e">⚠ Unmapped (no section defined)</div>
+            <table class="diag-table"><thead><tr>
+                <th>fid</th><th>shortName</th><th>UAS path</th><th>Value</th>
+            </tr></thead><tbody>`;
+        for (const f of unmapped) {
+            html += `<tr>
+                <td class="fid">${f.fid}</td>
+                <td class="sn">${f.shortName||''}</td>
+                <td class="uas">${f.uas}</td>
+                <td class="val">${f.value_fmt}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+    }
+    return html || '<span style="color:#6b7280">No mapped fields with values. Run Aid to add bookNS mappings.</span>';
 }
 </script>
 {% endblock %}

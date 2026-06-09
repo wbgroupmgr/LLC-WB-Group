@@ -285,119 +285,244 @@ _F8825_REFERENCES = {
 }
 
 # ── Form 1065 ─────────────────────────────────────────────────────────────────
+#
+# Form 1065 uses logical-key fids (P1_*, B_*, K_*, L_*, M1_*, M2_*) rather
+# than numeric F### fids. Sections here document the IRS rules for each page/
+# schedule; field-level mapping appears in bookNS_Form1065.json once created.
+#
+# Key IRS rule for W&B Group (pure rental LLC — IRC §469(c)(2)):
+#   Page 1 Lines 1–23:  ALL $0 — rental income is PASSIVE, not ordinary.
+#   Schedule K Line 2:  net rental income/loss (Books-First: IS.net_rental).
+#   Schedule K Line 14: $0 — rental income not subject to SE tax (IRC §1402(a)).
+#   Schedules L/M-1/M-2: NOT required unless gross ≥ $250K AND assets ≥ $1M.
 
 _F1065_SECTIONS = [
     {
-        "id":   "Header",
-        "name": "Header / Entity Info",
-        "fids": [],          # F002–F007 range; exact fids depend on bookNS
-        "ref":  "F1065-H",
+        "id":   "GenInfo",
+        "name": "Page 1 — General Information (Items A–K)",
+        "fids": [],
+        "ref":  "F1065-INFO",
     },
     {
-        "id":   "Income",
-        "name": "Income (Lines 1–7)",
+        "id":   "IncStmt",
+        "name": "Page 1 — Income & Deductions (Lines 1–23)",
         "fids": [],
         "ref":  "F1065-INC",
     },
     {
-        "id":   "Deductions",
-        "name": "Deductions (Lines 8–21)",
+        "id":   "SchedB",
+        "name": "Schedule B — Other Information (Pages 2–3)",
         "fids": [],
-        "ref":  "F1065-DED",
+        "ref":  "F1065-B",
     },
     {
         "id":   "SchedK",
-        "name": "Schedule K — Partners' Distributive Share",
+        "name": "Schedule K — Partners' Distributive Share (Page 4)",
         "fids": [],
         "ref":  "F1065-K",
+    },
+    {
+        "id":   "SchedLM",
+        "name": "Schedules L / M-1 / M-2 (Page 5)",
+        "fids": [],
+        "ref":  "F1065-LM",
     },
 ]
 
 _F1065_REFERENCES = {
-    "F1065-H": {
+    "F1065-INFO": {
         "fields": [],
-        "cite":   "Form 1065 Instructions, Top of Form",
+        "cite":   "Form 1065 Instructions, Page 1 Items A–K; IRC §6109; IRC §6223; Treas. Reg. §301.6223-1",
         "reason": [
-            "Entity name, EIN, and address: from llcProfile.",
-            "Tax year and accounting method: from llcProfile F1065 section.",
-            "Business activity code 531110 (Lessors of Residential Buildings) per NAICS.",
+            "EIN (Item D): 9-digit Employer Identification Number required on every return (IRC §6109). "
+            "Wrong EIN = return processed under wrong entity = penalties + corrections.",
+            "Partnership Representative (Schedule B Section): Required post-2018 BBA audit regime "
+            "(IRC §6223; Treas. Reg. §301.6223-1). The PR has sole authority to act for the partnership "
+            "in IRS proceedings. Must be named with name, address, phone, TIN.",
+            "Accounting Method (Item H): must match how the books are actually kept (IRC §446(a)). "
+            "W&B Group books depreciation and capitalizes assets → Accrual method.",
+            "Number of K-1s (Item I): must equal number of partners in llcOwners. "
+            "IRS uses this count to verify every partner filed their K-1.",
+            "Initial/Final return (checkboxes): W&B Group 2025 = initial return year — must check Initial.",
+            "§465 At-Risk (Item K): for a cash-invested rental LLC, partners are generally at-risk "
+            "for their capital contributions. Bookkeeper must confirm before checking.",
         ],
     },
     "F1065-INC": {
         "fields": [],
-        "cite":   "IRC §61; Form 1065 Instructions, Lines 1–7",
+        "cite":   "IRC §469(c)(2); Form 1065 Instructions Lines 1–23; Form 1065 Instructions Line 16a",
         "reason": [
-            "Line 2: net rental real estate income/loss flows from Form 8825 Line 20.",
-            "Ordinary income items sourced from Acct.Rev.* accounts in the books.",
+            "CRITICAL — All Lines 1–23 must be $0 for a pure rental LLC. "
+            "IRC §469(c)(2): rental activity is passive by statute. "
+            "Passive rental income NEVER belongs on Form 1065 Page 1 Lines 1–8 (ordinary income). "
+            "Incorrect flow: Books → Page 1 Lines 1a/3/7 ← IRS violation.",
+            "Correct flow for rental income: Books → Form 8825 (per-property detail) "
+            "→ Form 8825 Line 21 (net) → Schedule K Line 2 → K-1 Box 2 (per partner).",
+            "Line 16a (Depreciation): Form 1065 Instructions state explicitly: "
+            "'Do not include rental real estate activities — report that depreciation on Form 8825 Line 14.' "
+            "P1_16a must be $0 for a rental LLC. Rental depreciation path: "
+            "IS.depreciation → Form 4562 Part III Line 19i → Form 8825 Line 14.",
+            "Line 23 (Ordinary Business Income): must be $0 (Line 8 − Line 22; both $0 for rental LLC). "
+            "Rental income/loss flows to Schedule K Line 2, not Line 23.",
+            "Books-First (IRC §446 + §703): all values sourced from IS.taxAggregates(). "
+            "Never source from another IRS form.",
         ],
     },
-    "F1065-DED": {
+    "F1065-B": {
         "fields": [],
-        "cite":   "IRC §162, §163, §164, §168; Form 1065 Instructions, Lines 8–21",
+        "cite":   "Form 1065 Instructions, Schedule B; IRC §6031; IRC §6221(b); Treas. Reg. §1.6031(a)-1(b)(4)",
         "reason": [
-            "Ordinary deductions sourced from Acct.Exp.* accounts.",
-            "Line 16a Depreciation: must equal Form 4562 Line 22.",
-            "Rental expenses flow through Form 8825 and are netted before reaching Form 1065.",
+            "Schedule B is a Yes/No compliance disclosure register. IRS uses answers to determine "
+            "what additional forms apply and which audit regime governs.",
+            "Q4(c) — Most important question: if gross receipts < $250K OR assets < $1M, answer 'Yes' "
+            "→ Schedules L, M-1, M-2 are NOT required. Filing empty schedules creates IRS audit noise. "
+            "(Treas. Reg. §1.6031(a)-1(b)(4))",
+            "Q3a (individual >50% owner): must be answered Yes or No — no default. "
+            "Determines §267 related-party rules.",
+            "Q4d (distributions): must be Yes if any partner received cash distribution. "
+            "Links to K-1 Box 19 and Schedule M-2 capital account analysis.",
+            "Q21 (BBA opt-out): IRC §6221(b) election to opt out of centralized audit regime. "
+            "Default = IN the BBA regime (IRS audits at partnership level via Partnership Representative).",
+            "Partnership Representative must appear here with full name, address, phone, TIN.",
         ],
     },
     "F1065-K": {
         "fields": [],
-        "cite":   "IRC §702, §704; Form 1065 Schedule K Instructions",
+        "cite":   "IRC §702(a); IRC §704(b); Form 1065 Schedule K Instructions; IRC §1402(a)(1); IRC §1402(a)(13)",
         "reason": [
-            "Each partner's distributive share allocated per ownership % in llcProfile propOwners.",
-            "Schedule K Line 2: rental net income/loss (from Form 8825).",
-            "Partners report their K-1 amounts on Schedule E of Form 1040.",
+            "Schedule K collects ALL items that flow to partners via K-1. "
+            "It is an allocation register, not a second income statement.",
+            "Line 1 (Ordinary Business Income): must be $0. "
+            "IRC §469(c)(2): rental income is PASSIVE — it goes to Line 2, never Line 1.",
+            "Line 2 (Net Rental Real Estate Income/Loss): the central K line. "
+            "IRS: 'Use amounts from Form 8825 Line 21.' "
+            "Books-First: K_2 = IS.net_rental (total_income − total_expenses). "
+            "Must be NET income, not gross rent (IS.rent_income). "
+            "Mapping gross rent to K_2 omits all rental expense deductions from partners' returns.",
+            "IRC §704(b): all K items must sum to 100% across all K-1s. "
+            "Partner ownership percentages must sum to exactly 1.0 (100%).",
+            "Line 14 (Self-Employment Income): must be $0. "
+            "IRC §1402(a)(1): rental income excluded from SE earnings by statute. "
+            "IRC §1402(a)(13): limited partners not subject to SE tax. "
+            "Non-zero K_14 incorrectly triggers 15.3% SE tax on partners.",
+        ],
+    },
+    "F1065-LM": {
+        "fields": [],
+        "cite":   "Form 1065 Instructions Schedule B Q4(c), Schedule L, Schedule M-1, Schedule M-2; "
+                  "Rev. Proc. 2020-13; TD 9902; IRC §705",
+        "reason": [
+            "These schedules are ONLY required if BOTH: gross receipts ≥ $250K AND assets ≥ $1M. "
+            "Below either threshold → Schedule B Q4(c) = 'Yes' → skip all three schedules entirely.",
+            "Schedule L (Balance Sheet per Books): must match the BS exactly (Books-First — IRC §446). "
+            "L_14_2 (total assets, end of year) must equal BS.total_assets.",
+            "Schedule M-1 (Book-to-Tax Reconciliation): Line 1 = IS.net_income (book basis). "
+            "Line 9 = Schedule K Line 1 = $0 for rental LLC. "
+            "Explains why book net income ≠ ordinary taxable income (rental is passive, not ordinary).",
+            "Schedule M-2 (Partners' Capital Accounts): MUST use TAX BASIS METHOD (mandatory post-2020). "
+            "Rev. Proc. 2020-13; TD 9902: previous methods (§704(b) book value, GAAP) no longer accepted. "
+            "Tax basis = contributions + taxable income − deductions − distributions (IRC §705).",
         ],
     },
 }
 
 # ── Schedule K-1 ─────────────────────────────────────────────────────────────
+#
+# Schedule K-1 (Form 1065) — one per partner, per tax year.
+# Key IRS rules for a rental LLC (IRC §469(c)(2)):
+#   Box 1  = $0 (ordinary income — rental is PASSIVE, not ordinary)
+#   Box 2  = IS.net_rental × partner.pct (Books-First: IRC §446/703)
+#   Box 14 = $0 (SE income — rental excluded per IRC §1402(a)(1))
+#   Box L  = tax basis method (Rev. Proc. 2020-13; mandatory post-2020)
+# Distributions (Box 19): actual cash distributed during the year per llcOwners.
+# IRC §704(d) basis limitation: partners can only deduct loss up to their basis.
 
 _SCHK1_SECTIONS = [
     {
-        "id":   "PartI",
-        "name": "Part I — Partnership Information",
+        "id":   "Identity",
+        "name": "Parts I & II — Partnership and Partner Identity",
         "fids": [],
-        "ref":  "K1-PI",
+        "ref":  "K1-ID",
     },
     {
-        "id":   "PartII",
-        "name": "Part II — Partner Information",
+        "id":   "PassiveItems",
+        "name": "Part III — Passive Income Items (Boxes 1–3, 14)",
         "fids": [],
-        "ref":  "K1-PII",
+        "ref":  "K1-PASSIVE",
     },
     {
-        "id":   "PartIII",
-        "name": "Part III — Partner's Share of Income",
+        "id":   "Capital",
+        "name": "Part II — Capital Account (Box L)",
         "fids": [],
-        "ref":  "K1-PIII",
+        "ref":  "K1-CAP",
     },
 ]
 
 _SCHK1_REFERENCES = {
-    "K1-PI": {
+    "K1-ID": {
         "fields": [],
-        "cite":   "Form 1065 Schedule K-1 Instructions, Part I",
+        "cite":   "Form 1065 Schedule K-1 Instructions, Parts I–II; IRC §6109; IRC §704(b)",
         "reason": [
-            "Partnership EIN, name, and address from llcProfile.",
-            "Required on each K-1 so partners can cross-reference to Form 1065.",
+            "Part I — Partnership EIN, name, and address from llcProfile. "
+            "Required on each K-1 so partners can cross-reference to Form 1065 (IRC §6031).",
+            "Part II — Partner TIN, name, and address from llcProfile propOwners. "
+            "Partner TIN is required (IRC §6109). Wrong TIN = IRS cannot match K-1 to partner's return.",
+            "Profit/loss/capital sharing percentages: must reflect the LLC operating agreement "
+            "and sum to exactly 100% across all partners (IRC §704(b)).",
+            "Partner type (General/Limited/LLC member): for a rental LLC with member-managers, "
+            "members are typically 'LLC member' — not General Partner. "
+            "Designation affects SE tax treatment (IRC §1402(a)(13)).",
+            "Item G (Partner is a disregarded entity): check if any partner is a single-member LLC "
+            "or trust that is disregarded — affects how the K-1 is reported on the partner's return.",
         ],
     },
-    "K1-PII": {
+    "K1-PASSIVE": {
         "fields": [],
-        "cite":   "Form 1065 Schedule K-1 Instructions, Part II",
+        "cite":   "IRC §469(c)(2); IRC §702(a); IRC §1402(a)(1); IRC §1402(a)(13); "
+                  "Form 1065 Schedule K-1 Instructions, Part III",
         "reason": [
-            "Partner TIN, name, and address from llcProfile propOwners.",
-            "Profit/loss/capital sharing ratios used for income allocation per IRC §704(b).",
+            "Box 1 (Ordinary Business Income/Loss): MUST be $0 for rental LLC. "
+            "IRC §469(c)(2): rental activity is passive by statute — it is NEVER ordinary income. "
+            "Filing a non-zero Box 1 misclassifies rental income as ordinary and triggers "
+            "incorrect self-employment tax analysis on the partner's return.",
+            "Box 2 (Net Rental Real Estate Income/Loss): the ONLY income box for a rental LLC. "
+            "IRS Instructions: 'Each partner's share of net rental real estate income or loss.' "
+            "Books-First (IRC §446/703): Box 2 = IS.net_rental × partner.pct. "
+            "CRITICAL: Box 2 is NET (income minus expenses), not gross rent. "
+            "Gross rent (IS.rent_income × pct) ≠ Box 2 — that error omits all expense deductions. "
+            "Partners report Box 2 on Schedule E, Part II as passive income/loss.",
+            "IRC §704(d) Basis Limitation: if Box 2 is a loss, the partner can only deduct "
+            "up to their adjusted basis in the partnership. "
+            "Basis check is performed on the partner's individual return (Schedule E, Form 6198). "
+            "The K-1 reports the full allocated amount regardless of the partner's basis.",
+            "Box 14 (Self-Employment Income): MUST be $0 for rental LLC. "
+            "IRC §1402(a)(1): rental income from real estate is explicitly excluded from "
+            "'net earnings from self-employment' (unless taxpayer renders substantial personal services). "
+            "IRC §1402(a)(13): limited partners' distributive share is excluded from SE earnings. "
+            "A non-zero Box 14 incorrectly triggers 15.3% SE tax (~$X,XXX) on the partner's return.",
+            "Box 3 (Other Net Rental Income): blank for W&B Group — only rental real estate "
+            "(Box 2) and no personal property rentals.",
         ],
     },
-    "K1-PIII": {
+    "K1-CAP": {
         "fields": [],
-        "cite":   "IRC §702; Form 1065 Schedule K-1 Instructions, Part III",
+        "cite":   "IRC §705; Rev. Proc. 2020-13; TD 9902; Form 1065 Schedule K-1 Instructions, Item L",
         "reason": [
-            "Box 2: net rental real estate income/loss — each partner's share of Form 8825 net income.",
-            "Allocated by ownership percentage from llcProfile.",
-            "Partners report Box 2 on Schedule E of Form 1040.",
+            "Box L MUST use the TAX BASIS METHOD of capital reporting (mandatory for tax years 2020+). "
+            "Rev. Proc. 2020-13 and TD 9902 eliminated §704(b) book value, GAAP, and 'Other' methods. "
+            "Filing with a non-tax-basis method is an IRS compliance failure.",
+            "Tax basis capital account formula (IRC §705): "
+            "BOY Capital + Contributions + Allocated Income − Allocated Losses − Distributions = EOY Capital.",
+            "For W&B Group 2025 (first year of operation): "
+            "BOY Capital = $0 (new entity, no prior years). "
+            "Contributions = each partner's actual cash contributed (from llcOwners.contributions). "
+            "Allocated Income/Loss = Box 2 per partner (net rental × ownership %). "
+            "Distributions = actual cash distributed (from llcOwners.distributions). "
+            "EOY Capital = contributions + Box 2 − distributions.",
+            "Box L method checkbox: 'Tax basis' must be checked. "
+            "This checkbox is explicitly validated by IRS automated systems.",
+            "IRS uses Box L to verify partners track their basis for IRC §704(d) loss limitations "
+            "and to detect §704(c) remedial allocation situations on transfers at above/below book value.",
         ],
     },
 }

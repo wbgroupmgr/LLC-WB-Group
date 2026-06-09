@@ -1790,6 +1790,35 @@ class llcMgmt:
                                        obj_type=f"{form_key} Agent",
                                        meta={"error": str(err)})
 
+        def _normalize_agent_sections(d: dict) -> dict:
+            """Flatten sections or partners dict into a list for the UI strip."""
+            if isinstance(d.get('sections'), list):
+                return d
+            d = dict(d)
+            # SchK1: top-level 'partners' key → flatten per-partner section dicts
+            if 'partners' in d and 'sections' not in d:
+                secs = []
+                for pid, pdata in (d.get('partners') or {}).items():
+                    for sec_key, sec in (pdata.get('sections') or {}).items():
+                        sc = dict(sec)
+                        sc['label'] = f"{pid} — {sec.get('label', sec_key)}"
+                        secs.append(sc)
+                d['sections'] = secs
+                return d
+            # Generic: sections is a plain dict
+            raw = d.get('sections') or {}
+            if isinstance(raw, dict):
+                d['sections'] = [
+                    {'agent': k, 'label': v.get('label', k),
+                     'state': v.get('state', 'NOT_STARTED'),
+                     'summary': v.get('summary', ''),
+                     'halt_count': v.get('halt_count', 0),
+                     'resolve_count': v.get('resolve_count', 0),
+                     'review_count': v.get('review_count', 0)}
+                    for k, v in raw.items()
+                ]
+            return d
+
         @app.route("/api/agent/<form_key>/status")
         def agent_generic_status(form_key):
             """Return SectionSummary for the agent status strip."""
@@ -1799,21 +1828,7 @@ class llcMgmt:
             AgentCls, _, _ = entry
             try:
                 agent   = AgentCls(self.eSession.llc)
-                summary = agent.getSummary()
-                # Ensure sections is always a list for the UI
-                if 'sections' not in summary or not isinstance(summary.get('sections'), list):
-                    raw_secs = summary.get('sections', {})
-                    if isinstance(raw_secs, dict):
-                        summary = dict(summary)
-                        summary['sections'] = [
-                            {'agent': k, 'label': v.get('label', k),
-                             'state': v.get('state', 'NOT_STARTED'),
-                             'summary': v.get('summary', ''),
-                             'halt_count': v.get('halt_count', 0),
-                             'resolve_count': v.get('resolve_count', 0),
-                             'review_count': v.get('review_count', 0)}
-                            for k, v in raw_secs.items()
-                        ]
+                summary = _normalize_agent_sections(agent.getSummary())
                 return jsonify({'ok': True, 'summary': summary})
             except Exception as err:
                 app.logger.exception("agent_generic_status(%s) failed", form_key)
@@ -1828,20 +1843,7 @@ class llcMgmt:
             AgentCls, _, _ = entry
             try:
                 agent  = AgentCls(self.eSession.llc)
-                result = agent.run_phases_1_2()
-                # Normalize sections to list
-                raw_secs = result.get('sections', {})
-                if isinstance(raw_secs, dict):
-                    result = dict(result)
-                    result['sections'] = [
-                        {'agent': k, 'label': v.get('label', k),
-                         'state': v.get('state', 'NOT_STARTED'),
-                         'summary': v.get('summary', ''),
-                         'halt_count': v.get('halt_count', 0),
-                         'resolve_count': v.get('resolve_count', 0),
-                         'review_count': v.get('review_count', 0)}
-                        for k, v in raw_secs.items()
-                    ]
+                result = _normalize_agent_sections(agent.run_phases_1_2())
                 return jsonify({'ok': True, 'summary': result})
             except Exception as err:
                 app.logger.exception("agent_generic_start(%s) failed", form_key)
