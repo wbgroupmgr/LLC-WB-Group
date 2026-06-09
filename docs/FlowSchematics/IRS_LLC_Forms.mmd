@@ -1,131 +1,222 @@
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '13px', 'primaryColor': '#e8f4f8', 'edgeLabelBackground': '#ffffff'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '12px', 'primaryColor': '#f0f4f8', 'edgeLabelBackground': '#ffffff', 'clusterBkg': '#f9f9f9'}}}%%
 flowchart TD
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% FINANCIAL BOOKS — sole source of truth per IRC §446 + §703
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph BOOKS["📚  Financial Books — IRC §446 + §703  (sole source of truth)"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% 1.  BOOKS
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph L1["1.  Books"]
         direction LR
-        IS["stmtIS — Income Statement\n──────────────────────────\nIS.rent_income\nIS.depreciation\nIS.net_rental  ← total_income − total_expenses\nIS.interest_income\nIS.distributions_cash\nIS.net_income"]
-        BS["stmtBS — Balance Sheet\n──────────────────────────\nBS.total_assets\nBS.partner_capital\nBS.total_liabilities"]
-        PROF["stmtProfile — Entity\n──────────────────────────\nEIN · entity name · address\naccounting method (accrual)\npartner list + ownership %"]
-        ASSET["llcAssets — Property DB\n──────────────────────────\nbasis (land excluded)\nin-service date\nMACRS class: 27.5yr\npropNm → H_805HighMesa"]
+        N11["1.1  AssetLedger\n(llcAssets)"]
+        N12["1.2  ExpRevLedger\n(llcExpRev)"]
+        N13["1.3  General Ledger\n(ledgerGeneral)"]
+        N14["1.4  Balance Sheet\n(stmtBS)"]
+        N15["1.5  Income Statement\n(stmtIS)"]
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% FORM 4562 — Depreciation Schedule
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph F4562["🗒  Form 4562 — Depreciation Schedule"]
-        F4_HEADER["Header: Entity Name / EIN\n← PROF"]
-        F4_179["Part I §179 = $0\n(residential rental EXCLUDED\nfrom §179 election)"]
-        F4_19i["Part III Line 19i\nResidential Rental 27.5yr MACRS\ncol(b) in-service date ← ASSET\ncol(c) depreciable basis ← ASSET\ncol(g) depreciation ← IS.depreciation"]
-        F4_22["Part IV Line 22\nTotal Depreciation Summary\n= IS.depreciation\n← Books-First IRC §446"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% 2.  BookToIRS  (Knowledge)
+    %%     2.1 IRS Instructions  |  2.2 bookNS Models   — side by side
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph L2["2.  BookToIRS  (Knowledge)"]
+        direction LR
+
+        subgraph L21["2.1  IRS  (Instructions)"]
+            direction TB
+            N211["2.1.1  Form 1065\nU.S. Return of Partnership Income"]
+            N212["2.1.2  Form 8825\nRental Real Estate Income/Expenses"]
+            N213["2.1.3  Form 4562\nDepreciation & Amortization"]
+            N214["2.1.4  Schedule K-1\nPartner's Share of Income/Deductions"]
+            N211 ~~~ N212 ~~~ N213 ~~~ N214
+        end
+
+        subgraph L22["2.2  bookNS  (Models)"]
+            direction TB
+            N221["2.2.1  bookNS_Profile.json\nForm1065 · Sch K-1\nGenInfo · EIN · PrepInfo · Partner%"]
+            N222["2.2.2  bookNS_IS.json\nForm1065 (Sched K / L / M-1 / M-2)\nForm8825 · Form4562 · Sch K-1"]
+            N223["2.2.3  bookNS_BS.json\nForm1065 (Schedule L)\nSch K-1 (Box L Capital Account)"]
+            N224["2.2.4  bookNS_GL.json\nForm4562 (asset basis / in-service)\nForm8825 (per-property detail)"]
+            N221 ~~~ N222 ~~~ N223 ~~~ N224
+        end
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% FORM 8825 — Rental Real Estate Income/Expense (per property)
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph F8825["🏠  Form 8825 — Rental Real Estate Income/Expense"]
-        F8_HEADER["Property Headers\ntype · placed-in-service date\nfair-rental days ← ASSET"]
-        F8_INC["Line 2a Gross Rents\n= IS.rent_income (per propNm)\nLine 2b Other Income\n= Acct.Rev.Fees.Other"]
-        F8_EXP["Expenses Lines 5–17\nLine 11 Repairs ← IS.repairs\nLine 12 Utilities ← IS.util\nLine 14 Depreciation ← IS.depreciation\n★ Books-First — NOT from Form 4562\nLine 16 Taxes ← IS.taxes\nLine 17 Other ← IS.other_expenses"]
-        F8_NET["Line 23 Net Rental Income/Loss\n= Gross Rents − All Expenses\n= IS.net_rental\nFlows to Sched K Line 2 (audit verify only)"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% 3.  BookToIRS  (PerSectionAgents)
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph L3["3.  BookToIRS  (PerSectionAgents)"]
+        direction LR
+
+        subgraph L31["3.1  Form1065Agent"]
+            direction TB
+            N311["3.1.1  AgentF1065_Info"]
+            N312["3.1.2  AgentF1065_IncStmt"]
+            N313["3.1.3  AgentF1065_Other"]
+            N314["3.1.4  AgentF1065_Distr"]
+            N315["3.1.5  AgentF1065_Reconcile"]
+            N316["3.1.6  AgentForm_Ext"]
+            N311 ~~~ N312 ~~~ N313 ~~~ N314 ~~~ N315 ~~~ N316
+        end
+
+        subgraph L32["3.2  Form8825Agent"]
+            direction TB
+            N321["3.2.1  AgentF8825_Properties"]
+            N322["3.2.2  AgentF8825_Income"]
+            N323["3.2.3  AgentF8825_Expenses"]
+            N324["3.2.4  AgentF8825_NetIncome"]
+            N321 ~~~ N322 ~~~ N323 ~~~ N324
+        end
+
+        subgraph L33["3.3  Form4562Agent"]
+            direction TB
+            N331["3.3.1  AgentF4562_Sec179"]
+            N332["3.3.2  AgentF4562_MACRS"]
+            N333["3.3.3  AgentF4562_Summary"]
+            N331 ~~~ N332 ~~~ N333
+        end
+
+        subgraph L34["3.4  FormSchK1Agent"]
+            direction TB
+            N341["3.4.1  AgentSchK1_Identity"]
+            N342["3.4.2  AgentSchK1_PassiveItems"]
+            N343["3.4.3  AgentSchK1_Capital"]
+            N341 ~~~ N342 ~~~ N343
+        end
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% FORM 1065 — Partnership Return (Page 1 = ALL $0 for rental LLC)
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph F1065["📋  Form 1065 — Partnership Return"]
-        P1_INFO["Page 1 — General Info\nEIN · Name · Address ← PROF\nAccounting Method: Accrual\nInitial Return: 2025\n# of K-1s ← PROF"]
-        P1_ZERO["Page 1 Lines 1–23\n= ALL $0\n★ IRC §469(c)(2): Rental is PASSIVE\nPassive income NEVER on Page 1\nBookNS mappings for F038–F056 REMOVED"]
-        SCHB["Schedule B — Compliance Qs\nQ4(c): Sched L/M-1/M-2 required?\nPartnership Representative ← PROF\nOwnership >50%? ← PROF\nDistributions made? ← IS"]
-        SCHK_2["Schedule K Line 2\nNet Rental Real Estate Income\n= IS.net_rental\n← Books-First (NOT from Form 8825)\nCross-form audit verifies == F8825 Line 23"]
-        SCHK_5["Schedule K Line 5\nInterest Income\n= IS.interest_income"]
-        SCHK_19["Schedule K Line 19a\nCash Distributions\n= IS.distributions_cash"]
-        SCHL["Schedule L — Balance Sheet\nTotal Assets ← BS.total_assets\nPartner Capital ← BS.partner_capital\nOnly if gross ≥ $250K + assets ≥ $1M"]
-        SCHM1["Schedule M-1\nBook-Tax Reconciliation\nLine 1 = IS.net_income (book)\nLine 9 = $0 (ordinary inc = $0)\nExplains: book income ≠ taxable ordinary income\n(all income is passive rental)"]
-        SCHM2["Schedule M-2\nPartners' Capital Analysis\nTax Basis Method REQUIRED\nRev. Proc. 2020-13 · TD 9902\nFormula: BOY + contributions\n+ alloc income − distributions = EOY"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% 4.  Tax Form  (Views · Reviews · Diagnostics)
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph L4["4.  Tax Form  (Views · Reviews · Diagnostics)"]
+        direction LR
+
+        subgraph L41["4.1  Form 1065"]
+            direction TB
+            N411["4.1.1  General Information"]
+            N412["4.1.2  Income & Deductions"]
+            N413["4.1.3  Schedule B"]
+            N414["4.1.4  Schedule K"]
+            N415["4.1.5  Sched L / M-1 / M-2"]
+            N411 ~~~ N412 ~~~ N413 ~~~ N414 ~~~ N415
+        end
+
+        subgraph L42["4.2  Form 8825"]
+            direction TB
+            N421["4.2.1  Property Headers"]
+            N422["4.2.2  Income"]
+            N423["4.2.3  Expenses"]
+            N424["4.2.4  Summary"]
+            N421 ~~~ N422 ~~~ N423 ~~~ N424
+        end
+
+        subgraph L43["4.3  Form 4562"]
+            direction TB
+            N431["4.3.1  Header"]
+            N432["4.3.2  Part I — §179"]
+            N433["4.3.3  Part III — MACRS 19i"]
+            N434["4.3.4  Part IV — Summary"]
+            N431 ~~~ N432 ~~~ N433 ~~~ N434
+        end
+
+        subgraph L44["4.4  Schedule K-1"]
+            direction TB
+            N441["4.4.1  Identity"]
+            N442["4.4.2  Passive Items"]
+            N443["4.4.3  Capital Account"]
+            N441 ~~~ N442 ~~~ N443
+        end
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% SCHEDULE K-1 — Per Partner (one PDF per partner)
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph K1["📄  Schedule K-1  (one per partner × ownership %)"]
-        K1_ID["Parts I & II — Identity\nPartnership EIN + Name ← PROF\nPartner TIN + Name ← PROF\nOwnership % ← PROF"]
-        K1_B1["Box 1 = $0\nOrdinary Business Income\nMUST be $0 — rental is PASSIVE\nIRC §469(c)(2)"]
-        K1_B2["Box 2 = IS.net_rental × partner%\nNet Rental Real Estate Income\n★ NET (not gross) — includes expense deductions\nPartners report on Sched E Part II"]
-        K1_B5["Box 5 = IS.interest_income × partner%\nInterest Income"]
-        K1_B14["Box 14 = $0\nSelf-Employment Income\nRental EXCLUDED per IRC §1402(a)(1)\nLimited partners EXCLUDED per §1402(a)(13)\nNon-zero triggers 15.3% SE tax ERROR"]
-        K1_B19["Box 19 = IS.distributions_cash\nCash Distributions to partner"]
-        K1_BL["Box L — Capital Account\nMethod: TAX BASIS (mandatory 2020+)\nBOY + contributions + Box2 − distributions = EOY\nIRC §705 · Rev. Proc. 2020-13"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% 5.  IRS Submission Package
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph L5["5.  IRS Submission Package"]
+        direction LR
+
+        subgraph L51["5.1  Form 1065"]
+            direction TB
+            N511["Form1065_FILL.pdf"]
+            N512["Form1065_Notes.pdf"]
+            N511 ~~~ N512
+        end
+
+        subgraph L52["5.2  Form 8825"]
+            direction TB
+            N521["Form8825_FILL.pdf"]
+            N522["Form8825_Notes.pdf"]
+            N521 ~~~ N522
+        end
+
+        subgraph L53["5.3  Form 4562"]
+            direction TB
+            N531["Form4562_FILL.pdf"]
+            N532["Form4562_Notes.pdf"]
+            N531 ~~~ N532
+        end
+
+        subgraph L54["5.4  Schedule K-1"]
+            direction TB
+            N541["Sch_K1_FILL.pdf"]
+            N542["Sch_K1_Notes.pdf"]
+            N541 ~~~ N542
+        end
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% CROSS-FORM AUDIT — LLCTaxAgent Phase 2 (verify-only, read-only)
-    %% ─────────────────────────────────────────────────────────────────
-    subgraph XF_AUDIT["🔍  LLCTaxAgent — Cross-Form Audit  (Phase 2, read-only)"]
-        XF_R01["XF-R01: F4562 Line 22\n== F8825 Line 14\n== IS.depreciation"]
-        XF_R02["XF-R02: F8825 Line 23\n== Sched K Line 2\n== IS.net_rental"]
-        XF_R03["XF-R03: Sched K Line 2 × partner%\n== each K-1 Box 2"]
-        XF_R04["XF-R04: Sum of K-1 Box 2 values\n== Sched K Line 2"]
-        XF_R05["XF-R05: Form 1065 Page 1\nLines 1–23 ALL $0"]
+    %% ════════════════════════════════════════════════════════════════════
+    %% RIGHT NAV  (sidebar legend)
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph RN[" "]
+        direction TB
+        RN1["Accounting\nAgents"]
+        RN2["IRS FormAgents\n+ per section Agent"]
+        RN1 ~~~ RN2
     end
 
-    %% ─────────────────────────────────────────────────────────────────
-    %% DATA FLOW ARROWS — Books → IRS Forms (Books-First Rule)
-    %% All forms sourced independently from books; never form-to-form.
-    %% ─────────────────────────────────────────────────────────────────
+    %% ════════════════════════════════════════════════════════════════════
+    %% MAIN FLOW CONNECTIONS
+    %% ════════════════════════════════════════════════════════════════════
 
-    IS  --> F4_19i
-    IS  --> F4_22
-    ASSET --> F4_19i
-    PROF --> F4_HEADER
+    %% Layer transitions
+    L1  --> L2
+    L2  --> L3
 
-    IS   --> F8_INC
-    IS   --> F8_EXP
-    IS   --> F8_NET
-    ASSET --> F8_HEADER
-    PROF --> F8_HEADER
+    %% L3 → L4: one connection per form
+    L31 --> L41
+    L32 --> L42
+    L33 --> L43
+    L34 --> L44
 
-    PROF --> P1_INFO
-    PROF --> SCHB
-    PROF --> K1_ID
-    IS   --> SCHK_2
-    IS   --> SCHK_5
-    IS   --> SCHK_19
-    IS   --> SCHM1
-    IS   --> SCHM2
-    BS   --> SCHL
-    BS   --> SCHM2
+    %% L4 → L5: single submission arrow
+    L4  -->|"Financial YE Report"| L5
 
-    SCHK_2  --> K1_B2
-    SCHK_5  --> K1_B5
-    SCHK_19 --> K1_B19
-    BS      --> K1_BL
-    PROF    --> K1_B2
+    %% Right nav — invisible anchors to suggest sidebar placement
+    L1  ~~~ RN1
+    L5  ~~~ RN2
 
-    %% Cross-form audit reads completed forms (dotted = verify-only)
-    F4_22  -.->|verify| XF_R01
-    F8_EXP -.->|verify| XF_R01
-    F8_NET -.->|verify| XF_R02
-    SCHK_2 -.->|verify| XF_R02
-    K1_B2  -.->|verify| XF_R03
-    K1_B2  -.->|verify| XF_R04
-    P1_ZERO -.->|verify| XF_R05
-
-    %% ─────────────────────────────────────────────────────────────────
+    %% ════════════════════════════════════════════════════════════════════
     %% STYLING
-    %% ─────────────────────────────────────────────────────────────────
-    style BOOKS  fill:#e8f4e8,stroke:#2d7a2d,stroke-width:2px
-    style F4562  fill:#fff8e1,stroke:#f9a825,stroke-width:2px
-    style F8825  fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style F1065  fill:#fce4ec,stroke:#c62828,stroke-width:2px
-    style K1     fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
-    style XF_AUDIT fill:#f5f5f5,stroke:#757575,stroke-width:1px,stroke-dasharray:5
+    %% ════════════════════════════════════════════════════════════════════
 
-    style P1_ZERO fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
-    style K1_B1  fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
-    style K1_B14 fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
-    style SCHK_2 fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
-    style K1_B2  fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
-    style F8_NET fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
+    %% Layer backgrounds
+    style L1  fill:#e8f4e8,stroke:#388e3c,stroke-width:3px,color:#1b5e20
+    style L2  fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
+    style L21 fill:#fffde7,stroke:#f9a825,stroke-width:2px
+    style L22 fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style L3  fill:#fce4ec,stroke:#c62828,stroke-width:3px,color:#7f0000
+    style L31 fill:#fff0f0,stroke:#e57373,stroke-width:1px
+    style L32 fill:#fff0f0,stroke:#e57373,stroke-width:1px
+    style L33 fill:#fff0f0,stroke:#e57373,stroke-width:1px
+    style L34 fill:#fff0f0,stroke:#e57373,stroke-width:1px
+    style L4  fill:#f3e5f5,stroke:#6a1b9a,stroke-width:3px,color:#38006b
+    style L41 fill:#fce4ec,stroke:#ad1457,stroke-width:1px
+    style L42 fill:#fce4ec,stroke:#ad1457,stroke-width:1px
+    style L43 fill:#fce4ec,stroke:#ad1457,stroke-width:1px
+    style L44 fill:#fce4ec,stroke:#ad1457,stroke-width:1px
+    style L5  fill:#e8eaf6,stroke:#283593,stroke-width:3px,color:#1a237e
+    style L51 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
+    style L52 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
+    style L53 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
+    style L54 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
+
+    %% Right nav
+    style RN  fill:#fafafa,stroke:#bdbdbd,stroke-width:1px,stroke-dasharray:6
+    style RN1 fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#004d40
+    style RN2 fill:#fbe9e7,stroke:#bf360c,stroke-width:2px,color:#7f0000
