@@ -1,0 +1,131 @@
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '13px', 'primaryColor': '#e8f4f8', 'edgeLabelBackground': '#ffffff'}}}%%
+flowchart TD
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% FINANCIAL BOOKS — sole source of truth per IRC §446 + §703
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph BOOKS["📚  Financial Books — IRC §446 + §703  (sole source of truth)"]
+        direction LR
+        IS["stmtIS — Income Statement\n──────────────────────────\nIS.rent_income\nIS.depreciation\nIS.net_rental  ← total_income − total_expenses\nIS.interest_income\nIS.distributions_cash\nIS.net_income"]
+        BS["stmtBS — Balance Sheet\n──────────────────────────\nBS.total_assets\nBS.partner_capital\nBS.total_liabilities"]
+        PROF["stmtProfile — Entity\n──────────────────────────\nEIN · entity name · address\naccounting method (accrual)\npartner list + ownership %"]
+        ASSET["llcAssets — Property DB\n──────────────────────────\nbasis (land excluded)\nin-service date\nMACRS class: 27.5yr\npropNm → H_805HighMesa"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% FORM 4562 — Depreciation Schedule
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph F4562["🗒  Form 4562 — Depreciation Schedule"]
+        F4_HEADER["Header: Entity Name / EIN\n← PROF"]
+        F4_179["Part I §179 = $0\n(residential rental EXCLUDED\nfrom §179 election)"]
+        F4_19i["Part III Line 19i\nResidential Rental 27.5yr MACRS\ncol(b) in-service date ← ASSET\ncol(c) depreciable basis ← ASSET\ncol(g) depreciation ← IS.depreciation"]
+        F4_22["Part IV Line 22\nTotal Depreciation Summary\n= IS.depreciation\n← Books-First IRC §446"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% FORM 8825 — Rental Real Estate Income/Expense (per property)
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph F8825["🏠  Form 8825 — Rental Real Estate Income/Expense"]
+        F8_HEADER["Property Headers\ntype · placed-in-service date\nfair-rental days ← ASSET"]
+        F8_INC["Line 2a Gross Rents\n= IS.rent_income (per propNm)\nLine 2b Other Income\n= Acct.Rev.Fees.Other"]
+        F8_EXP["Expenses Lines 5–17\nLine 11 Repairs ← IS.repairs\nLine 12 Utilities ← IS.util\nLine 14 Depreciation ← IS.depreciation\n★ Books-First — NOT from Form 4562\nLine 16 Taxes ← IS.taxes\nLine 17 Other ← IS.other_expenses"]
+        F8_NET["Line 23 Net Rental Income/Loss\n= Gross Rents − All Expenses\n= IS.net_rental\nFlows to Sched K Line 2 (audit verify only)"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% FORM 1065 — Partnership Return (Page 1 = ALL $0 for rental LLC)
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph F1065["📋  Form 1065 — Partnership Return"]
+        P1_INFO["Page 1 — General Info\nEIN · Name · Address ← PROF\nAccounting Method: Accrual\nInitial Return: 2025\n# of K-1s ← PROF"]
+        P1_ZERO["Page 1 Lines 1–23\n= ALL $0\n★ IRC §469(c)(2): Rental is PASSIVE\nPassive income NEVER on Page 1\nBookNS mappings for F038–F056 REMOVED"]
+        SCHB["Schedule B — Compliance Qs\nQ4(c): Sched L/M-1/M-2 required?\nPartnership Representative ← PROF\nOwnership >50%? ← PROF\nDistributions made? ← IS"]
+        SCHK_2["Schedule K Line 2\nNet Rental Real Estate Income\n= IS.net_rental\n← Books-First (NOT from Form 8825)\nCross-form audit verifies == F8825 Line 23"]
+        SCHK_5["Schedule K Line 5\nInterest Income\n= IS.interest_income"]
+        SCHK_19["Schedule K Line 19a\nCash Distributions\n= IS.distributions_cash"]
+        SCHL["Schedule L — Balance Sheet\nTotal Assets ← BS.total_assets\nPartner Capital ← BS.partner_capital\nOnly if gross ≥ $250K + assets ≥ $1M"]
+        SCHM1["Schedule M-1\nBook-Tax Reconciliation\nLine 1 = IS.net_income (book)\nLine 9 = $0 (ordinary inc = $0)\nExplains: book income ≠ taxable ordinary income\n(all income is passive rental)"]
+        SCHM2["Schedule M-2\nPartners' Capital Analysis\nTax Basis Method REQUIRED\nRev. Proc. 2020-13 · TD 9902\nFormula: BOY + contributions\n+ alloc income − distributions = EOY"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% SCHEDULE K-1 — Per Partner (one PDF per partner)
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph K1["📄  Schedule K-1  (one per partner × ownership %)"]
+        K1_ID["Parts I & II — Identity\nPartnership EIN + Name ← PROF\nPartner TIN + Name ← PROF\nOwnership % ← PROF"]
+        K1_B1["Box 1 = $0\nOrdinary Business Income\nMUST be $0 — rental is PASSIVE\nIRC §469(c)(2)"]
+        K1_B2["Box 2 = IS.net_rental × partner%\nNet Rental Real Estate Income\n★ NET (not gross) — includes expense deductions\nPartners report on Sched E Part II"]
+        K1_B5["Box 5 = IS.interest_income × partner%\nInterest Income"]
+        K1_B14["Box 14 = $0\nSelf-Employment Income\nRental EXCLUDED per IRC §1402(a)(1)\nLimited partners EXCLUDED per §1402(a)(13)\nNon-zero triggers 15.3% SE tax ERROR"]
+        K1_B19["Box 19 = IS.distributions_cash\nCash Distributions to partner"]
+        K1_BL["Box L — Capital Account\nMethod: TAX BASIS (mandatory 2020+)\nBOY + contributions + Box2 − distributions = EOY\nIRC §705 · Rev. Proc. 2020-13"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% CROSS-FORM AUDIT — LLCTaxAgent Phase 2 (verify-only, read-only)
+    %% ─────────────────────────────────────────────────────────────────
+    subgraph XF_AUDIT["🔍  LLCTaxAgent — Cross-Form Audit  (Phase 2, read-only)"]
+        XF_R01["XF-R01: F4562 Line 22\n== F8825 Line 14\n== IS.depreciation"]
+        XF_R02["XF-R02: F8825 Line 23\n== Sched K Line 2\n== IS.net_rental"]
+        XF_R03["XF-R03: Sched K Line 2 × partner%\n== each K-1 Box 2"]
+        XF_R04["XF-R04: Sum of K-1 Box 2 values\n== Sched K Line 2"]
+        XF_R05["XF-R05: Form 1065 Page 1\nLines 1–23 ALL $0"]
+    end
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% DATA FLOW ARROWS — Books → IRS Forms (Books-First Rule)
+    %% All forms sourced independently from books; never form-to-form.
+    %% ─────────────────────────────────────────────────────────────────
+
+    IS  --> F4_19i
+    IS  --> F4_22
+    ASSET --> F4_19i
+    PROF --> F4_HEADER
+
+    IS   --> F8_INC
+    IS   --> F8_EXP
+    IS   --> F8_NET
+    ASSET --> F8_HEADER
+    PROF --> F8_HEADER
+
+    PROF --> P1_INFO
+    PROF --> SCHB
+    PROF --> K1_ID
+    IS   --> SCHK_2
+    IS   --> SCHK_5
+    IS   --> SCHK_19
+    IS   --> SCHM1
+    IS   --> SCHM2
+    BS   --> SCHL
+    BS   --> SCHM2
+
+    SCHK_2  --> K1_B2
+    SCHK_5  --> K1_B5
+    SCHK_19 --> K1_B19
+    BS      --> K1_BL
+    PROF    --> K1_B2
+
+    %% Cross-form audit reads completed forms (dotted = verify-only)
+    F4_22  -.->|verify| XF_R01
+    F8_EXP -.->|verify| XF_R01
+    F8_NET -.->|verify| XF_R02
+    SCHK_2 -.->|verify| XF_R02
+    K1_B2  -.->|verify| XF_R03
+    K1_B2  -.->|verify| XF_R04
+    P1_ZERO -.->|verify| XF_R05
+
+    %% ─────────────────────────────────────────────────────────────────
+    %% STYLING
+    %% ─────────────────────────────────────────────────────────────────
+    style BOOKS  fill:#e8f4e8,stroke:#2d7a2d,stroke-width:2px
+    style F4562  fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    style F8825  fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style F1065  fill:#fce4ec,stroke:#c62828,stroke-width:2px
+    style K1     fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    style XF_AUDIT fill:#f5f5f5,stroke:#757575,stroke-width:1px,stroke-dasharray:5
+
+    style P1_ZERO fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
+    style K1_B1  fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
+    style K1_B14 fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px
+    style SCHK_2 fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
+    style K1_B2  fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
+    style F8_NET fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px

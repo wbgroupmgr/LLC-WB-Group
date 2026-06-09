@@ -1,6 +1,6 @@
 # Tax Preparation — High-Level Design & Workflow
 
-**Status:** v1.1 — 2026-06-04 (terminology, 11-step workflow, propNm rule added)
+**Status:** v1.2 — 2026-06-09 (added design_BUS_04.8_IRS_Form1065_Notes.md to inventory; bookNS Form1065 IRC §469 violations corrected)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 
 ---
@@ -60,6 +60,7 @@ All tax-preparation design documents live under `docs/` using the `BUS_04.*` nam
 | `design_BUS_04.6_FormSchK1Agent.md` | Tier 1 | Schedule K-1 (per-partner) orchestrator + section agents |
 | `design_BUS_04.8_BookToIRS_Aid.md` | Tier 4 | BookToIRS Aid UI (mapping CRUD dialog) — generation service |
 | `design_BUS_04.8_Tax_BookToIRS.md` | Tier 4 | BookToIRS original design notes |
+| `design_BUS_04.8_IRS_Form1065_Notes.md` | Reference | Form 1065 IRS notes — IRC §469 rental LLC rules, bookNS mapping corrections (2026-06-09), filing checklist |
 | `design_BUS_04.8_IRS_Form4562_Notes.md` | Reference | Form 4562 IRS/accounting notes (depreciation treatment) |
 | `design_BUS_04.8_IRS_SchK1_Notes.md` | Reference | Schedule K-1 IRS notes |
 
