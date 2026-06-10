@@ -1,5 +1,14 @@
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '12px', 'primaryColor': '#f0f4f8', 'edgeLabelBackground': '#ffffff', 'clusterBkg': '#f9f9f9'}}}%%
+%%{init: {'theme': 'base', 
+          'themeVariables': {'fontSize': '12px', 'primaryColor': '#f0f4f8', 'edgeLabelBackground': '#ffffff', 'clusterBkg': '#f9f9f9'},
+          'flowchart': { 'rankSpacing': 30, 'nodeSpacing' : 10, 'padding' : 5 }
+   }}%%
 flowchart TD
+    %% ════════════════════════════════════════════════════════════════════
+    %% BookToIRS High Level Data Flow
+    %% ════════════════════════════════════════════════════════════════════
+
+    subgraph InvisibleContainer [" "]
+        direction LR
 
     %% ════════════════════════════════════════════════════════════════════
     %% 1.  BOOKS
@@ -11,6 +20,7 @@ flowchart TD
         N13["1.3  General Ledger\n(ledgerGeneral)"]
         N14["1.4  Balance Sheet\n(stmtBS)"]
         N15["1.5  Income Statement\n(stmtIS)"]
+        N11 ~~~ N12 ~~~ N13 ~~~ N14 ~~~ N15
     end
 
     %% ════════════════════════════════════════════════════════════════════
@@ -26,7 +36,9 @@ flowchart TD
             N212["2.1.2  Form 8825\nRental Real Estate Income/Expenses"]
             N213["2.1.3  Form 4562\nDepreciation & Amortization"]
             N214["2.1.4  Schedule K-1\nPartner's Share of Income/Deductions"]
-            N211 ~~~ N212 ~~~ N213 ~~~ N214
+            TopBoxL2[" "]
+            style TopBoxL2 fill:none,stroke:none,color:none
+            TopBoxL2 ~~~ N214 ~~~ N213 ~~~ N212 ~~~ N211
         end
 
         subgraph L22["2.2  bookNS  (Models)"]
@@ -37,6 +49,7 @@ flowchart TD
             N224["2.2.4  bookNS_GL.json\nForm4562 (asset basis / in-service)\nForm8825 (per-property detail)"]
             N221 ~~~ N222 ~~~ N223 ~~~ N224
         end
+        L21 ~~~ L22
     end
 
     %% ════════════════════════════════════════════════════════════════════
@@ -80,6 +93,9 @@ flowchart TD
             N343["3.4.3  AgentSchK1_Capital"]
             N341 ~~~ N342 ~~~ N343
         end
+        
+    end 
+    %% Invisible 
     end
 
     %% ════════════════════════════════════════════════════════════════════
@@ -158,42 +174,35 @@ flowchart TD
             N542["Sch_K1_Notes.pdf"]
             N541 ~~~ N542
         end
+        L54 ~~~ L53 ~~~ L52 ~~~ L51
     end
 
-    %% ════════════════════════════════════════════════════════════════════
-    %% RIGHT NAV  (sidebar legend)
-    %% ════════════════════════════════════════════════════════════════════
-    subgraph RN[" "]
-        direction TB
-        RN1["Accounting\nAgents"]
-        RN2["IRS FormAgents\n+ per section Agent"]
-        RN1 ~~~ RN2
-    end
+    
 
     %% ════════════════════════════════════════════════════════════════════
     %% MAIN FLOW CONNECTIONS
     %% ════════════════════════════════════════════════════════════════════
 
     %% Layer transitions
-    L1  --> L2
-    L2  --> L3
+    L1  -->|"inject Accounting Transactions"| L2
+    L2  -->|"generate FILL.pdf pipeline"| L3
 
     %% L3 → L4: one connection per form
-    L31 --> L41
-    L32 --> L42
-    L33 --> L43
-    L34 --> L44
+    L31 -->|"inject FillDict"| L41
+    L32 -->|"inject FillDict"| L42
+    L33 -->|"inject FillDict"| L43
+    L34 -->|"inject FillDict"| L44
 
     %% L4 → L5: single submission arrow
     L4  -->|"Financial YE Report"| L5
 
-    %% Right nav — invisible anchors to suggest sidebar placement
-    L1  ~~~ RN1
-    L5  ~~~ RN2
-
     %% ════════════════════════════════════════════════════════════════════
     %% STYLING
     %% ════════════════════════════════════════════════════════════════════
+
+    %% Hide the outer container's borders, background, and text
+    style InvisibleContainer fill:none,stroke:none,color:none
+
 
     %% Layer backgrounds
     style L1  fill:#e8f4e8,stroke:#388e3c,stroke-width:3px,color:#1b5e20
@@ -216,7 +225,4 @@ flowchart TD
     style L53 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
     style L54 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
 
-    %% Right nav
-    style RN  fill:#fafafa,stroke:#bdbdbd,stroke-width:1px,stroke-dasharray:6
-    style RN1 fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#004d40
-    style RN2 fill:#fbe9e7,stroke:#bf360c,stroke-width:2px,color:#7f0000
+    

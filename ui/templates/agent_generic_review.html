@@ -62,6 +62,31 @@
     }
     .aid-link:hover { background: #1e40af; color: white; }
     .no-issues { color: #166534; font-size: 12px; padding: 6px 0; }
+    /* Universal close controls */
+    .resolve-bar { margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn-ack {
+        background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7;
+        border-radius: 6px; padding: 3px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn-ack:hover { background: #d1fae5; }
+    .btn-ack-error {
+        background: #fff7ed; color: #9a3412; border: 1px solid #fdba74;
+        border-radius: 6px; padding: 3px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn-ack-error:hover { background: #ffedd5; }
+    .btn-reopen {
+        background: #f3f4f6; color: #374151; border: 1px solid #d1d5db;
+        border-radius: 6px; padding: 2px 10px; font-size: 11px; cursor: pointer;
+    }
+    .btn-reopen:hover { background: #e5e7eb; }
+    .badge-closed {
+        background: #166534; color: white; border-radius: 10px;
+        font-size: 10px; font-weight: 700; padding: 2px 8px; letter-spacing: 0.03em;
+    }
+    .resolve-note { font-size: 11px; color: #6b7280; font-style: italic; }
+    .resolve-hint { font-size: 11px; color: #9ca3af; }
+    .issue-row.resolved-row { opacity: 0.5; }
+    .btn:disabled, .btn-ack:disabled, .btn-ack-error:disabled, .btn-reopen:disabled { opacity: 0.5; cursor: default; }
     .run-bar { padding: 14px 18px; display: flex; gap: 10px; align-items: center; }
     .ts-label { font-size: 11px; color: #9ca3af; margin-left: auto; }
     /* Bookkeeper VERIFY per-section */
@@ -175,6 +200,7 @@
 
     {# Per-section collapsible panels #}
     {% for sec in sections %}
+    {% set sec_key = sec.agent or sec.label %}
     <div class="section-block" id="secblock-{{ sec.section_id or sec.label | replace(' ','_') }}">
         <div class="section-head" onclick="this.nextElementSibling.classList.toggle('open')">
             {% if sec.state == 'GO' %}
@@ -194,7 +220,7 @@
             {% set issues = sec.issues if sec.issues is defined else [] %}
             {% if issues %}
                 {% for issue in issues %}
-                <div class="issue-row">
+                <div class="issue-row{% if issue.resolved %} resolved-row{% endif %}">
                     <span class="issue-sev
                         {% if issue.severity == 'ERROR' %}sev-error
                         {% elif issue.severity == 'WARN' %}sev-warn
@@ -224,6 +250,37 @@
                         {% endif %}
                         <div class="issue-action">→ {{ issue.action }}</div>
                         <div class="issue-cite">{{ issue.irs_cite }}</div>
+
+                        {# ── Universal close control — guide the operator without the Aid ── #}
+                        <div class="resolve-bar">
+                        {% if issue.resolved %}
+                            <span class="badge-closed">✓ {{ (issue.resolution.action or 'closed') | capitalize }}</span>
+                            {% if issue.resolution and issue.resolution.note %}
+                            <span class="resolve-note">“{{ issue.resolution.note }}”</span>
+                            {% endif %}
+                            <button type="button" class="btn-reopen"
+                                    onclick="resolveIssue(this, '{{ sec_key }}', '{{ issue.rule_id }}', 'reopen')">
+                                ↺ Reopen
+                            </button>
+                        {% elif issue.severity == 'ERROR' %}
+                            <button type="button" class="btn-ack-error"
+                                    onclick="resolveIssue(this, '{{ sec_key }}', '{{ issue.rule_id }}', 'override')">
+                                ✓ Acknowledge &amp; Override
+                            </button>
+                            <span class="resolve-hint">Records an override in the audit trail — use only after you have confirmed the books are correct.</span>
+                        {% elif issue.severity == 'WARN' %}
+                            <button type="button" class="btn-ack"
+                                    onclick="resolveIssue(this, '{{ sec_key }}', '{{ issue.rule_id }}', 'acknowledge')">
+                                ✓ Acknowledge
+                            </button>
+                        {% else %}
+                            <button type="button" class="btn-ack"
+                                    onclick="resolveIssue(this, '{{ sec_key }}', '{{ issue.rule_id }}', 'acknowledge')">
+                                ✓ Got it
+                            </button>
+                        {% endif %}
+                        </div>
+
                         {# Yes/No confirmation buttons — shown when confirm_required is set #}
                         {% if issue.suggested_mapping and issue.suggested_mapping.confirm_required %}
                         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -421,6 +478,36 @@ function runAgent(btn) {
           document.getElementById('runStatus').innerHTML =
               `<span style="color:#991b1b">Fetch error: ${err}</span>`;
       });
+}
+
+// Universal issue close — acknowledge / override / reopen.  Persists to the
+// server (.agent_work/<form>_resolutions.json) and reloads so section counts
+// and GO/NEEDS_FIXING badges reflect the change.  This is the operator-friendly
+// path that does NOT require the Aid dialog or accounting expertise.
+const _RESOLVE_URL = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/resolve';
+
+function resolveIssue(btn, section, ruleId, action) {
+    let note = '';
+    if (action === 'override') {
+        note = window.prompt(
+            'You are overriding an IRS ERROR. Briefly state why the books are correct ' +
+            '(recorded in the audit trail):', '');
+        if (note === null) { return; }   // cancelled
+    }
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = '⏳ …';
+    fetch(_RESOLVE_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({section: section, rule_id: ruleId, action: action, note: note}),
+    })
+      .then(r => r.json())
+      .then(d => {
+          if (d.ok) { location.reload(); }
+          else { btn.disabled = false; btn.textContent = orig; alert('Error: ' + d.error); }
+      })
+      .catch(err => { btn.disabled = false; btn.textContent = orig; alert('Error: ' + err); });
 }
 
 // Bookkeeper Yes/No confirmation for issues with confirm_required=true.

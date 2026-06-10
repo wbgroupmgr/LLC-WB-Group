@@ -1771,10 +1771,14 @@ class llcMgmt:
                     for pid, pdata in summary.get('partners', {}).items():
                         for sec_key, sec in pdata.get('sections', {}).items():
                             sec_copy = dict(sec)
+                            sec_copy['agent'] = f"{pid}:{sec_key}"
                             sec_copy['label'] = f"{pid} — {sec.get('label', sec_key)}"
                             sections.append(sec_copy)
                     summary = dict(summary)
                     summary['sections'] = sections
+                # Overlay bookkeeper resolutions (acknowledge/override) onto the
+                # rendered page; injects each section's `agent` key for resolve calls.
+                summary = _apply_resolutions(agent, form_key, summary)
                 return render_template(
                     "agent_generic_review.html",
                     summary=summary,
@@ -1819,6 +1823,83 @@ class llcMgmt:
                 ]
             return d
 
+        # ── Issue resolution overlay ────────────────────────────────────────────
+        # Bookkeepers close issues directly from the Guided Review WITHOUT the Aid
+        # dialog (acknowledge / override / reopen).  Resolutions persist in
+        # .agent_work/<form_key>_resolutions.json and overlay onto the agent's
+        # session state on every read — so they survive agent re-runs.
+
+        def _resolutions_file(agent, form_key):
+            try:
+                d = agent._agent_work_dir()
+            except Exception:
+                d = None
+            return (Path(d) / f"{form_key}_resolutions.json") if d else None
+
+        def _load_resolutions(agent, form_key):
+            p = _resolutions_file(agent, form_key)
+            if not p or not p.exists():
+                return {}
+            try:
+                with open(p) as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+
+        def _save_resolutions(agent, form_key, data):
+            p = _resolutions_file(agent, form_key)
+            if not p:
+                return
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                with open(p, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception:
+                app.logger.exception("save resolutions failed (%s)", form_key)
+
+        def _apply_resolutions(agent, form_key, summary):
+            """Overlay resolutions onto a summary; recompute counts + states."""
+            if not isinstance(summary, dict):
+                return summary
+            res  = _load_resolutions(agent, form_key)
+            secs = summary.get('sections')
+            overall_halt = 0
+
+            def _process(sec_key, sec):
+                h = r = v = 0
+                for issue in (sec.get('issues') or []):
+                    rid = issue.get('rule_id', '')
+                    key = f"{sec_key}::{rid}"
+                    if key in res:
+                        issue['resolved']   = True
+                        issue['resolution'] = res[key]
+                        continue
+                    issue['resolved'] = False
+                    sev = issue.get('severity')
+                    if sev == 'ERROR':
+                        h += 1
+                    elif sev == 'WARN':
+                        r += 1
+                    else:
+                        v += 1
+                sec['halt_count']    = h
+                sec['resolve_count'] = r
+                sec['review_count']  = v
+                if h == 0 and sec.get('state') == 'NEEDS_FIXING':
+                    sec['state'] = 'GO'
+                return h
+
+            if isinstance(secs, dict):
+                for k, sec in secs.items():
+                    sec['agent'] = k
+                    overall_halt += _process(k, sec)
+            elif isinstance(secs, list):
+                for sec in secs:
+                    k = sec.get('agent') or sec.get('label') or ''
+                    overall_halt += _process(k, sec)
+            summary['overall_state'] = 'NEEDS_FIXING' if overall_halt > 0 else 'GO'
+            return summary
+
         @app.route("/api/agent/<form_key>/status")
         def agent_generic_status(form_key):
             """Return SectionSummary for the agent status strip."""
@@ -1828,7 +1909,8 @@ class llcMgmt:
             AgentCls, _, _ = entry
             try:
                 agent   = AgentCls(self.eSession.llc)
-                summary = _normalize_agent_sections(agent.getSummary())
+                summary = _normalize_agent_sections(
+                    _apply_resolutions(agent, form_key, agent.getSummary()))
                 return jsonify({'ok': True, 'summary': summary})
             except Exception as err:
                 app.logger.exception("agent_generic_status(%s) failed", form_key)
@@ -1843,10 +1925,46 @@ class llcMgmt:
             AgentCls, _, _ = entry
             try:
                 agent  = AgentCls(self.eSession.llc)
-                result = _normalize_agent_sections(agent.run_phases_1_2())
+                result = _normalize_agent_sections(
+                    _apply_resolutions(agent, form_key, agent.run_phases_1_2()))
                 return jsonify({'ok': True, 'summary': result})
             except Exception as err:
                 app.logger.exception("agent_generic_start(%s) failed", form_key)
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/agent/<form_key>/resolve", methods=["POST"])
+        def agent_generic_resolve(form_key):
+            """Close (or reopen) one issue from the Guided Review — no Aid needed."""
+            entry = _AGENT_REGISTRY.get(form_key)
+            if not entry:
+                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+            AgentCls, _, _ = entry
+            body    = request.get_json(silent=True) or {}
+            section = str(body.get('section', '') or '')
+            rule_id = str(body.get('rule_id', '') or '')
+            action  = str(body.get('action', 'acknowledge') or 'acknowledge')
+            note    = str(body.get('note', '') or '')
+            if not rule_id:
+                return jsonify({'ok': False, 'error': 'rule_id required'}), 400
+            try:
+                from datetime import datetime, timezone
+                agent = AgentCls(self.eSession.llc)
+                res   = _load_resolutions(agent, form_key)
+                key   = f"{section}::{rule_id}"
+                if action == 'reopen':
+                    res.pop(key, None)
+                else:
+                    res[key] = {
+                        'action': action,
+                        'note':   note,
+                        'ts':     datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    }
+                _save_resolutions(agent, form_key, res)
+                summary = _normalize_agent_sections(
+                    _apply_resolutions(agent, form_key, agent.getSummary()))
+                return jsonify({'ok': True, 'summary': summary})
+            except Exception as err:
+                app.logger.exception("agent_generic_resolve(%s) failed", form_key)
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
         # ── GL Audit routes ────────────────────────────────────────────────────

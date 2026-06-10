@@ -203,6 +203,20 @@ class _SectionAgent(IRSFormsAgent):
         except Exception:
             return {}
 
+    def _load_bookns_is(self) -> Dict[str, Any]:
+        """Load the operator-authored bookNS_IS.json (Income-Statement mappings)."""
+        forms_dir = self._forms_dir()
+        if forms_dir is None:
+            return {}
+        p = forms_dir / 'bookNS_IS.json'
+        if not p.exists():
+            return {}
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
     def _run_audit(self, rules: List[callable]) -> Dict[str, Any]:
         """Run a list of rule functions; each returns a issue dict or None."""
         issues = []
@@ -459,6 +473,7 @@ class AgentF1065_IncStmt(_SectionAgent):
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
+            self._rule_no_pg1_bookns_mappings,
             self._rule_pg1_income_must_be_zero,
             self._rule_pg1_deductions_must_be_zero,
             self._rule_rental_depr_not_on_pg1,
@@ -475,6 +490,70 @@ class AgentF1065_IncStmt(_SectionAgent):
                 f"→ Schedule K Line 2 via Form 8825.")
 
     # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_no_pg1_bookns_mappings(self):
+        """
+        Scope rule — the agent's primary guard, evaluated against the REAL fids.
+
+        The bookNS_IS.json Form1065 section is authored by hand and was historically
+        populated WITHOUT the ordinary-vs-rental distinction. This rule reads the
+        actual mappings and flags ANY mapping whose fid lands on the Page 1
+        Income/Deductions slice (F033–F078). For a pure rental LLC every such fid
+        must be UNMAPPED ($0): rental income/expense is passive (IRC §469(c)(2))
+        and belongs on Form 8825 → Schedule K Line 2 — never on Page 1.
+
+        This is what makes the section agent scope-aware: bookNS_IS is primarily a
+        Form 8825 (rental) model; it must NOT feed Form 1065 Page 1 (ordinary).
+
+        On a clean books-state it emits a positive 'verified $0' review item so the
+        bookkeeper sees explicit confirmation, not silence.
+        """
+        import re as _re
+        from irs.taxAgents.irsRefAgent import _F1065_INCSTMT_FIDS
+
+        def _norm(x):
+            s = str(x).strip()
+            m = _re.match(r'^[fF]?(\d+)$', s)
+            return f"F{int(m.group(1)):03d}" if m else s
+
+        pg1_slice = set(_F1065_INCSTMT_FIDS)
+        mappings  = self._load_bookns_is().get('Form1065', []) or []
+        offenders = []
+        for pair in mappings:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            fid, uas = _norm(pair[0]), str(pair[1])
+            if fid in pg1_slice and (uas.startswith('IS.') or uas.startswith('Acct.')):
+                offenders.append((fid, uas))
+
+        if offenders:
+            lst = ', '.join(f"{f}→{u}" for f, u in offenders)
+            return self.format_issue(
+                'IS-R09', self.ERROR,
+                f"bookNS_IS maps rental Income-Statement values onto Form 1065 Page 1 "
+                f"(Lines 1–23) — IRS violation. Offending mappings: {lst}. "
+                f"For a pure rental LLC, Page 1 must be entirely $0: rental income and "
+                f"expenses are passive (IRC §469(c)(2)) and are reported on Form 8825, "
+                f"flowing to Schedule K Line 2. bookNS_IS is a Form 8825 model — it must "
+                f"NOT feed Form 1065 Page 1.",
+                'IRC §469(c)(2); Form 1065 Instructions Lines 1–23; bookNS_IS.json',
+                "Remove the listed fid→IS.* entries from the bookNS_IS.json \"Form1065\" "
+                "section (these belong to Form 8825). Re-run the FILL.pdf pipeline. "
+                "Page 1 should then show all-blank income/deduction lines.",
+                fids=[f for f, _ in offenders])
+
+        # Positive verification — clean state.
+        net  = self._get_is_agg('net_rental')
+        sign = 'income' if net >= 0 else 'loss'
+        return self.format_issue(
+            'IS-R10', self.INFO,
+            f"Verified: Form 1065 Page 1 Lines 1–23 carry no bookNS_IS mappings — "
+            f"all ordinary income/deduction lines are correctly $0 for this rental LLC "
+            f"(IRC §469(c)(2)). Net rental {sign} of ${abs(net):,.2f} flows via Form 8825 "
+            f"→ Schedule K Line 2 → K-1 Box 2, not through Page 1.",
+            'IRC §469(c)(2); Form 1065 Instructions Lines 1–23',
+            "No action — Page 1 ordinary section is correctly empty. Confirm the same "
+            "net rental amount appears on Form 8825 Line 23 and Schedule K Line 2.")
 
     def _rule_pg1_income_must_be_zero(self):
         """

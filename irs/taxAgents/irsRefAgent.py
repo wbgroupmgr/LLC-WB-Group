@@ -296,42 +296,70 @@ _F8825_REFERENCES = {
 #   Schedule K Line 14: $0 — rental income not subject to SE tax (IRC §1402(a)).
 #   Schedules L/M-1/M-2: NOT required unless gross ≥ $250K AND assets ≥ $1M.
 
+# Section fid assignment derived from Form1065_namespace.json page numbers
+# (authoritative PDF layout) intersected with the bookNS_Profile + bookNS_IS
+# Form1065 mappings.  Page 1 header → GenInfo; Page 1 body → IncStmt;
+# Pages 2–3 → SchedB; Pages 4–5 → SchedK; Page 6 → SchedLM.
+_F1065_GENINFO_FIDS = [
+    "F001", "F002", "F003", "F004", "F005", "F006", "F007", "F008",
+    "F009", "F010", "F011", "F012", "F013", "F014", "F015", "F016",
+    "F026", "F_business_code", "F_preparer_date",
+]
+_F1065_INCSTMT_FIDS = [
+    "F033", "F034", "F035", "F036", "F037", "F038", "F039", "F040",
+    "F041", "F042", "F043", "F044", "F045", "F046", "F047", "F048",
+    "F049", "F050", "F051", "F052", "F053", "F054", "F055", "F072",
+    "F074", "F075", "F076", "F077", "F078",
+]
+_F1065_SCHEDB_FIDS = ["F161", "F162", "F164", "F165"]
+_F1065_SCHEDK_FIDS = [
+    "F215", "F216", "F218", "F219", "F220", "F221", "F228", "F230",
+    "F238", "F242", "F243", "F247", "F248", "F249", "F250", "F276",
+    "F277", "F279", "F280", "F281", "F282",
+]
+_F1065_SCHEDLM_FIDS = [
+    "F299", "F301", "F339", "F341", "F347", "F349", "F371", "F373",
+    "F375", "F377", "F403", "F405", "F407", "F409", "F410", "F411",
+    "F426", "F427", "F428", "F429", "F430", "F439", "F440",
+    "F_l_cash_beg", "F_l_cash_end",
+]
+
 _F1065_SECTIONS = [
     {
         "id":   "GenInfo",
         "name": "Page 1 — General Information (Items A–K)",
-        "fids": [],
+        "fids": _F1065_GENINFO_FIDS,
         "ref":  "F1065-INFO",
     },
     {
         "id":   "IncStmt",
         "name": "Page 1 — Income & Deductions (Lines 1–23)",
-        "fids": [],
+        "fids": _F1065_INCSTMT_FIDS,
         "ref":  "F1065-INC",
     },
     {
         "id":   "SchedB",
         "name": "Schedule B — Other Information (Pages 2–3)",
-        "fids": [],
+        "fids": _F1065_SCHEDB_FIDS,
         "ref":  "F1065-B",
     },
     {
         "id":   "SchedK",
-        "name": "Schedule K — Partners' Distributive Share (Page 4)",
-        "fids": [],
+        "name": "Schedule K — Partners' Distributive Share (Pages 4–5)",
+        "fids": _F1065_SCHEDK_FIDS,
         "ref":  "F1065-K",
     },
     {
         "id":   "SchedLM",
-        "name": "Schedules L / M-1 / M-2 (Page 5)",
-        "fids": [],
+        "name": "Schedules L / M-1 / M-2 (Page 6)",
+        "fids": _F1065_SCHEDLM_FIDS,
         "ref":  "F1065-LM",
     },
 ]
 
 _F1065_REFERENCES = {
     "F1065-INFO": {
-        "fields": [],
+        "fields": _F1065_GENINFO_FIDS,
         "cite":   "Form 1065 Instructions, Page 1 Items A–K; IRC §6109; IRC §6223; Treas. Reg. §301.6223-1",
         "reason": [
             "EIN (Item D): 9-digit Employer Identification Number required on every return (IRC §6109). "
@@ -349,7 +377,7 @@ _F1065_REFERENCES = {
         ],
     },
     "F1065-INC": {
-        "fields": [],
+        "fields": _F1065_INCSTMT_FIDS,
         "cite":   "IRC §469(c)(2); Form 1065 Instructions Lines 1–23; Form 1065 Instructions Line 16a",
         "reason": [
             "CRITICAL — All Lines 1–23 must be $0 for a pure rental LLC. "
@@ -369,7 +397,7 @@ _F1065_REFERENCES = {
         ],
     },
     "F1065-B": {
-        "fields": [],
+        "fields": _F1065_SCHEDB_FIDS,
         "cite":   "Form 1065 Instructions, Schedule B; IRC §6031; IRC §6221(b); Treas. Reg. §1.6031(a)-1(b)(4)",
         "reason": [
             "Schedule B is a Yes/No compliance disclosure register. IRS uses answers to determine "
@@ -387,7 +415,7 @@ _F1065_REFERENCES = {
         ],
     },
     "F1065-K": {
-        "fields": [],
+        "fields": _F1065_SCHEDK_FIDS,
         "cite":   "IRC §702(a); IRC §704(b); Form 1065 Schedule K Instructions; IRC §1402(a)(1); IRC §1402(a)(13)",
         "reason": [
             "Schedule K collects ALL items that flow to partners via K-1. "
@@ -408,7 +436,7 @@ _F1065_REFERENCES = {
         ],
     },
     "F1065-LM": {
-        "fields": [],
+        "fields": _F1065_SCHEDLM_FIDS,
         "cite":   "Form 1065 Instructions Schedule B Q4(c), Schedule L, Schedule M-1, Schedule M-2; "
                   "Rev. Proc. 2020-13; TD 9902; IRC §705",
         "reason": [
@@ -437,30 +465,41 @@ _F1065_REFERENCES = {
 # Distributions (Box 19): actual cash distributed during the year per llcOwners.
 # IRC §704(d) basis limitation: partners can only deduct loss up to their basis.
 
+# Sch_K1 identity fids are named (F_K1_*) from bookNS_Profile; income-box fids
+# (F035 Box 1, F036 Box 2, F041 Box 5) and capital fids (F028 Box 19, F029)
+# come from bookNS_IS.  Runtime values are per-partner via _build_k1_filldict().
+_SCHK1_IDENTITY_FIDS = [
+    "F_K1_PartName", "F_K1_PartEIN", "F_K1_PartAddr", "F_K1_PartCity",
+    "F_K1_PartState", "F_K1_PartZip", "F_K1_TaxYearFrom", "F_K1_TaxYearTo",
+    "F_K1_TaxYear", "F_K1_IRSCenter",
+]
+_SCHK1_PASSIVE_FIDS = ["F035", "F036", "F041"]
+_SCHK1_CAPITAL_FIDS = ["F028", "F029"]
+
 _SCHK1_SECTIONS = [
     {
         "id":   "Identity",
         "name": "Parts I & II — Partnership and Partner Identity",
-        "fids": [],
+        "fids": _SCHK1_IDENTITY_FIDS,
         "ref":  "K1-ID",
     },
     {
         "id":   "PassiveItems",
         "name": "Part III — Passive Income Items (Boxes 1–3, 14)",
-        "fids": [],
+        "fids": _SCHK1_PASSIVE_FIDS,
         "ref":  "K1-PASSIVE",
     },
     {
         "id":   "Capital",
-        "name": "Part II — Capital Account (Box L)",
-        "fids": [],
+        "name": "Part II — Capital Account (Box L) + Box 19 Distributions",
+        "fids": _SCHK1_CAPITAL_FIDS,
         "ref":  "K1-CAP",
     },
 ]
 
 _SCHK1_REFERENCES = {
     "K1-ID": {
-        "fields": [],
+        "fields": _SCHK1_IDENTITY_FIDS,
         "cite":   "Form 1065 Schedule K-1 Instructions, Parts I–II; IRC §6109; IRC §704(b)",
         "reason": [
             "Part I — Partnership EIN, name, and address from llcProfile. "
@@ -477,7 +516,7 @@ _SCHK1_REFERENCES = {
         ],
     },
     "K1-PASSIVE": {
-        "fields": [],
+        "fields": _SCHK1_PASSIVE_FIDS,
         "cite":   "IRC §469(c)(2); IRC §702(a); IRC §1402(a)(1); IRC §1402(a)(13); "
                   "Form 1065 Schedule K-1 Instructions, Part III",
         "reason": [
@@ -505,7 +544,7 @@ _SCHK1_REFERENCES = {
         ],
     },
     "K1-CAP": {
-        "fields": [],
+        "fields": _SCHK1_CAPITAL_FIDS,
         "cite":   "IRC §705; Rev. Proc. 2020-13; TD 9902; Form 1065 Schedule K-1 Instructions, Item L",
         "reason": [
             "Box L MUST use the TAX BASIS METHOD of capital reporting (mandatory for tax years 2020+). "
