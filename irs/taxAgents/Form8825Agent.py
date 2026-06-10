@@ -129,6 +129,107 @@ class _SectionAgent(IRSFormsAgent):
             pass
         return has_cip - has_inservice
 
+    # ── GL access + forensic helpers ──────────────────────────────────────────
+
+    def _gl_rows(self) -> List[Dict[str, Any]]:
+        """All merged GL rows (llcAssets + llcExpRev + payables + receivables)."""
+        try:
+            from ledger.stmtGL import stmtGL
+            return list(stmtGL(self.llc)._rows or [])
+        except Exception:
+            return []
+
+    @staticmethod
+    def _fix_obj_for(r: Dict[str, Any]) -> str:
+        """Which ledger editor view can fix this transaction (for the Fix link)."""
+        tdb = str(r.get('tDB', '') or '')
+        if tdb == 'llcAssets':
+            return 'llcAssets'
+        accts = str(r.get('acct', '') or '') + str(r.get('Ledger', '') or '')
+        # Fixed-asset manual entries live in llcAssets; bank-sourced exp/rev in llcExpRev.
+        if 'Acct.Fixed' in accts and tdb not in ('llcBank', 'llcExpRev'):
+            return 'llcAssets'
+        return 'llcExpRev'
+
+    def _txn_brief(self, r: Dict[str, Any]) -> Dict[str, Any]:
+        """Compact, UI-ready view of a GL transaction incl. tID + fix target."""
+        try:
+            amt = round(abs(float(r.get('amt', 0) or 0)), 2)
+        except Exception:
+            amt = 0.0
+        acct  = str(r.get('acct', '') or '')
+        atype = str(r.get('aType', '') or '')
+        # Cash direction: a credit to the bank = money OUT (purchase/payment);
+        # a debit to the bank = money IN (return/refund/deposit).
+        cash_dir = ''
+        if acct == 'Acct.Cash.Bank':
+            cash_dir = 'out' if atype == 'Credit' else 'in'
+        return {
+            'tID':      r.get('tID', ''),
+            'tDB':      r.get('tDB', ''),
+            'dt':       r.get('dt', ''),
+            'prop':     r.get('propNm', ''),
+            'aType':    atype,
+            'acct':     acct,
+            'contra':   str(r.get('Ledger', '') or ''),
+            'desc':     (r.get('desc') or '')[:60],
+            'amt':      amt,
+            'cash_dir': cash_dir,
+            'fix_obj':  self._fix_obj_for(r),
+        }
+
+    def _forensic_amount_day_clusters(self) -> List[Dict[str, Any]]:
+        """
+        Forensic — same-amount + same-day transaction clusters.
+
+        Catches the classic bank-ingestion mis-tag: a PURCHASE and its RETURN
+        posted under different propNm (or a duplicate double-post). A refund must
+        carry the SAME propNm as its purchase; if not, one property's expense is
+        understated and the other's basis is overstated.
+
+        Ground truth is always the bank statement (books/<yr>/BankStmts/*.csv).
+        """
+        from collections import defaultdict
+        groups: Dict[tuple, List[Dict]] = defaultdict(list)
+        for r in self._gl_rows():
+            try:
+                amt = round(abs(float(r.get('amt', 0) or 0)), 2)
+            except Exception:
+                amt = 0.0
+            if amt <= 0:
+                continue
+            groups[(str(r.get('dt', '')), amt)].append(r)
+
+        findings: List[Dict[str, Any]] = []
+        for (dt, amt), rs in groups.items():
+            if len(rs) < 2:
+                continue
+            briefs = [self._txn_brief(r) for r in rs]
+            props  = {b['prop'] for b in briefs if b['prop']}
+            # Exclude owner-contribution legs (contra = Acct.Equity.*) from the
+            # purchase/return signal — an owner funding a same-day purchase is not
+            # a refund and should not trip the forensic.
+            dirs   = {b['cash_dir'] for b in briefs
+                      if b['cash_dir'] and 'Equity' not in b['contra']}
+            has_return = ('in' in dirs and 'out' in dirs)   # purchase + refund
+            multi_prop = len(props) > 1
+            seen, dup = set(), False
+            for b in briefs:
+                sig = (b['prop'], b['acct'], b['contra'], b['aType'])
+                if sig in seen:
+                    dup = True
+                seen.add(sig)
+            if not (multi_prop or has_return or dup):
+                continue
+            findings.append({
+                'dt': dt, 'amt': amt, 'count': len(rs),
+                'props': sorted(props),
+                'multi_prop': multi_prop, 'has_return': has_return,
+                'duplicate': dup, 'txns': briefs,
+            })
+        findings.sort(key=lambda f: (-f['amt'], f['dt']))
+        return findings
+
     def _active_property_rows(self) -> List[Dict]:
         """Return one representative row per active rental property from llcAssets.
         Active = has Acct.Fixed.Tangible.InService entry (placed in service).
@@ -761,11 +862,69 @@ class AgentF8825_NetIncome(_SectionAgent):
 
     def pass2_audit(self) -> Dict[str, Any]:
         return self._run_audit([
+            self._rule_forensic_clusters,
             self._rule_cip_in_totals,
             self._rule_line21_blank,
             self._rule_line21_mismatch,
             self._rule_line21_confirmed,
         ])
+
+    def _rule_forensic_clusters(self):
+        """
+        F8NI-R05 (forensic): same-amount + same-day clusters.
+
+        The classic signature is a PURCHASE and its RETURN posted under different
+        propNm during bank ingestion. Example caught here: $14.06 on 2025-10-09 —
+        two RV_RV1 purchases plus one refund mis-tagged to H_805HighMesa. The
+        mis-tagged refund understates H_805 expense and overstates RV_RV1 basis.
+        Truth: books/<yr>/BankStmts/*.csv (WIMBERLEY ACE purchase + return).
+        """
+        findings = self._forensic_amount_day_clusters()
+        sus = [f for f in findings if f['multi_prop'] or f['has_return']]
+        if not sus:
+            return None
+        # Most-suspicious first: multi-prop refund pairs lead, then by amount.
+        sus.sort(key=lambda f: (-(f['multi_prop'] and f['has_return']),
+                                -f['multi_prop'], -f['amt'], f['dt']))
+
+        txns: List[Dict[str, Any]] = []
+        for f in sus:
+            tags = []
+            if f['multi_prop']:
+                tags.append('MULTI-PROP')
+            if f['has_return']:
+                tags.append('PURCHASE+RETURN')
+            if f['duplicate']:
+                tags.append('DUPLICATE')
+            flag = ' / '.join(tags)
+            for b in f['txns']:
+                bb = dict(b)
+                bb['flag'] = flag
+                txns.append(bb)
+
+        lead     = sus[0]
+        critical = any(f['multi_prop'] and f['has_return'] for f in sus)
+        return self.format_issue(
+            'F8NI-R05', self.ERROR if critical else self.WARN,
+            f"Forensic anomaly: {len(sus)} same-amount/same-day cluster(s). "
+            f"Highest concern — ${lead['amt']:,.2f} on {lead['dt']} spanning "
+            f"{', '.join(lead['props']) or 'one property'} ({lead['count']} transactions, "
+            f"mixed purchase/return). A purchase and its refund must carry the SAME propNm; "
+            f"a refund booked to a different property understates that property's expense "
+            f"and overstates the other property's basis — distorting Form 8825 Line 21, "
+            f"Schedule K Line 2, and each partner's K-1 Box 2.",
+            'IRC §263(a); IRC §446 (Books-First); bank statement = source of truth',
+            f"Verify against the bank statement (books/{self.tax_year}/BankStmts/), then "
+            f"correct the mis-tagged transaction's propNm/account in the ledger — "
+            f"use the Fix links on the transactions below.",
+            fids=['F104', 'F113'],
+            suggested_mapping={
+                'txns':              txns,
+                'source_doc':        f'books/{self.tax_year}/BankStmts/',
+                'resolve_available': True,
+                'resolve_label':     'Mark Resolved — cluster verified against bank statement',
+                'resolve_note':      'Confirm each purchase/return pair shares the correct propNm.',
+            })
 
     def pass5_summarize(self) -> str:
         net = self._get_is_agg('net_rental')
@@ -799,30 +958,15 @@ class AgentF8825_NetIncome(_SectionAgent):
         if cip_gap <= 1.00:
             return None
 
-        # Build a list of the offending GL transactions for display
+        # Build the list of offending GL transactions (with tID + Fix link target)
         cip_txns: List[Dict[str, Any]] = []
-        try:
-            from ledger.stmtGL import stmtGL
-            for r in (stmtGL(self.llc)._rows or []):
-                if r.get('propNm') not in cip:
-                    continue
-                if r.get('acctType') != 'Expense':
-                    continue
-                try:
-                    amt = float(r.get('amt', 0) or 0)
-                except Exception:
-                    amt = 0.0
-                if amt <= 0:
-                    continue
-                cip_txns.append({
-                    'dt':    r.get('dt', ''),
-                    'desc':  (r.get('desc') or '')[:50],
-                    'acct':  r.get('acct', ''),
-                    'prop':  r.get('propNm', ''),
-                    'amt':   round(amt, 2),
-                })
-        except Exception:
-            pass
+        for r in self._gl_rows():
+            if r.get('propNm') not in cip or r.get('acctType') != 'Expense':
+                continue
+            b = self._txn_brief(r)
+            if b['amt'] <= 0:
+                continue
+            cip_txns.append(b)
 
         return self.format_issue(
             'F8NI-R04', self.ERROR,
@@ -833,10 +977,11 @@ class AgentF8825_NetIncome(_SectionAgent):
             f"causing incorrect Schedule K Line 2 and partner K-1 Box 2 allocations.",
             'IRC §263(a); IRC §446; Form 8825 Lines 20b, 21; IRC §702(a)',
             f"Fix GL — reclassify the {len(cip_txns)} transaction(s) listed below "
-            f"from Acct.Exp.* to Acct.Fixed.Tangible.InConstruction for propNm='{cip_names}'.",
+            f"from Acct.Exp.* to Acct.Fixed.Tangible.InConstruction for propNm='{cip_names}' "
+            f"(use the Fix links).",
             fids=['F104', 'F113'],
             suggested_mapping={
-                'cip_transactions': cip_txns,
+                'txns':              cip_txns,
                 'resolve_available': True,
                 'resolve_label':     'Mark Resolved — all CIP expenses reclassified',
                 'resolve_note':      f'Confirm every {cip_names} expense entry has been '

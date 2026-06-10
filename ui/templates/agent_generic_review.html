@@ -163,6 +163,20 @@
     .cip-txn-head {
         font-size: 11px; font-weight: 600; color: #92400e; margin-top: 6px;
     }
+    /* Action-first + transaction fix controls */
+    .issue-fix {
+        background: #fff7ed; border-left: 3px solid #ea580c; color: #9a3412;
+        font-weight: 700; font-size: 12px; padding: 5px 10px; border-radius: 4px;
+        margin-bottom: 6px;
+    }
+    .issue-explain { color: #374151; margin-top: 6px; }
+    .txn-fix-link {
+        display: inline-block; font-size: 11px; color: white; background: #ea580c;
+        border-radius: 4px; padding: 1px 8px; text-decoration: none; white-space: nowrap;
+    }
+    .txn-fix-link:hover { background: #c2410c; color: white; }
+    .cip-txn-table tr.txn-flagged td { background: #fef2f2; }
+    .txn-flag { color: #b91c1c; font-weight: 700; font-size: 10px; }
 </style>
 {% endblock %}
 
@@ -231,7 +245,48 @@
                         {{ issue.rule_id }}
                     </span>
                     <span class="issue-msg">
-                        {{ issue.message }}
+                        {# ── ACTION FIRST — what to do, before the explanation ── #}
+                        {% if issue.action %}
+                        <div class="issue-fix">▶ Fix: {{ issue.action }}</div>
+                        {% endif %}
+
+                        {# ── Specific transactions to review / fix (tID + Fix link) ── #}
+                        {% set _txns = (issue.suggested_mapping.txns if issue.suggested_mapping else None)
+                                       or (issue.suggested_mapping.cip_transactions if issue.suggested_mapping else None) %}
+                        {% if _txns %}
+                        <div class="cip-txn-head">📋 Transaction(s) to review / fix ({{ _txns | length }}):</div>
+                        <table class="cip-txn-table">
+                            <thead><tr>
+                                <th>Date</th><th>Transaction (tID)</th><th>Property</th>
+                                <th>Account → Contra</th><th>Description</th>
+                                <th style="text-align:right">Amount</th><th></th>
+                            </tr></thead>
+                            <tbody>
+                            {% for t in _txns %}
+                            <tr{% if t.flag %} class="txn-flagged"{% endif %}>
+                                <td>{{ t.dt }}</td>
+                                <td style="font-family:monospace;font-size:10px">
+                                    {{ t.tID }}{% if t.flag %}<br><span class="txn-flag">⚑ {{ t.flag }}</span>{% endif %}
+                                </td>
+                                <td>{{ t.prop }}</td>
+                                <td style="font-family:monospace;font-size:10px">{{ t.acct }}{% if t.contra %} → {{ t.contra }}{% endif %}</td>
+                                <td>{{ t.desc }}</td>
+                                <td style="text-align:right;font-weight:600">${{ '{:,.2f}'.format(t.amt) }}</td>
+                                <td>{% if t.tID %}<a class="txn-fix-link"
+                                       href="{{ url_for('view_object', obj_type=t.fix_obj or 'llcExpRev') }}?focus_tid={{ t.tID | urlencode }}">🔧 Fix</a>{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% endif %}
+                        {% if issue.suggested_mapping and issue.suggested_mapping.source_doc %}
+                        <div style="font-size:11px;color:#6b7280;margin-top:4px">
+                            🔎 Verify against source of truth: <code>{{ issue.suggested_mapping.source_doc }}</code>
+                        </div>
+                        {% endif %}
+
+                        {# ── Explanation (the why) ── #}
+                        <div class="issue-explain">{{ issue.message }}</div>
                         {% if issue.fids %}
                         <div style="margin-top:3px">
                             <span style="font-size:11px;color:#6b7280">
@@ -248,7 +303,6 @@
                             — map it to <code>{{ issue.suggested_mapping.fid }}</code> via Aid
                         </div>
                         {% endif %}
-                        <div class="issue-action">→ {{ issue.action }}</div>
                         <div class="issue-cite">{{ issue.irs_cite }}</div>
 
                         {# ── Universal close control — guide the operator without the Aid ── #}
@@ -316,31 +370,6 @@
                                 🔍 {{ issue.suggested_mapping.audit_label or 'Open GL Audit View' }}
                             </a>
                         </div>
-                        {% endif %}
-
-                        {# ── CIP transaction list ──────────────────────────── #}
-                        {% if issue.suggested_mapping and issue.suggested_mapping.cip_transactions %}
-                        {% set txns = issue.suggested_mapping.cip_transactions %}
-                        <div class="cip-txn-head">
-                            📋 GL entries to reclassify ({{ txns | length }} transactions):
-                        </div>
-                        <table class="cip-txn-table">
-                            <thead><tr>
-                                <th>Date</th><th>Property</th><th>Account</th>
-                                <th>Description</th><th style="text-align:right">Amount</th>
-                            </tr></thead>
-                            <tbody>
-                            {% for t in txns %}
-                            <tr>
-                                <td>{{ t.dt }}</td>
-                                <td>{{ t.prop }}</td>
-                                <td style="font-family:monospace;font-size:10px">{{ t.acct }}</td>
-                                <td>{{ t.desc }}</td>
-                                <td style="text-align:right;font-weight:600">${{ '{:,.2f}'.format(t.amt) }}</td>
-                            </tr>
-                            {% endfor %}
-                            </tbody>
-                        </table>
                         {% endif %}
 
                         {# ── Mark Resolved button ──────────────────────────── #}
