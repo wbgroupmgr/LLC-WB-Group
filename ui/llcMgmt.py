@@ -32,7 +32,7 @@ import os
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from ledger import setup_paths as _sp
 
@@ -505,6 +505,23 @@ class llcMgmt:
         # tID is the natural key for asset/expense records; fall back to id, oID, then index
         k = row.get("tID") or row.get("id") or row.get("oID")
         return str(k) if k is not None else str(index)
+
+    @staticmethod
+    def _row_index_arg(n_rows: int) -> Optional[int]:
+        '''Parse the `idx` form/query arg into a valid 0-based row index, else None.
+
+        This is the unique row selector for edit/delete — tID (date_amount)
+        collides on same-day/same-amount records, so the editor passes the
+        positional index of the row in the full, unfiltered dataset.
+        '''
+        raw = request.values.get("idx")
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            i = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return i if 0 <= i < n_rows else None
 
     def _merge_save(self, manager, payload_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         '''
@@ -1113,12 +1130,20 @@ class llcMgmt:
                 record_id = request.values.get("id")
                 payload   = self._parse_payload(request.values.get("payload", "{}"), {})
                 rows = manager.load()
+                # Positional index is the UNIQUE selector — tID (date_amount)
+                # collides on same-day/same-amount records, so prefer idx and
+                # fall back to tID only when no valid index is supplied.
+                idx = self._row_index_arg(len(rows))
                 updated = False
-                for i, row in enumerate(rows):
-                    if self._row_id(row, i) == str(record_id):
-                        rows[i] = payload
-                        updated = True
-                        break
+                if idx is not None:
+                    rows[idx] = payload
+                    updated = True
+                else:
+                    for i, row in enumerate(rows):
+                        if self._row_id(row, i) == str(record_id):
+                            rows[i] = payload
+                            updated = True
+                            break
                 if not updated:
                     return jsonify({"ok": False, "error": "Record not found"}), 404
                 saved = s(manager.save(rows))
@@ -1127,8 +1152,12 @@ class llcMgmt:
             if cmd == "delete":
                 record_id = request.values.get("id")
                 rows      = manager.load()
-                new_rows  = [row for i, row in enumerate(rows) if self._row_id(row, i) != str(record_id)]
-                saved     = s(manager.save(new_rows))
+                idx = self._row_index_arg(len(rows))
+                if idx is not None:
+                    new_rows = [row for i, row in enumerate(rows) if i != idx]
+                else:
+                    new_rows = [row for i, row in enumerate(rows) if self._row_id(row, i) != str(record_id)]
+                saved = s(manager.save(new_rows))
                 return jsonify({"ok": True, "data": saved})
 
             return jsonify({"ok": False, "error": f"Unknown command: {cmd}"}), 400

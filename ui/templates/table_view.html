@@ -12,6 +12,16 @@
     const _scriptRoot = {{ request.script_root | tojson }};  // '/rentalTracker' on PA, '' locally
     let editorMode = "edit";
     let activeRecordId = null;
+    // Positional index is the UNIQUE selector — tID (date_amount) collides on
+    // same-day / same-amount records, so edit/delete must key on the row index.
+    let activeRowIndex = null;
+
+    function rowByIndex(recordId, rowIndex) {
+        if (rowIndex !== undefined && rowIndex !== null && RAW_ROWS[rowIndex] !== undefined) {
+            return { row: RAW_ROWS[rowIndex], index: rowIndex };
+        }
+        return findRow(recordId);   // legacy fallback (no index supplied)
+    }
 
     function parseValue(value) {
         const trimmed = String(value).trim();
@@ -246,15 +256,16 @@
         renderFieldEditor("Add Record", payload);
     }
 
-    function openEditEditor(recordId) {
-        const match = findRow(recordId);
+    function openEditEditor(recordId, rowIndex) {
+        const match = rowByIndex(recordId, rowIndex);
         if (!match.row) {
             alert("Record not found");
             return;
         }
         editorMode = "edit";
         activeRecordId = recordId;
-        renderFieldEditor(`Edit Record: ${recordId}`, match.row);
+        activeRowIndex = match.index;
+        renderFieldEditor(`Edit Record: ${recordId}  (row ${match.index})`, match.row);
     }
 
     function openAddJsonEditor() {
@@ -263,15 +274,16 @@
         renderJsonEditor("Add Record JSON", {});
     }
 
-    function openEditJsonEditor(recordId) {
-        const match = findRow(recordId);
+    function openEditJsonEditor(recordId, rowIndex) {
+        const match = rowByIndex(recordId, rowIndex);
         if (!match.row) {
             alert("Record not found");
             return;
         }
         editorMode = "edit_json";
         activeRecordId = recordId;
-        renderJsonEditor(`Json: ${recordId}`, match.row);
+        activeRowIndex = match.index;
+        renderJsonEditor(`Json: ${recordId}  (row ${match.index})`, match.row);
     }
 
     async function doneFieldEditor() {
@@ -286,7 +298,7 @@
         if (editorMode === "add") {
             result = await postCmd({ cmd: "add", payload: payload });
         } else {
-            result = await postCmd({ cmd: "update", id: activeRecordId, payload: payload });
+            result = await postCmd({ cmd: "update", id: activeRecordId, idx: activeRowIndex, payload: payload });
         }
 
         if (!result.ok) {
@@ -311,7 +323,7 @@
         if (editorMode === "add_json") {
             result = await postCmd({ cmd: "add", payload: payload });
         } else {
-            result = await postCmd({ cmd: "update", id: activeRecordId, payload: payload });
+            result = await postCmd({ cmd: "update", id: activeRecordId, idx: activeRowIndex, payload: payload });
         }
 
         if (!result.ok) {
@@ -323,9 +335,9 @@
         window.location.href = buildViewUrl(result.changedRecordId || "");
     }
 
-    async function deleteRow(recordId) {
+    async function deleteRow(recordId, rowIndex) {
         if (!confirm("Delete this record?")) return;
-        const result = await postCmd({ cmd: "delete", id: recordId });
+        const result = await postCmd({ cmd: "delete", id: recordId, idx: rowIndex });
         if (!result.ok) {
             alert(result.error || "Delete failed");
             return;
@@ -748,9 +760,9 @@
                 <tr>
                     {% if not read_only %}
                     <td class="col-actions nowrap">
-                        <button class="btn btn-primary icon-btn" title="Edit this record" onclick='openEditEditor({{ row._record_id|tojson }})'>✎</button>
-                        <button class="btn btn-warning icon-btn" title="Edit this record as raw JSON" onclick='openEditJsonEditor({{ row._record_id|tojson }})'>{}</button>
-                        <button class="btn btn-danger icon-btn" title="Delete this record" onclick='deleteRow({{ row._record_id|tojson }})'>✕</button>
+                        <button class="btn btn-primary icon-btn" title="Edit this record" onclick='openEditEditor({{ row._record_id|tojson }}, {{ row._row_index|tojson }})'>✎</button>
+                        <button class="btn btn-warning icon-btn" title="Edit this record as raw JSON" onclick='openEditJsonEditor({{ row._record_id|tojson }}, {{ row._row_index|tojson }})'>{}</button>
+                        <button class="btn btn-danger icon-btn" title="Delete this record" onclick='deleteRow({{ row._record_id|tojson }}, {{ row._row_index|tojson }})'>✕</button>
                     </td>
                     <td class="col-chg changed-cell" title="{% if row._changed %}This record has been changed{% else %}No change{% endif %}">{% if row._changed %}✓{% endif %}</td>
                     {% endif %}
