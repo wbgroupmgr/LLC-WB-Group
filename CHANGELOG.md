@@ -6,6 +6,39 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] — 2026-06-11  **IRS Submission Package + Accountant Letter (Phase 3+4)**
+
+### Added
+- **LLCTaxAgent Phase 3 (`phase3_package`)** (`irs/taxAgents/LLCTaxAgent.py`):
+  assembles `IRS_Submission_{year}/` directory, copies all FILL PDFs, computes
+  SHA-256 checksums per file, writes `manifest.json` with per-artifact required/
+  present flags and filing deadline.
+- **LLCTaxAgent Phase 4 (`phase4_submit`)** (`irs/taxAgents/LLCTaxAgent.py`):
+  builds submission checklist (per-form present/missing, accountant letter,
+  filing method, K-1 delivery per partner), persists status in
+  `Profile.F1065.submission_status`, generates Accountant Notification Letter
+  PDF via reportlab.
+- **`generate_accountant_letter()`**: saves `AccountantLetter_{year}.pdf` to
+  `Forms/` — includes LLC letterhead, form list table, SHA-256 integrity note,
+  filing deadline, IRS mailing address, principal officer contact.
+- **`/view/tax_prep`** dashboard (`ui/templates/tax_prep.html`): 3 collapsible
+  frames: (1) Submission Checklist with phase status strip, XF audit table,
+  artifacts table; (2) Accountant Letter generate/view; (3) Submission Status
+  + K-1 delivery per partner with date inputs.
+- **Flask routes** in `ui/llcMgmt.py`:
+  `GET /api/tax/status`, `POST /api/tax/prepare`, `POST /api/tax/package`,
+  `POST /api/tax/accountant_letter`, `POST /api/tax/submission/update`,
+  `GET /api/tax/report`, `GET /forms/AccountantLetter_{year}.pdf`.
+- **📬 IRS Submission** nav link in `_nav_dropdown.html` (new "IRS Filing" group).
+- **SSN wiring for Schedule K-1** (`irs/Sch_K1.py`, `ledger/llcOwners.py`,
+  `irs/Form1065.py`): 3-location fix so K-1 header EIN field reads from
+  `llcOwners[].SSN` when `ein` is absent.
+- **LLC Admin view** (`/admin`, `ui/llcMgmt.py`, `ui/templates/admin_view.html`):
+  3 collapsible frames for Owners (with SSN masking + RetainedEarning), Tenants,
+  and State/Fed Milestones.
+- **SSN field** in `llcOwners` records; `RetainedEarning` computed from IS
+  per-owner (Books-First, not stored).
+
 ## [1.1.0] — 2026-06-11  **IRS Guided Review — Form 8825 / 4562 / 1065 all GO**
 
 All three IRS Guided Review agents confirmed correct. No false-positive
