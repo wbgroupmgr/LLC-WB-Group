@@ -364,6 +364,8 @@
         setupRowKeyboard(tr, key);
         const first = tr.querySelector(".inline-input");
         if (first) first.focus();
+
+        updateSelectionBarMode();
     }
 
     // ── Finish inline edit: capture values → pendingOps ──────────────────────
@@ -419,7 +421,7 @@
     // ── Cancel inline edit: revert row ────────────────────────────────────────
     function cancelInlineRow(key) {
         const tr = rowTr(key);
-        if (!tr) { editQueue = editQueue.filter(k => k !== key); updateEditQueueIndicator(); return; }
+        if (!tr) { editQueue = editQueue.filter(k => k !== key); updateSelectionBarMode(); return; }
 
         const rowIndex = parseInt(tr.dataset.rowIndex, 10);
 
@@ -434,7 +436,7 @@
         }
 
         editQueue = editQueue.filter(k => k !== key);
-        updateEditQueueIndicator();
+        updateSelectionBarMode();
         updateCommitBar();
     }
 
@@ -444,12 +446,11 @@
         if (pos === -1) return;
         editQueuePos = pos + 1;
         if (editQueuePos < editQueue.length) {
-            updateEditQueueIndicator();
-            startInlineEdit(editQueue[editQueuePos]);
+            startInlineEdit(editQueue[editQueuePos]);  // startInlineEdit calls updateSelectionBarMode
         } else {
             editQueue    = [];
             editQueuePos = 0;
-            updateEditQueueIndicator();
+            updateSelectionBarMode();
         }
     }
 
@@ -460,11 +461,14 @@
             lbl.textContent = `Editing ${editQueuePos + 1} of ${editQueue.length}`;
             lbl.style.display = "inline";
         } else {
+            lbl.textContent = "";
             lbl.style.display = "none";
         }
     }
 
-    // ── Selection bar ─────────────────────────────────────────────────────────
+    // ── Selection bar — two modes ─────────────────────────────────────────────
+    // select-mode: Edit / Delete / Dup / JSON  (shown when ≥1 row checked)
+    // edit-mode:   ✓ Done / ✗ Cancel          (shown when a row is open for inline edit)
     function getSelectedRows() {
         const result = [];
         document.querySelectorAll(".row-select:checked").forEach(cb => {
@@ -475,24 +479,65 @@
         return result;
     }
 
-    function selChanged() {
-        const sel    = getSelectedRows();
-        const count  = sel.length;
-        const bar    = document.getElementById("selectionBar");
-        const cnt    = document.getElementById("selCount");
-        const btnJSON = document.getElementById("btnJSON");
+    function updateSelectionBarMode() {
+        const bar        = document.getElementById("selectionBar");
+        if (!bar) return;
+        const grpSelect  = document.getElementById("actGrpSelect");
+        const grpEdit    = document.getElementById("actGrpEdit");
+        const cnt        = document.getElementById("selCount");
+        const lbl        = document.getElementById("editQueueLabel");
 
-        if (bar)  bar.style.display  = count > 0 ? "flex" : "none";
-        if (cnt)  cnt.textContent    = `${count} selected`;
-        if (btnJSON) btnJSON.disabled = count !== 1;
+        const isEditing  = editQueue.length > 0 && editQueuePos < editQueue.length;
+        const selCount   = getSelectedRows().length;
 
-        // Sync select-all checkbox indeterminate state
-        const total = document.querySelectorAll(".row-select").length;
-        const selectAll = document.getElementById("selectAll");
-        if (selectAll) {
-            selectAll.indeterminate = count > 0 && count < total;
-            selectAll.checked       = count > 0 && count === total;
+        if (isEditing) {
+            // Edit-mode: show Done/Cancel, hide select buttons
+            bar.style.display = "flex";
+            if (grpSelect) grpSelect.style.display = "none";
+            if (grpEdit)   grpEdit.style.display   = "flex";
+            if (cnt) cnt.textContent = "";
+            if (lbl) {
+                if (editQueue.length > 1) {
+                    lbl.textContent = `Editing ${editQueuePos + 1} of ${editQueue.length}`;
+                    lbl.style.display = "inline";
+                } else {
+                    lbl.textContent = "Editing row…";
+                    lbl.style.display = "inline";
+                }
+            }
+        } else {
+            // Select-mode
+            if (grpSelect) grpSelect.style.display = "flex";
+            if (grpEdit)   grpEdit.style.display   = "none";
+            if (lbl) { lbl.textContent = ""; lbl.style.display = "none"; }
+            bar.style.display = selCount > 0 ? "flex" : "none";
+            if (cnt) cnt.textContent = `${selCount} selected`;
+
+            // JSON button disabled unless exactly 1 row selected
+            const btnJSON = document.getElementById("btnJSON");
+            if (btnJSON) btnJSON.disabled = selCount !== 1;
+
+            // Sync select-all checkbox
+            const total     = document.querySelectorAll(".row-select").length;
+            const selectAll = document.getElementById("selectAll");
+            if (selectAll) {
+                selectAll.indeterminate = selCount > 0 && selCount < total;
+                selectAll.checked       = selCount > 0 && selCount === total;
+            }
         }
+    }
+
+    // Keep old name as alias (called by checkbox delegation and revertAll)
+    function selChanged() { updateSelectionBarMode(); }
+
+    // Done / Cancel for the currently open inline-edit row
+    function doneEdit() {
+        if (editQueue.length === 0) return;
+        finishInlineRow(editQueue[editQueuePos]);
+    }
+    function cancelEdit() {
+        if (editQueue.length === 0) return;
+        cancelInlineRow(editQueue[editQueuePos]);
     }
 
     // ── Commit bar ────────────────────────────────────────────────────────────
@@ -512,8 +557,7 @@
         editQueue    = sel.filter(({tr}) => !tr.classList.contains("row-editing")).map(({key}) => key);
         editQueuePos = 0;
         if (!editQueue.length) return;
-        updateEditQueueIndicator();
-        startInlineEdit(editQueue[0]);
+        startInlineEdit(editQueue[0]);  // startInlineEdit calls updateSelectionBarMode
     }
 
     function actionDelete() {
@@ -684,9 +728,8 @@
         pendingOps.clear();
         editQueue    = [];
         editQueuePos = 0;
-        updateEditQueueIndicator();
         updateCommitBar();
-        selChanged();
+        updateSelectionBarMode();
     }
 
     // ── Navigate-away guard ───────────────────────────────────────────────────
@@ -855,6 +898,10 @@
     .btn-sel-del:hover { background: #fee2e2; }
     .btn-sel-json  { color: #b45309; border-color: #fcd34d; }
     .btn-sel-json:hover { background: #fef3c7; }
+    .btn-sel-done   { color: #15803d; border-color: #86efac; font-weight: 700; }
+    .btn-sel-done:hover { background: #dcfce7; }
+    .btn-sel-cancel { color: #b91c1c; border-color: #fca5a5; font-weight: 700; }
+    .btn-sel-cancel:hover { background: #fee2e2; }
     /* ── Commit/Revert bar ── */
     .commit-bar {
         display: none;
@@ -1005,14 +1052,24 @@
     </div>
 
     {% if not read_only %}
-    <!-- Selection actions bar — shown when ≥1 row selected -->
+    <!-- Selection / Edit actions bar -->
     <div id="selectionBar" class="selection-bar">
-        <span id="selCount" class="sel-count">0 selected</span>
+        <span id="selCount" class="sel-count"></span>
         <span id="editQueueLabel" class="queue-label" style="display:none"></span>
-        <button class="btn-sel" id="btnEdit"   onclick="actionEdit()"  title="Edit selected rows inline">✎ Edit</button>
-        <button class="btn-sel btn-sel-del" id="btnDelete" onclick="actionDelete()" title="Stage selected rows for deletion">✕ Delete</button>
-        <button class="btn-sel" id="btnDup"    onclick="actionDup()"   title="Duplicate selected rows">⧉ Dup</button>
-        <button class="btn-sel btn-sel-json" id="btnJSON" onclick="actionJSON()" title="Edit single selected row as JSON" disabled>{ } JSON</button>
+
+        <!-- Select mode: shown when ≥1 row checked -->
+        <div id="actGrpSelect" style="display:flex;gap:6px;align-items:center">
+            <button class="btn-sel"          id="btnEdit"   onclick="actionEdit()"   title="Edit selected rows inline (Tab=next field, Enter=done, Esc=cancel)">✎ Edit</button>
+            <button class="btn-sel btn-sel-del" id="btnDelete" onclick="actionDelete()" title="Stage selected rows for deletion">✕ Delete</button>
+            <button class="btn-sel"          id="btnDup"    onclick="actionDup()"    title="Duplicate selected rows">⧉ Dup</button>
+            <button class="btn-sel btn-sel-json" id="btnJSON" onclick="actionJSON()" title="Edit single selected row as JSON" disabled>{ } JSON</button>
+        </div>
+
+        <!-- Edit mode: shown while a row is open for inline editing -->
+        <div id="actGrpEdit" style="display:none;gap:6px;align-items:center">
+            <button class="btn-sel btn-sel-done"   onclick="doneEdit()"   title="Save this row's edits and stage for commit (Tab past last field also works)">✓ Done</button>
+            <button class="btn-sel btn-sel-cancel" onclick="cancelEdit()" title="Discard edits to this row (Esc also works)">✗ Cancel</button>
+        </div>
     </div>
     <!-- Commit/Revert bar — shown when any pending ops exist -->
     <div id="commitBar" class="commit-bar">
