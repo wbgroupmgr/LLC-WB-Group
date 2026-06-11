@@ -90,57 +90,41 @@
     .fs-header h2 { margin: 0; font-size: 16px; font-weight: 700; color: #111827; }
     .fs-header .fs-year { font-size: 13px; color: #9ca3af; margin-left: auto; }
 
-    /* KPI row */
-    .fs-kpi-row {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        margin-bottom: 16px;
-    }
-    .fs-kpi {
-        background: #f9fafb; border: 1px solid #e5e7eb;
-        border-radius: 10px; padding: 14px 18px;
-    }
-    .fs-kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
-                    letter-spacing: 0.06em; color: #6b7280; margin-bottom: 6px; }
-    .fs-kpi-value { font-size: 26px; font-weight: 700; color: #111827;
-                    font-variant-numeric: tabular-nums; }
-    .fs-kpi-value.fs-positive { color: #16a34a; }
-    .fs-kpi-value.fs-negative { color: #dc2626; }
-    .fs-kpi-value.fs-empty    { color: #d1d5db; }
-
-    /* Chart + equity row */
+    /* Chart-left + metrics-right layout */
     .fs-body {
         display: grid;
-        grid-template-columns: 1fr 200px;
-        gap: 16px;
+        grid-template-columns: 1fr 220px;
+        gap: 14px;
         align-items: start;
     }
     .fs-chart-box {
         background: #f9fafb; border: 1px solid #e5e7eb;
-        border-radius: 10px; padding: 14px 18px;
-        min-height: 180px;
+        border-radius: 10px; padding: 10px 14px;
         display: flex; flex-direction: column;
     }
     .fs-chart-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
-                      letter-spacing: 0.06em; color: #6b7280; margin-bottom: 10px; }
-    .fs-chart-canvas-wrap { flex: 1; min-height: 140px; position: relative; }
+                      letter-spacing: 0.06em; color: #6b7280; margin-bottom: 6px; }
+    .fs-chart-canvas-wrap { min-height: 90px; position: relative; }
     #fsBarChart { width: 100% !important; }
 
-    .fs-right { display: flex; flex-direction: column; gap: 12px; }
+    /* Right column: stacked metric cards */
+    .fs-right { display: flex; flex-direction: column; gap: 8px; }
     .fs-metric {
         background: #f9fafb; border: 1px solid #e5e7eb;
-        border-radius: 10px; padding: 14px 18px;
+        border-radius: 8px; padding: 9px 13px;
     }
-    .fs-metric-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
-                       letter-spacing: 0.06em; color: #6b7280; margin-bottom: 6px; }
-    .fs-metric-value { font-size: 20px; font-weight: 700; color: #111827;
+    .fs-metric-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                       letter-spacing: 0.06em; color: #6b7280; margin-bottom: 3px; }
+    .fs-metric-value { font-size: 18px; font-weight: 700; color: #111827;
                        font-variant-numeric: tabular-nums; }
-    .fs-metric-value.fs-empty { color: #d1d5db; }
+    .fs-metric-value.fs-empty    { color: #d1d5db; }
+    .fs-metric-value.fs-positive { color: #16a34a; }
+    .fs-metric-value.fs-negative { color: #dc2626; }
+    /* divider between YTD group and equity group */
+    .fs-right-divider { border: none; border-top: 1px solid #e5e7eb; margin: 2px 0; }
 
     @media (max-width: 700px) {
-        .fs-kpi-row { grid-template-columns: 1fr; }
-        .fs-body    { grid-template-columns: 1fr; }
+        .fs-body { grid-template-columns: 1fr; }
     }
 
     /* ── Financial Report section ── */
@@ -270,32 +254,29 @@
         <span class="fs-year">FY {{ current_year }}</span>
     </div>
 
-    <!-- KPI row -->
-    <div class="fs-kpi-row">
-        <div class="fs-kpi">
-            <div class="fs-kpi-label">YTD Revenue</div>
-            <div class="fs-kpi-value fs-empty" id="fsRevenue">—</div>
-        </div>
-        <div class="fs-kpi">
-            <div class="fs-kpi-label">YTD Expenses</div>
-            <div class="fs-kpi-value fs-empty" id="fsExpenses">—</div>
-        </div>
-        <div class="fs-kpi">
-            <div class="fs-kpi-label">Net Income / Loss</div>
-            <div class="fs-kpi-value fs-empty" id="fsNetIncome">—</div>
-        </div>
-    </div>
-
-    <!-- Chart + right metrics -->
+    <!-- Chart left · YTD + Equity metrics right -->
     <div class="fs-body">
         <div class="fs-chart-box">
-            <div class="fs-chart-label">Revenue vs Expenses — by Month</div>
+            <div class="fs-chart-label">Per Month</div>
             <div class="fs-chart-canvas-wrap">
-                <canvas id="fsBarChart" height="140"></canvas>
+                <canvas id="fsBarChart" height="90"></canvas>
             </div>
         </div>
 
         <div class="fs-right">
+            <div class="fs-metric">
+                <div class="fs-metric-label">YTD Revenue</div>
+                <div class="fs-metric-value fs-empty" id="fsRevenue">—</div>
+            </div>
+            <div class="fs-metric">
+                <div class="fs-metric-label">YTD Expenses</div>
+                <div class="fs-metric-value fs-empty" id="fsExpenses">—</div>
+            </div>
+            <div class="fs-metric">
+                <div class="fs-metric-label">Net Income / Loss</div>
+                <div class="fs-metric-value fs-empty" id="fsNetIncome">—</div>
+            </div>
+            <hr class="fs-right-divider">
             <div class="fs-metric">
                 <div class="fs-metric-label">Total Equity</div>
                 <div class="fs-metric-value fs-empty" id="fsTotalEquity">—</div>

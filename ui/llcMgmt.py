@@ -125,7 +125,7 @@ class llcMgmt:
     ADMIN_COLUMNS = {
         "llcOwners":     ["oID", "nm", "addr", "status", "memType", "pct", "SSN", "kw"],
         "llcCustomers":  ["oID", "nm", "addr", "rent", "start", "kwList"],
-        "llcMilestones": ["dueDate", "agency", "form", "status", "notes"],
+        "llcMilestones": ["dueDate", "agency", "form", "Milestone", "status", "notes"],
     }
 
     # Admin VIEW display columns — may include computed fields not stored in JSON.
@@ -133,7 +133,7 @@ class llcMgmt:
     ADMIN_DISPLAY_COLUMNS = {
         "llcOwners":     ["oID", "nm", "status", "pct", "SSN", "RetainedEarning"],
         "llcCustomers":  ["oID", "nm", "addr", "rent", "start"],
-        "llcMilestones": ["dueDate", "agency", "form", "status", "notes"],
+        "llcMilestones": ["dueDate", "agency", "form", "Milestone", "status", "notes"],
     }
     # Columns that are computed (not stored) — shown read-only in admin_view
     ADMIN_COMPUTED_COLS = {"RetainedEarning"}
