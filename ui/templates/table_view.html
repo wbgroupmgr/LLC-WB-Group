@@ -179,22 +179,22 @@
         }
     }
 
-    // ── tID auto-generation ───────────────────────────────────────────────────
-    // tID format mirrors ledgerGeneral.py: f"{dt}_{±amt:0.2f}"
-    // amt is positive for Debit, negative for Credit
+    // ── tID auto-generation (add mode only) ──────────────────────────────────
+    // tID format: "<YYYY.MM.DD>_<D|C><amt:0.2f>"
+    // This is a preview only — server assigns the final unique tID on save.
     function autoGenTid() {
+        if (editorMode !== "add") return;               // immutable on edit
         const dtEl    = document.getElementById("edit-field-dt");
         const amtEl   = document.getElementById("edit-field-amt");
         const aTypeEl = document.getElementById("edit-field-aType");
         const tIdEl   = document.getElementById("edit-field-tID");
-        if (!dtEl || !amtEl || !tIdEl) return;          // fields not present — skip
+        if (!dtEl || !amtEl || !tIdEl) return;
 
         const dt    = (dtEl.value || "").trim();
         const raw   = parseFloat(amtEl.value) || 0;
-        const aType = aTypeEl ? aTypeEl.value.trim() : "";
-        const signed = (aType === "Credit") ? -Math.abs(raw) : Math.abs(raw);
-        const amtStr = (signed < 0 ? "-" : "") + Math.abs(signed).toFixed(2);
-        tIdEl.value  = dt && raw !== 0 ? `${dt}_${amtStr}` : tIdEl.value;
+        const aType = aTypeEl ? aTypeEl.value.trim() : "Debit";
+        const dc    = aType === "Credit" ? "C" : "D";
+        tIdEl.value = dt && raw !== 0 ? `${dt}_${dc}${Math.abs(raw).toFixed(2)}` : tIdEl.value;
     }
 
     function renderFieldEditor(title, payload) {
@@ -215,6 +215,13 @@
             input.value = payload[col] === undefined || payload[col] === null
                 ? ""
                 : (typeof payload[col] === "object" ? JSON.stringify(payload[col]) : String(payload[col]));
+            // tID is system-assigned and immutable after first commit
+            if (col === "tID" && editorMode === "edit") {
+                input.readOnly = true;
+                input.style.background = "#f0f0f0";
+                input.style.color = "#666";
+                input.title = "tID is assigned at creation and cannot be changed";
+            }
 
             wrap.appendChild(label);
             wrap.appendChild(input);
@@ -265,7 +272,7 @@
         editorMode = "edit";
         activeRecordId = recordId;
         activeRowIndex = match.index;
-        renderFieldEditor(`Edit Record: ${recordId}  (row ${match.index})`, match.row);
+        renderFieldEditor(`Edit Record: ${recordId}`, match.row);
     }
 
     function openAddJsonEditor() {
@@ -283,7 +290,7 @@
         editorMode = "edit_json";
         activeRecordId = recordId;
         activeRowIndex = match.index;
-        renderJsonEditor(`Json: ${recordId}  (row ${match.index})`, match.row);
+        renderJsonEditor(`Json: ${recordId}`, match.row);
     }
 
     async function doneFieldEditor() {

@@ -44,8 +44,10 @@ from ledger.llcCOA import ChartOfAccounts as _llcCOA
 from ledger.ledgerObject import ledgerObject
 
 # ── GL helper lambdas ─────────────────────────────────────────────────────────
-toKAmt   = lambda d: -float(d['amt'] or 0) if d['aType'] == 'Credit' else float(d['amt'] or 0)
-toTid    = lambda d: f"{d['dt']}_{toKAmt(d):0.2f}"
+# tID format: "<YYYY.MM.DD>_<D|C><amt:0.2f>[_<N>]"
+# D = Debit, C = Credit; _N suffix (N≥2) for same-date/DC/amt duplicates.
+toKAmt   = lambda d: -float(d['amt'] or 0) if d.get('aType') == 'Credit' else float(d['amt'] or 0)  # kept for legacy callers
+toTid    = lambda d: f"{d.get('dt','')}_{('C' if d.get('aType','Debit')=='Credit' else 'D')}{float(d.get('amt') or 0):.2f}"
 toIDDict = lambda l: {toTid(d): i for i, d in enumerate(l)}
 
 
@@ -211,14 +213,14 @@ class ledgerGeneral(ledgerObject):
         existing references are unchanged; only duplicates get a suffix.
         '''
         result  = []
-        seen: dict = {}   # base_tID → count of times already used
+        seen: dict = {}   # base_tID → occurrence count (1-based)
 
         def _unique_tid(base: str) -> str:
             if base not in seen:
-                seen[base] = 0
+                seen[base] = 1
                 return base
             seen[base] += 1
-            return f"{base}_{seen[base]:03d}"
+            return f"{base}_{seen[base]}"   # _2, _3, …
 
         for r in records:
             _lv = r.get('Ledger')

@@ -508,12 +508,7 @@ class llcMgmt:
 
     @staticmethod
     def _row_index_arg(n_rows: int) -> Optional[int]:
-        '''Parse the `idx` form/query arg into a valid 0-based row index, else None.
-
-        This is the unique row selector for edit/delete — tID (date_amount)
-        collides on same-day/same-amount records, so the editor passes the
-        positional index of the row in the full, unfiltered dataset.
-        '''
+        '''Parse the `idx` form/query arg into a valid 0-based row index, else None.'''
         raw = request.values.get("idx")
         if raw is None or str(raw).strip() == "":
             return None
@@ -522,6 +517,23 @@ class llcMgmt:
         except (TypeError, ValueError):
             return None
         return i if 0 <= i < n_rows else None
+
+    @staticmethod
+    def _gen_unique_tid(payload: Dict[str, Any], existing_rows: List[Dict[str, Any]]) -> str:
+        '''Generate a unique tID in format <dt>_<D|C><amt:.2f>[_N] for a new record.
+        N (≥2) is appended when the base tID already exists.'''
+        dt    = str(payload.get('dt', '') or '').strip()
+        amt   = float(payload.get('amt', 0) or 0)
+        atype = str(payload.get('aType', 'Debit') or 'Debit').strip()
+        dc    = 'C' if atype == 'Credit' else 'D'
+        base  = f"{dt}_{dc}{amt:.2f}"
+        existing = {str(r.get('tID', '') or '') for r in existing_rows}
+        if base not in existing:
+            return base
+        n = 2
+        while f"{base}_{n}" in existing:
+            n += 1
+        return f"{base}_{n}"
 
     def _merge_save(self, manager, payload_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         '''
@@ -1121,6 +1133,8 @@ class llcMgmt:
             if cmd == "add":
                 payload = self._parse_payload(request.values.get("payload", "{}"), {})
                 rows = manager.load()
+                # System assigns a unique tID — user-supplied tID is ignored.
+                payload['tID'] = self._gen_unique_tid(payload, rows)
                 rows.append(payload)
                 saved  = s(manager.save(rows))
                 new_id = self._row_id(saved[-1], len(saved) - 1) if saved else ""
@@ -1130,17 +1144,19 @@ class llcMgmt:
                 record_id = request.values.get("id")
                 payload   = self._parse_payload(request.values.get("payload", "{}"), {})
                 rows = manager.load()
-                # Positional index is the UNIQUE selector — tID (date_amount)
-                # collides on same-day/same-amount records, so prefer idx and
-                # fall back to tID only when no valid index is supplied.
                 idx = self._row_index_arg(len(rows))
                 updated = False
                 if idx is not None:
+                    # tID is immutable — preserve the original tID from the stored record.
+                    orig_tid = rows[idx].get('tID')
+                    payload['tID'] = orig_tid
                     rows[idx] = payload
                     updated = True
                 else:
                     for i, row in enumerate(rows):
                         if self._row_id(row, i) == str(record_id):
+                            orig_tid = row.get('tID')
+                            payload['tID'] = orig_tid
                             rows[i] = payload
                             updated = True
                             break

@@ -6,7 +6,7 @@ diffs against llcExpRev working JSON, and returns new transactions.
 CSV format (no header): Date, Amount, -, CheckNo, Description
   e.g.: 01/15/2025,-150.00,*,101,MORTGAGE PAYMENT
 
-Dedup key: "<dt>_<signed_amt:0.2f>" matching ledgerGeneral.toTid logic.
+Dedup key: "<dt>_<D|C><amt:0.2f>" matching ledgerGeneral.toTid logic.
 
 Timestamp of last change: 2026.04.13
 '''
@@ -45,12 +45,9 @@ def _infer_acct(desc: str) -> str:
     return "Acct.Exp.Other"
 
 
-def _signed(amt: float, a_type: str) -> float:
-    return -amt if a_type.lower() in ('credit', 'cr', 'c') else amt
-
-
 def _to_tid(dt: str, amt: float, a_type: str) -> str:
-    return f"{dt}_{_signed(amt, a_type):0.2f}"
+    dc = 'C' if a_type.lower() in ('credit', 'cr', 'c') else 'D'
+    return f"{dt}_{dc}{abs(amt):.2f}"
 
 
 def _parse_wf_csv(data: str) -> List[Dict[str, Any]]:
