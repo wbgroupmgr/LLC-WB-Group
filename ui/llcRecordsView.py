@@ -99,6 +99,13 @@ class llcRecordsView:
 
         # Mirror to working (temp) file so the editor view stays consistent.
         self.wk.save(payload)
+
+        # Invalidate the session-level GL snapshot so the next GL/IS/agent
+        # access rebuilds from the freshly written file.
+        es = getattr(self, 'eSession', None)
+        books = getattr(es, 'books', None)
+        if books is not None:
+            books.invalidate()
         return
 
     def save(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -57,6 +57,33 @@ class wkIncomeStmt(utilWorkingDB):
         return []
 
 
+class BooksContext:
+    """One canonical GL snapshot for the entire edit session.
+
+    Built lazily on first access; invalidated by savePayload() whenever any
+    DB file is written to disk.  All IRS agents and report-engine instances
+    that receive the same eSession share this snapshot, eliminating the
+    three-isolated-pipeline problem.
+
+    Stored on both eSession.books AND llc.books so IRS agents (which receive
+    only llc) can reach it without needing eSession passed in.
+    """
+
+    def __init__(self, llc):
+        self._llc    = llc
+        self._gl_rows = None  # None = invalidated; list = live snapshot
+
+    def invalidate(self):
+        self._gl_rows = None
+
+    @property
+    def gl_rows(self):
+        if self._gl_rows is None:
+            from ledger.stmtGL import stmtGL
+            self._gl_rows = list(stmtGL(self._llc)._rows or [])
+        return self._gl_rows
+
+
 class utilEditSession():
 
     def __init__(self, **kwargs):
@@ -78,6 +105,11 @@ class utilEditSession():
 
         self.llc = LLC(llcName, debug=False, year=self.year)
         _ = self.llc._Bank()
+
+        # Single shared GL snapshot — attach to both eSession and llc so
+        # agents (which only receive llc) can reach it without eSession.
+        self.books     = BooksContext(self.llc)
+        self.llc.books = self.books
 
         self.wkDict = self.llcBind()
         self.oDict  = {wk.o.oID: wk for wkID, wk in self.wkDict.items()}

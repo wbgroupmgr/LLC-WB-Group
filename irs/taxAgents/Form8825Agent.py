@@ -70,7 +70,17 @@ class _GLContext:
 
     @classmethod
     def build(cls, llc) -> '_GLContext':
-        """Build a fresh GL snapshot from the current on-disk ledger (one file-read pass)."""
+        """Build (or reuse) a GL snapshot.
+
+        When llc.books (BooksContext) is available and already populated, the
+        gl_rows from that shared session snapshot are reused — no extra file
+        read.  On the first call in a session llc.books.gl_rows triggers a
+        single stmtGL build and caches the result; subsequent calls within the
+        same session (same eSession, no savePayload in between) are free.
+
+        The session snapshot is invalidated by llcRecordsView.savePayload()
+        whenever any DB file is written, guaranteeing freshness.
+        """
         try:
             from ledger.stmtGL import stmtGL
             from ledger.stmtIS import stmtIS, stmtIS_Tax
@@ -78,9 +88,13 @@ class _GLContext:
         except ImportError:
             return cls([], {}, {}, set(), [])
 
-        # 1. Merge GL from all source DBs — one pass, reads real on-disk files
+        # 1. Merge GL — reuse BooksContext snapshot when available
         try:
-            gl_rows = list(stmtGL(llc)._rows or [])
+            books = getattr(llc, 'books', None)
+            if books is not None:
+                gl_rows = books.gl_rows   # uses cached snapshot or builds+caches
+            else:
+                gl_rows = list(stmtGL(llc)._rows or [])
         except Exception:
             gl_rows = []
 
