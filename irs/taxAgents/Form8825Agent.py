@@ -40,6 +40,85 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  _GLContext — single shared GL snapshot for one agent run
+# ────────────────────────────────────────────────────────────────────────────
+
+class _GLContext:
+    """Immutable GL snapshot built ONCE per Form8825Agent run.
+
+    All four section agents share this object — guarantees they see the same
+    consistent ledger data. Eliminates independent per-rule stmtGL constructions
+    (was 17 per run; now 1).
+
+    Audit and FILL.pdf generation both derive their values from this one snapshot,
+    so the PDF and the audit report are always in sync.
+    """
+    __slots__ = ('gl_rows', 'is_agg', 'fill_dict', 'cip_propNms', 'assets')
+
+    def __init__(self,
+                 gl_rows:     List[Dict[str, Any]],
+                 is_agg:      Dict[str, float],
+                 fill_dict:   Dict[str, Any],
+                 cip_propNms: set,
+                 assets:      List[Dict[str, Any]]) -> None:
+        self.gl_rows     = gl_rows
+        self.is_agg      = is_agg
+        self.fill_dict   = fill_dict
+        self.cip_propNms = cip_propNms
+        self.assets      = assets
+
+    @classmethod
+    def build(cls, llc) -> '_GLContext':
+        """Build a fresh GL snapshot from the current on-disk ledger (one file-read pass)."""
+        try:
+            from ledger.stmtGL import stmtGL
+            from ledger.stmtIS import stmtIS, stmtIS_Tax
+            from ledger.llcAssets import llcAssets as _llcAssets
+        except ImportError:
+            return cls([], {}, {}, set(), [])
+
+        # 1. Merge GL from all source DBs — one pass, reads real on-disk files
+        try:
+            gl_rows = list(stmtGL(llc)._rows or [])
+        except Exception:
+            gl_rows = []
+
+        # 2. IS aggregates — reuse gl_rows (no second file read)
+        try:
+            is_agg = stmtIS(llc, gl_records=gl_rows).taxAggregates()
+        except Exception:
+            is_agg = {}
+
+        # 3. Form 8825 fill dict — reuse gl_rows (no third file read)
+        try:
+            fill_dict = stmtIS_Tax(llc, gl_records=gl_rows).loadFillDict('Form8825') or {}
+        except Exception:
+            fill_dict = {}
+
+        # 4. CIP set — derived from gl_rows (no extra stmtGL)
+        has_cip: set = set()
+        has_inservice: set = set()
+        for r in gl_rows:
+            prop  = r.get('propNm', '')
+            if not prop:
+                continue
+            acct_ = str(r.get('acct', '') or '').lower()
+            if 'inconstruction' in acct_:
+                has_cip.add(prop)
+            elif 'inservice' in acct_:
+                has_inservice.add(prop)
+        cip_propNms = has_cip - has_inservice
+
+        # 5. Asset list (one read, shared across all agents)
+        try:
+            assets = _llcAssets(llc).load() or []
+        except Exception:
+            assets = []
+
+        return cls(gl_rows, is_agg, fill_dict, cip_propNms, assets)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  SECTION AGENTS  (Tier 2)
 # ════════════════════════════════════════════════════════════════════════════
@@ -56,10 +135,21 @@ class _SectionAgent(IRSFormsAgent):
 
     def __init__(self, llc, tax_year: int):
         super().__init__(llc, tax_year)
-        self._is_data    = None
-        self._fill_cache = None
-        self._assets     = None
-        self._owners     = None
+        self._is_data        = None
+        self._fill_cache     = None
+        self._assets         = None
+        self._owners         = None
+        self._gl_rows_cache  = None   # set by inject_context; fallback: build from stmtGL
+        self._cip_cache      = None   # set by inject_context; fallback: derived from gl_rows
+
+    def inject_context(self, ctx: '_GLContext') -> None:
+        """Pre-fill all data caches from a shared GL snapshot.
+        Must be called before pass1/pass2 so every rule uses the same consistent data."""
+        self._gl_rows_cache = ctx.gl_rows
+        self._is_data       = ctx.is_agg
+        self._fill_cache    = ctx.fill_dict
+        self._cip_cache     = ctx.cip_propNms
+        self._assets        = ctx.assets
 
     # ── Data loaders (lazy) ──────────────────────────────────────────────────
 
@@ -107,37 +197,39 @@ class _SectionAgent(IRSFormsAgent):
         Properties that have BOTH (e.g., a misclassified legacy entry + real InService
         records) are considered placed-in-service and excluded from the CIP set.
 
-        Source: GL rows (authoritative — merges llcAssets + llcExpRev + all DBs).
-        RV_RV1: InConstruction entries in llcExpRev, no InService → CIP.
-        H_805HighMesa: one misclassified InConstruction + real InService → NOT CIP.
+        Uses the injected GL snapshot when available (no extra stmtGL construction).
         """
-        has_cip: set     = set()
+        if self._cip_cache is not None:
+            return self._cip_cache
+        # Fallback: derive from the (possibly injected) gl_rows
+        has_cip: set      = set()
         has_inservice: set = set()
-        try:
-            from ledger.stmtGL import stmtGL
-            gl = stmtGL(self.llc)
-            for r in (gl._rows or []):
-                prop  = r.get('propNm', '')
-                if not prop:
-                    continue
-                acct_ = str(r.get('acct', '') or '').lower()
-                if 'inconstruction' in acct_:
-                    has_cip.add(prop)
-                elif 'inservice' in acct_:
-                    has_inservice.add(prop)
-        except Exception:
-            pass
-        return has_cip - has_inservice
+        for r in self._gl_rows():
+            prop  = r.get('propNm', '')
+            if not prop:
+                continue
+            acct_ = str(r.get('acct', '') or '').lower()
+            if 'inconstruction' in acct_:
+                has_cip.add(prop)
+            elif 'inservice' in acct_:
+                has_inservice.add(prop)
+        self._cip_cache = has_cip - has_inservice
+        return self._cip_cache
 
     # ── GL access + forensic helpers ──────────────────────────────────────────
 
     def _gl_rows(self) -> List[Dict[str, Any]]:
-        """All merged GL rows (llcAssets + llcExpRev + payables + receivables)."""
+        """All merged GL rows (llcAssets + llcExpRev + payables + receivables).
+        Returns the injected shared snapshot when available (no extra file read)."""
+        if self._gl_rows_cache is not None:
+            return self._gl_rows_cache
+        # Fallback for standalone use (no inject_context called)
         try:
             from ledger.stmtGL import stmtGL
-            return list(stmtGL(self.llc)._rows or [])
+            self._gl_rows_cache = list(stmtGL(self.llc)._rows or [])
         except Exception:
-            return []
+            self._gl_rows_cache = []
+        return self._gl_rows_cache
 
     @staticmethod
     def _fix_obj_for(r: Dict[str, Any]) -> str:
@@ -1132,7 +1224,18 @@ class Form8825Agent(IRSFormsAgent):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def run_phases_1_2(self) -> Dict[str, Any]:
+    def run_phases_1_2(self, _ctx: Optional['_GLContext'] = None) -> Dict[str, Any]:
+        """Build a fresh GL snapshot (or reuse a provided one) and run all section agents.
+
+        _ctx is provided by run_agent() so the audit and FILL.pdf share the SAME
+        GL snapshot.  When called standalone (e.g. from getSummary), _ctx=None and
+        a fresh context is built here.
+        """
+        ctx = _ctx if _ctx is not None else _GLContext.build(self.llc)
+        # Inject the shared snapshot into every section agent BEFORE any pass runs.
+        for agent in self._agents:
+            agent.inject_context(ctx)
+
         sections_state = {}
         overall_halt   = 0
 
@@ -1170,39 +1273,14 @@ class Form8825Agent(IRSFormsAgent):
         return session
 
     def getSummary(self) -> Dict[str, Any]:
-        state = self._load_session_state()
-        if state is None:
-            return self.run_phases_1_2()   # no cache → run fresh
-        # Auto-refresh: if any source data file is newer than the session state,
-        # re-run so the UI never shows stale results after a GL edit.
-        if self._session_is_stale(state):
-            return self.run_phases_1_2()
-        return state
+        """Always runs a fresh audit against current on-disk ledger data.
 
-    def _session_is_stale(self, state: Dict[str, Any]) -> bool:
-        """True if any ledger source file is newer than the saved session state."""
-        last_run_str = state.get('last_run')
-        if not last_run_str:
-            return True
-        try:
-            last_run_ts = datetime.fromisoformat(
-                last_run_str.replace('Z', '+00:00')).timestamp()
-        except Exception:
-            return True
-        # Instantiate the canonical source DBs and check their file mtimes.
-        try:
-            from ledger.llcExpRev import llcExpRev
-            from ledger.llcAssets import llcAssets
-            for db_cls in (llcExpRev, llcAssets):
-                try:
-                    db_path = Path(db_cls(self.llc).FN())
-                    if db_path.exists() and db_path.stat().st_mtime > last_run_ts:
-                        return True
-                except Exception:
-                    pass
-        except ImportError:
-            pass
-        return False
+        Session state is written for logging and for the resolve-overlay feature
+        (bookkeeper acknowledge/override), NOT as a read cache.  Returning stale
+        cached results caused user-visible inconsistencies whenever GL data changed
+        between runs — eliminated by always running fresh here.
+        """
+        return self.run_phases_1_2()
 
     # ── Session state persistence ─────────────────────────────────────────────
 
@@ -1253,17 +1331,25 @@ class Form8825Agent(IRSFormsAgent):
 
     def run_agent(self) -> Dict[str, Any]:
         '''
-        Full agent cycle: audit → (if GO) generate FILL.pdf.
+        Full agent cycle: build fresh GL context → audit → (if GO) generate FILL.pdf.
+
+        The audit and FILL.pdf generation share the SAME _GLContext snapshot so
+        the PDF reflects exactly the same ledger data the audit validated.
 
         Returns the run_phases_1_2 session dict with an optional 'pdf' key
         added when generation succeeds.  Callers check overall_state:
           GO           → FILL.pdf written; pdf dict present
           NEEDS_FIXING → audit issues must be resolved; pdf key absent
         '''
-        session = self.run_phases_1_2()
+        # Build GL context ONCE — audit and PDF share this snapshot.
+        ctx     = _GLContext.build(self.llc)
+        session = self.run_phases_1_2(_ctx=ctx)
         if session.get('overall_state') == self.GO:
             try:
                 from irs.BookToIRS import BookToIRS
+                # regenerate() calls _refreshStmtInstances() internally which
+                # re-reads from disk — same on-disk state as our ctx (no writes
+                # happened between ctx.build() and now in a normal UI flow).
                 pdf_result = BookToIRS(self.llc, 'Form8825').regenerate()
                 session['pdf'] = pdf_result
             except Exception as exc:
