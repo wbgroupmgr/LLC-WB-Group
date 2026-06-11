@@ -811,9 +811,10 @@ class Form1065(irsForm):
                     "count":              str(len(owners_list)),
                     "cash_contributions": cash_contrib,
                     "distributions_cash": distrib,
+                    "detail":             owners_list,   # raw owner dicts for Sch_K1 per-partner fill
                 }
             except Exception:
-                owners_agg = {"count": "0", "cash_contributions": 0.0, "distributions_cash": 0.0}
+                owners_agg = {"count": "0", "cash_contributions": 0.0, "distributions_cash": 0.0, "detail": []}
 
             if self.verbose:
                 print(f"  ✅ IS/BS loaded from stmtIS/stmtBS  "

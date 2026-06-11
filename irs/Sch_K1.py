@@ -292,7 +292,7 @@ class Sch_K1(Form1065):
         partner_src: Dict = {
             "name":     name,
             "address":  address,
-            "ein":      partner_raw.get("ein", ""),
+            "ein":      partner_raw.get("ein", "") or partner_raw.get("SSN", ""),
             "mem_type": mem_type,
             "status":   status,
             "pct_str":  pct_str,

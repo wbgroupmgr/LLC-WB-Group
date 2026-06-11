@@ -164,7 +164,7 @@ class llcOwners(ledgerObject):
                 pct_str = f"{pct_num * 100:.2f}"
                 partner_bindings = [
                     ('K1_PtName',   'nm',          nm_first),
-                    ('K1_PtEIN',    'ein',         o.get('ein', '') or ''),
+                    ('K1_PtEIN',    'ein',         o.get('ein', '') or o.get('SSN', '') or ''),
                     ('K1_PtAddr',   'addr',        o.get('addr', '') or ''),
                     ('K1_PtType',   'memType',     o.get('memType', '') or ''),
                     ('K1_PtStatus', 'status',      o.get('status', '') or ''),
