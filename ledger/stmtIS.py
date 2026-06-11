@@ -382,24 +382,30 @@ class stmtIS(stmtDB):
             return dict(cache)
 
         agg: Dict[str, float] = {}
-        # ── 1. v0.2 fast path ──
-        for mod_name, cls_name in (
-            ('ledger.stmtFinancialReport', 'stmtFinancialReport'),
-            ('ledger.rptFinancialReport',  'rptFinancialReport'),
-            ('stmtFinancialReport',        'stmtFinancialReport'),
-            ('rptFinancialReport',         'rptFinancialReport'),
-        ):
-            try:
-                mod = __import__(mod_name, fromlist=[cls_name])
-                cls = getattr(mod, cls_name)
-                td = _json.loads(cls(self.llc).taxData())
-                agg = dict(td.get('is_data', {}) or {})
-                if agg:
-                    break
-            except Exception:
-                continue
+        # ── 1. v0.2 fast path — ONLY when no explicit gl_records were supplied.
+        # rptFinancialReport.taxData() sums only the Debit column for expense
+        # accounts, which double-counts when the same account has both Debit
+        # and Credit entries (e.g. an expense + its return/refund).  When the
+        # caller explicitly passed gl_records we know the Balance-based local
+        # computation is correct, so we skip the legacy path entirely.
+        if self._init_gl_records is None:
+            for mod_name, cls_name in (
+                ('ledger.stmtFinancialReport', 'stmtFinancialReport'),
+                ('ledger.rptFinancialReport',  'rptFinancialReport'),
+                ('stmtFinancialReport',        'stmtFinancialReport'),
+                ('rptFinancialReport',         'rptFinancialReport'),
+            ):
+                try:
+                    mod = __import__(mod_name, fromlist=[cls_name])
+                    cls = getattr(mod, cls_name)
+                    td = _json.loads(cls(self.llc).taxData())
+                    agg = dict(td.get('is_data', {}) or {})
+                    if agg:
+                        break
+                except Exception:
+                    continue
 
-        # ── 2. Local fallback ──
+        # ── 2. Local computation (Balance = Debit − Credit; correct for all cases) ──
         if not agg:
             agg = self._taxAggregates_local()
 
