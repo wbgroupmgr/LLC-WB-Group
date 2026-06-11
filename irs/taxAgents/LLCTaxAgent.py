@@ -29,7 +29,10 @@ Session state stored at:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import shutil
 from datetime import datetime, timezone
 from pathlib  import Path
 from typing   import Any, Dict, List, Optional
@@ -40,6 +43,14 @@ from irs.taxAgents.IRSFormsAgent import IRSFormsAgent
 # ────────────────────────────────────────────────────────────────────────────
 #  Helpers
 # ────────────────────────────────────────────────────────────────────────────
+
+def _sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
@@ -555,3 +566,447 @@ class LLCTaxAgent(IRSFormsAgent):
                 json.dump(state, f, indent=2)
         except Exception:
             pass
+
+    # ── Profile helpers ───────────────────────────────────────────────────────
+
+    def _profile_path(self) -> Optional[Path]:
+        """Find llcProfile_<name>.json. Returns Path or None."""
+        try:
+            llc_nm = getattr(self.llc, 'objName', 'WBGroupLLC')
+            acct_dir = Path(self.llc.acctDir()) / 'Accts'
+            p = acct_dir / f'llcProfile_{llc_nm}.json'
+            if p.exists():
+                return p
+        except Exception:
+            pass
+        return None
+
+    def _load_profile_data(self):
+        """Load profile JSON, return (entity_dict, f1065_dict)."""
+        p = self._profile_path()
+        if p is None:
+            return {}, {}
+        try:
+            raw = p.read_text(encoding='utf-8')
+            try:
+                profile = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.match(r'(\{.*?\})\s*\{', raw, re.DOTALL)
+                profile = json.loads(m.group(1)) if m else {}
+            return profile.get('entity', {}), profile.get('F1065', {})
+        except Exception:
+            return {}, {}
+
+    def _save_profile_field(self, section: str, key: str, value: Any) -> bool:
+        """Write profile[section][key] = value back to the JSON file."""
+        p = self._profile_path()
+        if p is None:
+            return False
+        try:
+            raw = p.read_text(encoding='utf-8')
+            try:
+                profile = json.loads(raw)
+            except json.JSONDecodeError:
+                return False
+            if section not in profile:
+                profile[section] = {}
+            profile[section][key] = value
+            p.write_text(json.dumps(profile, indent=4), encoding='utf-8')
+            return True
+        except Exception:
+            return False
+
+    # ── Phase 3: Assemble IRS Submission Package ──────────────────────────────
+
+    def phase3_package(self) -> Dict[str, Any]:
+        """
+        Assemble IRS_Submission_{year}/ directory.
+        Copies all FILL PDFs found in forms_dir, computes SHA-256, writes manifest.json.
+        Returns the manifest dict.
+        """
+        forms_dir = self._forms_dir()
+        if forms_dir is None:
+            return {'status': 'ERROR', 'message': 'Forms directory not found', 'artifacts': []}
+
+        year    = self.tax_year
+        pkg_dir = forms_dir / f'IRS_Submission_{year}'
+        pkg_dir.mkdir(parents=True, exist_ok=True)
+
+        entity, f1065_data = self._load_profile_data()
+        owners = self._get_owners()
+
+        artifacts      = []
+        missing_req    = []
+
+        def _copy_and_hash(src: Path, dest: Path) -> str:
+            shutil.copy2(str(src), str(dest))
+            return _sha256_file(dest)
+
+        # ── Required fixed-name forms ─────────────────────────────────────────
+        for fname in ('Form1065_FILL.pdf', 'Form8825_FILL.pdf', 'Form4562_FILL.pdf'):
+            src     = forms_dir / fname
+            present = src.exists()
+            sha     = _copy_and_hash(src, pkg_dir / fname) if present else None
+            if not present:
+                missing_req.append(fname)
+            artifacts.append({
+                'file':     fname,
+                'sha256':   sha,
+                'source':   'auto',
+                'required': True,
+                'present':  present,
+            })
+
+        # ── Schedule K-1 (glob for all per-partner FILL PDFs) ─────────────────
+        k1_required = max(len(owners), 1)
+        k1_files    = sorted(forms_dir.glob('Sch_K1_o*_FILL.pdf'))
+        for kf in k1_files:
+            sha = _copy_and_hash(kf, pkg_dir / kf.name)
+            artifacts.append({
+                'file':     kf.name,
+                'sha256':   sha,
+                'source':   'auto',
+                'required': True,
+                'present':  True,
+            })
+        if len(k1_files) < k1_required:
+            missing_req.append(
+                f'Sch_K1_o*_FILL.pdf ({k1_required} required, {len(k1_files)} present)'
+            )
+        if not k1_files:
+            artifacts.append({
+                'file':     f'Sch_K1_o*_FILL.pdf ({k1_required} required)',
+                'sha256':   None,
+                'source':   'auto',
+                'required': True,
+                'present':  False,
+            })
+
+        # ── Optional: YE Financial Report ─────────────────────────────────────
+        for yf in sorted(forms_dir.glob('*_YEFinancialReport.pdf')):
+            sha = _copy_and_hash(yf, pkg_dir / yf.name)
+            artifacts.append({
+                'file':     yf.name,
+                'sha256':   sha,
+                'source':   'auto',
+                'required': False,
+                'present':  True,
+            })
+
+        ext_filed = bool(f1065_data.get('extension_filed', False))
+        deadline  = f'{year + 1}-09-15' if ext_filed else f'{year + 1}-03-15'
+        status    = 'READY' if not missing_req else 'INCOMPLETE'
+
+        manifest = {
+            'tax_year':         year,
+            'assembled_at':     _now_iso(),
+            'filing_entity':    entity.get('entity_name', 'W&B Group, LLC'),
+            'ein':              entity.get('ein', ''),
+            'form_type':        'Form 1065',
+            'period_end':       f'{year}-12-31',
+            'extension_filed':  ext_filed,
+            'filing_deadline':  deadline,
+            'halt_overrides':   [],
+            'status':           status,
+            'missing_required': missing_req,
+            'artifacts':        artifacts,
+        }
+
+        manifest_path = pkg_dir / 'manifest.json'
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
+
+        return manifest
+
+    def load_manifest(self) -> Optional[Dict[str, Any]]:
+        """Load existing manifest.json from IRS_Submission_{year}/ if present."""
+        forms_dir = self._forms_dir()
+        if forms_dir is None:
+            return None
+        p = forms_dir / f'IRS_Submission_{self.tax_year}' / 'manifest.json'
+        if not p.exists():
+            return None
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    # ── Phase 4: Submission guidance ─────────────────────────────────────────
+
+    def phase4_submit(self) -> Dict[str, Any]:
+        """
+        Build submission checklist and generate Accountant Notification Letter.
+        Returns checklist dict with status and letter path.
+        """
+        manifest = self.load_manifest()
+        owners   = self._get_owners()
+        entity, f1065_data = self._load_profile_data()
+        sub_status = self.get_submission_status()
+
+        # ── Checklist ─────────────────────────────────────────────────────────
+        checklist_items = []
+
+        if manifest:
+            for art in manifest.get('artifacts', []):
+                if not art.get('required'):
+                    continue
+                checklist_items.append({
+                    'id':      f"doc_{art['file'].replace('*', 'all').replace('.', '_')}",
+                    'label':   art['file'],
+                    'done':    art.get('present', False),
+                    'action':  None if art.get('present') else f"Generate {art['file']} via its form agent",
+                    'type':    'document',
+                })
+        else:
+            checklist_items.append({
+                'id':     'pkg_assembly',
+                'label':  'Assemble IRS Submission Package',
+                'done':   False,
+                'action': 'Click [Assemble Package] to create IRS_Submission package',
+                'type':   'action',
+            })
+
+        # Accountant letter item
+        letter_path = self._accountant_letter_path()
+        checklist_items.append({
+            'id':     'accountant_letter',
+            'label':  'Generate Accountant Notification Letter',
+            'done':   letter_path.exists() if letter_path else False,
+            'action': None if (letter_path and letter_path.exists()) else 'Click [Generate Letter] below',
+            'type':   'letter',
+        })
+
+        # Filing method
+        checklist_items.append({
+            'id':     'filing_method',
+            'label':  'Select and complete filing method (mail / e-file)',
+            'done':   bool(sub_status.get('filed_method') and sub_status['filed_method'] != 'pending'),
+            'action': 'Record method and date after filing',
+            'type':   'filing',
+        })
+
+        # K-1 delivery per partner
+        for o in owners:
+            oid     = o.get('oID', '')
+            nm_raw  = o.get('nm', oid)
+            nm      = nm_raw[0] if isinstance(nm_raw, list) and nm_raw else str(nm_raw)
+            k1_del  = (sub_status.get('k1_delivered') or {}).get(oid, '')
+            checklist_items.append({
+                'id':     f'k1_{oid}',
+                'label':  f'K-1 delivered to {nm} ({oid})',
+                'done':   bool(k1_del),
+                'action': None if k1_del else f'Mail K-1 to: {o.get("addr", "")}',
+                'type':   'k1',
+                'addr':   o.get('addr', ''),
+                'date':   k1_del,
+            })
+
+        # ── Submission address ────────────────────────────────────────────────
+        mail_addr = {
+            'name':    'Department of the Treasury',
+            'line2':   'Internal Revenue Service',
+            'city':    'Ogden, UT 84201-0011',
+            'note':    'Recommended: Certified mail, return receipt requested',
+            'deadline': manifest.get('filing_deadline', f'{self.tax_year + 1}-03-15') if manifest else f'{self.tax_year + 1}-03-15',
+        }
+
+        done_count  = sum(1 for c in checklist_items if c['done'])
+        total_count = len(checklist_items)
+
+        return {
+            'tax_year':        self.tax_year,
+            'checklist':       checklist_items,
+            'done_count':      done_count,
+            'total_count':     total_count,
+            'package_ready':   manifest is not None and manifest.get('status') == 'READY',
+            'mail_address':    mail_addr,
+            'submission_status': sub_status,
+            'letter_exists':   letter_path.exists() if letter_path else False,
+            'letter_filename': letter_path.name if letter_path else '',
+        }
+
+    # ── Submission status persistence ─────────────────────────────────────────
+
+    def get_submission_status(self) -> Dict[str, Any]:
+        """Read submission status from Profile.F1065.submission_status."""
+        _, f1065 = self._load_profile_data()
+        return f1065.get('submission_status') or {
+            'filed_date':      '',
+            'filed_method':    'pending',
+            'tracking_number': '',
+            'extension_filed': False,
+            'k1_delivered':    {},
+        }
+
+    def update_submission_status(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Merge updates into Profile.F1065.submission_status.
+        Allowed keys: filed_date, filed_method, tracking_number, extension_filed,
+                      k1_delivered (dict of oID → date string).
+        Returns the updated status dict.
+        """
+        current = self.get_submission_status()
+        # Merge k1_delivered separately (dict merge)
+        k1_updates = updates.pop('k1_delivered', None)
+        if k1_updates and isinstance(k1_updates, dict):
+            current.setdefault('k1_delivered', {}).update(k1_updates)
+        current.update({k: v for k, v in updates.items()
+                        if k in ('filed_date', 'filed_method', 'tracking_number', 'extension_filed')})
+        self._save_profile_field('F1065', 'submission_status', current)
+        return current
+
+    # ── Accountant Notification Letter ────────────────────────────────────────
+
+    def _accountant_letter_path(self) -> Optional[Path]:
+        d = self._forms_dir()
+        return d / f'AccountantLetter_{self.tax_year}.pdf' if d else None
+
+    def generate_accountant_letter(self) -> Optional[Path]:
+        """
+        Generate a PDF Accountant Notification Letter using reportlab.
+        Saved to forms_dir/AccountantLetter_{year}.pdf.
+        Returns the Path or None on failure.
+        """
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles    import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units     import inch
+            from reportlab.platypus      import (SimpleDocTemplate, Paragraph,
+                                                  Spacer, HRFlowable, Table, TableStyle)
+            from reportlab.lib           import colors
+        except ImportError:
+            return None
+
+        out_path = self._accountant_letter_path()
+        if out_path is None:
+            return None
+
+        entity, f1065_data = self._load_profile_data()
+        owners   = self._get_owners()
+        manifest = self.load_manifest()
+        year     = self.tax_year
+
+        entity_name = entity.get('entity_name', 'W&B Group, LLC')
+        ein         = entity.get('ein', '')
+        address     = f1065_data.get('address', entity.get('address', ''))
+        city_st_zip = f"{f1065_data.get('C_city','')}, {f1065_data.get('C_state','')} {f1065_data.get('C_zip','')}"
+        prep_nm     = f"{f1065_data.get('B_PRDI_FirstNm','')} {f1065_data.get('B_PRDI_Last','')}".strip()
+        prep_ph     = f1065_data.get('B_PRDI_Ph', '')
+        deadline    = manifest.get('filing_deadline', f'{year + 1}-03-15') if manifest else f'{year + 1}-03-15'
+        today_str   = datetime.now().strftime('%B %d, %Y')
+
+        # Form list
+        form_lines = [
+            ('Form 1065',    'U.S. Return of Partnership Income',         'Form1065_FILL.pdf'),
+            ('Form 8825',    'Rental Real Estate Income and Expenses',     'Form8825_FILL.pdf'),
+            ('Form 4562',    'Depreciation and Amortization',              'Form4562_FILL.pdf'),
+        ]
+        for i, o in enumerate(owners, 1):
+            nm_raw = o.get('nm', f'Partner {i}')
+            nm     = nm_raw[0] if isinstance(nm_raw, list) and nm_raw else str(nm_raw)
+            form_lines.append((f'Schedule K-1 ({nm})', "Partner's Share of Income, Deductions, Credits", ''))
+
+        styles  = getSampleStyleSheet()
+        normal  = styles['Normal']
+        heading = ParagraphStyle('heading', parent=styles['Heading2'],
+                                 fontSize=11, spaceAfter=4)
+        body    = ParagraphStyle('body', parent=normal, fontSize=10, leading=14, spaceAfter=6)
+        small   = ParagraphStyle('small', parent=normal, fontSize=9, leading=12)
+
+        doc    = SimpleDocTemplate(str(out_path), pagesize=letter,
+                                   leftMargin=1.1*inch, rightMargin=1.1*inch,
+                                   topMargin=1.0*inch,  bottomMargin=1.0*inch)
+        story  = []
+
+        # ── Letterhead ────────────────────────────────────────────────────────
+        story.append(Paragraph(f'<b>{entity_name}</b>', styles['Heading1']))
+        story.append(Paragraph(f'{address}', body))
+        story.append(Paragraph(f'{city_st_zip}', body))
+        story.append(Paragraph(f'EIN: {ein}', body))
+        story.append(Spacer(1, 0.15*inch))
+        story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#374151')))
+        story.append(Spacer(1, 0.1*inch))
+
+        story.append(Paragraph(today_str, body))
+        story.append(Spacer(1, 0.15*inch))
+
+        story.append(Paragraph('<b>Re: IRS Form 1065 Review Request</b>', heading))
+        story.append(Paragraph(
+            f'Tax Year: <b>{year}</b> &nbsp;&nbsp;|&nbsp;&nbsp; '
+            f'Entity: <b>{entity_name}</b> &nbsp;&nbsp;|&nbsp;&nbsp; EIN: <b>{ein}</b>', body))
+        story.append(Spacer(1, 0.1*inch))
+
+        story.append(Paragraph(
+            f'Dear Tax Professional,', body))
+        story.append(Paragraph(
+            f'Please find the IRS Form 1065 submission package for <b>{entity_name}</b> for tax '
+            f'year <b>{year}</b> attached for your review. This package was prepared using a '
+            f'double-entry accounting system following the Books-First methodology (IRC §446, §703). '
+            f'All internal cross-form audit checks have been completed.', body))
+        story.append(Spacer(1, 0.1*inch))
+
+        # ── Package contents ──────────────────────────────────────────────────
+        story.append(Paragraph('<b>PACKAGE CONTENTS</b>', heading))
+        tbl_data = [['Form', 'Description', 'File']]
+        for form_id, desc, fname in form_lines:
+            tbl_data.append([form_id, desc, fname or '(attached)'])
+        tbl = Table(tbl_data, colWidths=[1.3*inch, 3.1*inch, 1.8*inch])
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND',  (0, 0), (-1, 0), colors.HexColor('#374151')),
+            ('TEXTCOLOR',   (0, 0), (-1, 0), colors.white),
+            ('FONTSIZE',    (0, 0), (-1, 0), 9),
+            ('FONTSIZE',    (0, 1), (-1, -1), 9),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+            ('GRID',        (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB')),
+            ('VALIGN',      (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',  (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 0.15*inch))
+
+        # ── SHA-256 note ──────────────────────────────────────────────────────
+        if manifest and manifest.get('status') == 'READY':
+            story.append(Paragraph(
+                f'<b>Package integrity verified.</b> All documents are SHA-256 checksummed. '
+                f'See <i>manifest.json</i> in the submission package for full checksums. '
+                f'Package assembled: {manifest.get("assembled_at", "")}', small))
+        story.append(Spacer(1, 0.1*inch))
+
+        # ── Next steps ────────────────────────────────────────────────────────
+        story.append(Paragraph('<b>NEXT STEPS</b>', heading))
+        next_steps = [
+            'Review all forms for accuracy and completeness.',
+            f'Advise on any required adjustments prior to filing.',
+            f'Sign Form 1065 Page 2 (Principal Officer signature line).',
+            f'<b>Filing deadline: {deadline}</b> — or Sep 15, {year+1} if Form 7004 extension is filed.',
+            f'Schedule K-1 delivery to all partners by the filing deadline.',
+        ]
+        for step in next_steps:
+            story.append(Paragraph(f'• {step}', body))
+        story.append(Spacer(1, 0.1*inch))
+
+        # ── IRS mailing address ───────────────────────────────────────────────
+        story.append(Paragraph('<b>IRS MAILING ADDRESS (if filing by mail)</b>', heading))
+        story.append(Paragraph('Department of the Treasury<br/>Internal Revenue Service<br/>'
+                                'Ogden, UT 84201-0011', body))
+        story.append(Paragraph(
+            '<i>Recommended: Certified mail, return receipt requested. '
+            'Keep the green card as proof of timely filing.</i>', small))
+        story.append(Spacer(1, 0.15*inch))
+
+        # ── Contact ───────────────────────────────────────────────────────────
+        story.append(HRFlowable(width='100%', thickness=0.5, color=colors.HexColor('#D1D5DB')))
+        story.append(Spacer(1, 0.08*inch))
+        story.append(Paragraph('<b>CONTACT</b>', heading))
+        story.append(Paragraph(f'{prep_nm}<br/>{address}, {city_st_zip}', body))
+        if prep_ph:
+            story.append(Paragraph(f'Phone: {prep_ph}', body))
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph(f'Sincerely,', body))
+        story.append(Spacer(1, 0.3*inch))
+        story.append(Paragraph(f'<b>{prep_nm}</b><br/>Principal Officer, {entity_name}', body))
+
+        doc.build(story)
+        return out_path

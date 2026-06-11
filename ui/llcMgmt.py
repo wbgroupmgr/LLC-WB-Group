@@ -103,6 +103,8 @@ class llcMgmt:
         "llcOwners":           "Members / Owners",
         "llcCustomers":        "Tenants / Customers",
         "llcMilestones":       "State / Fed Milestones",
+        # IRS Submission view
+        "taxSubmission":       "IRS Submission",
     }
 
     VIEW_TITLES = {
@@ -515,6 +517,17 @@ class llcMgmt:
         if value is None:
             return ""
         return str(value)
+
+    def _get_forms_dir(self):
+        """Return the IRS_FORMS_DIR Path or None."""
+        try:
+            from ledger.setup_paths import IRS_FORMS_DIR
+            if IRS_FORMS_DIR:
+                from pathlib import Path as _Path
+                return _Path(IRS_FORMS_DIR)
+        except Exception:
+            pass
+        return None
 
     def _stats_labels(self, stats: Dict[str, Any]) -> List[Dict[str, str]]:
         labels: List[Dict[str, str]] = []
@@ -2934,6 +2947,147 @@ class llcMgmt:
                 raise
             except Exception as err:
                 return jsonify({"ok": False, "error": str(err)}), 500
+
+        # ── LLCTaxAgent (Phase 3 + 4) routes ─────────────────────────────────
+
+        try:
+            from irs.taxAgents.LLCTaxAgent import LLCTaxAgent as _LLCTaxAgent
+            _tax_agent_import_err = None
+        except Exception as _te:
+            _LLCTaxAgent       = None
+            _tax_agent_import_err = str(_te)
+            app.logger.error("LLCTaxAgent import FAILED: %s", _te)
+
+        def _tax_agent():
+            return _LLCTaxAgent(self.eSession.llc)
+
+        @app.route("/view/tax_prep")
+        def view_tax_prep():
+            """IRS Submission Dashboard — Phase 3 + 4 status + checklist."""
+            if _LLCTaxAgent is None:
+                return render_template("construction.html",
+                                       obj_type="IRS Submission",
+                                       meta={"error": _tax_agent_import_err})
+            try:
+                agent     = _tax_agent()
+                session_s = agent.getSummary()
+                manifest  = agent.load_manifest()
+                phase4    = agent.phase4_submit()
+                owners    = agent._get_owners()
+                entity, f1065_data = agent._load_profile_data()
+                letter_path = agent._accountant_letter_path()
+                year = agent.tax_year
+                return render_template(
+                    "tax_prep.html",
+                    app_title=self.app.config.get("_llc_name", "LLC Editor"),
+                    view_title="IRS Submission Dashboard",
+                    tax_year=year,
+                    session_summary=session_s,
+                    manifest=manifest,
+                    phase4=phase4,
+                    owners=owners,
+                    entity=entity,
+                    f1065_data=f1065_data,
+                    letter_exists=bool(letter_path and letter_path.exists()),
+                    letter_filename=letter_path.name if letter_path else '',
+                    filing_deadline=f'{year + 1}-03-15',
+                )
+            except Exception as err:
+                app.logger.exception("view_tax_prep failed")
+                return render_template("construction.html",
+                                       obj_type="IRS Submission",
+                                       meta={"error": str(err)})
+
+        @app.route("/api/tax/status")
+        def api_tax_status():
+            """Return LLCTaxAgent session summary + manifest status."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                agent    = _tax_agent()
+                summary  = agent.getSummary()
+                manifest = agent.load_manifest()
+                phase4   = agent.phase4_submit()
+                return jsonify({'ok': True,
+                                'summary':  summary,
+                                'manifest': manifest,
+                                'phase4':   phase4})
+            except Exception as err:
+                app.logger.exception("api_tax_status failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/prepare", methods=["POST"])
+        def api_tax_prepare():
+            """Run LLCTaxAgent Phase 1 + Phase 2 (all form agents + XF audit)."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                result = _tax_agent().run_phases_1_2()
+                return jsonify({'ok': True, 'result': result})
+            except Exception as err:
+                app.logger.exception("api_tax_prepare failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/package", methods=["POST"])
+        def api_tax_package():
+            """Assemble IRS_Submission_{year}/ directory and write manifest.json."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                manifest = _tax_agent().phase3_package()
+                return jsonify({'ok': True, 'manifest': manifest})
+            except Exception as err:
+                app.logger.exception("api_tax_package failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/report")
+        def api_tax_report():
+            """Return the last assembled manifest.json."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                manifest = _tax_agent().load_manifest()
+                return jsonify({'ok': manifest is not None, 'manifest': manifest})
+            except Exception as err:
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/accountant_letter", methods=["POST"])
+        def api_tax_accountant_letter():
+            """Generate AccountantLetter_{year}.pdf and return filename."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                out = _tax_agent().generate_accountant_letter()
+                if out is None:
+                    return jsonify({'ok': False, 'error': 'reportlab unavailable or path error'}), 500
+                return jsonify({'ok': True, 'filename': out.name, 'path': str(out)})
+            except Exception as err:
+                app.logger.exception("api_tax_accountant_letter failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/submission/update", methods=["POST"])
+        def api_tax_submission_update():
+            """Persist filed_date, filed_method, tracking_number, k1_delivered."""
+            if _LLCTaxAgent is None:
+                return jsonify({'ok': False, 'error': _tax_agent_import_err}), 503
+            try:
+                body    = request.get_json(silent=True) or {}
+                updated = _tax_agent().update_submission_status(body)
+                return jsonify({'ok': True, 'status': updated})
+            except Exception as err:
+                app.logger.exception("api_tax_submission_update failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/forms/AccountantLetter_<int:year>.pdf")
+        def serve_accountant_letter(year):
+            """Serve the AccountantLetter PDF from the forms directory."""
+            from flask import send_from_directory
+            forms_dir = self._get_forms_dir()
+            if forms_dir is None:
+                return ('Forms directory not found', 404)
+            fname = f'AccountantLetter_{year}.pdf'
+            return send_from_directory(str(forms_dir), fname,
+                                       mimetype='application/pdf')
 
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)

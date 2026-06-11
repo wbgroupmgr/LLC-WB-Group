@@ -1,0 +1,555 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* ── Page header ───────────────────────────────────────────────── */
+    .tp-title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 20px; border-radius: 10px;
+    }
+    .tp-toolbar {
+        display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
+    }
+    .tp-toolbar .menu details { position: relative; }
+    .tp-toolbar .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .tp-title { font-size: 18px; font-weight: 700; }
+    .tp-title-sub { font-size: 13px; color: #6b7280; }
+
+    /* ── Status badges ─────────────────────────────────────────────── */
+    .badge {
+        display: inline-block; font-size: 11px; font-weight: 700;
+        border-radius: 4px; padding: 2px 8px; letter-spacing: 0.04em;
+    }
+    .badge-go     { background: #dcfce7; color: #15803d; }
+    .badge-fixing { background: #fee2e2; color: #b91c1c; }
+    .badge-none   { background: #f3f4f6; color: #6b7280; }
+    .badge-ready  { background: #dbeafe; color: #1d4ed8; }
+    .badge-incomplete { background: #fef9c3; color: #92400e; }
+
+    /* ── Frames ────────────────────────────────────────────────────── */
+    .tp-frame {
+        background: white; border-radius: 10px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        margin-bottom: 16px; overflow: hidden;
+    }
+    .tp-frame > summary {
+        display: flex; align-items: center; gap: 10px;
+        padding: 14px 18px; cursor: pointer; list-style: none;
+        border-bottom: 2px solid #e5e7eb; background: #f9fafb;
+    }
+    .tp-frame > summary::-webkit-details-marker { display: none; }
+    .tp-frame[open] > summary { border-bottom-color: #d1d5db; }
+    .frame-title { font-size: 15px; font-weight: 700; color: #111827; flex: 1; }
+    .collapse-chevron { font-size: 12px; color: #6b7280; transition: transform 0.15s; }
+    details[open] .collapse-chevron { transform: rotate(180deg); }
+    .frame-body { padding: 18px 20px; }
+
+    /* ── Phase status strip ────────────────────────────────────────── */
+    .phase-strip {
+        display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .phase-card {
+        flex: 1; min-width: 160px; background: #f9fafb;
+        border: 1px solid #e5e7eb; border-radius: 8px;
+        padding: 12px 14px;
+    }
+    .phase-label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+    .phase-state { font-size: 14px; font-weight: 700; }
+
+    /* ── XF audit table ────────────────────────────────────────────── */
+    .xf-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    .xf-table th {
+        background: #f3f4f6; border: 1px solid #e5e7eb;
+        padding: 6px 10px; text-align: left; font-weight: 600;
+    }
+    .xf-table td { border: 1px solid #e5e7eb; padding: 6px 10px; vertical-align: top; }
+    .xf-pass { color: #15803d; font-weight: 600; }
+    .xf-fail { color: #b91c1c; font-weight: 600; }
+    .xf-info { color: #2563eb; }
+
+    /* ── Artifacts table ───────────────────────────────────────────── */
+    .art-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .art-table th {
+        background: #f3f4f6; border: 1px solid #e5e7eb;
+        padding: 6px 10px; text-align: left; font-weight: 600;
+    }
+    .art-table td { border: 1px solid #e5e7eb; padding: 6px 10px; }
+    .art-ok   { color: #15803d; }
+    .art-miss { color: #b91c1c; }
+
+    /* ── Checklist ─────────────────────────────────────────────────── */
+    .chk-list { list-style: none; padding: 0; margin: 0; }
+    .chk-item {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 8px 0; border-bottom: 1px solid #f3f4f6;
+    }
+    .chk-item:last-child { border-bottom: none; }
+    .chk-icon { font-size: 16px; line-height: 1.4; flex-shrink: 0; }
+    .chk-label { font-size: 13px; font-weight: 600; color: #111827; }
+    .chk-action { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+    /* ── Buttons ───────────────────────────────────────────────────── */
+    .btn {
+        display: inline-block; padding: 7px 16px; border-radius: 6px;
+        font-size: 13px; font-weight: 600; cursor: pointer; border: none;
+        text-decoration: none; line-height: 1.4;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #374151; color: white; }
+    .btn-secondary:hover { background: #1f2937; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-success:hover { background: #15803d; }
+    .btn-warn { background: #d97706; color: white; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── K-1 delivery grid ─────────────────────────────────────────── */
+    .k1-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .k1-card {
+        flex: 1; min-width: 200px; background: #f9fafb;
+        border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px;
+    }
+    .k1-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .k1-addr { font-size: 11px; color: #6b7280; margin-bottom: 6px; }
+    .k1-date { font-size: 12px; }
+
+    /* ── Status form ───────────────────────────────────────────────── */
+    .status-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .status-form label { font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 3px; }
+    .status-form input, .status-form select {
+        width: 100%; padding: 6px 8px; font-size: 13px;
+        border: 1px solid #d1d5db; border-radius: 5px;
+        box-sizing: border-box;
+    }
+
+    /* ── Notification bar ──────────────────────────────────────────── */
+    #tp-notify {
+        display: none; padding: 10px 16px; border-radius: 7px;
+        font-size: 13px; font-weight: 600; margin-bottom: 14px;
+    }
+    .notify-ok  { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .notify-err { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width:900px; padding:0 16px 40px;">
+
+    {# ── Notification bar ───────────────────────────────────────────── #}
+    <div id="tp-notify"></div>
+
+    {# ── Title panel ────────────────────────────────────────────────── #}
+    <div class="tp-title-panel card" style="padding:14px 18px; background:#1f2937; color:white; display:flex; align-items:center; gap:12px;">
+        <div class="tp-toolbar">
+            <div class="menu">
+                <details>
+                    <summary title="Navigation">☰</summary>
+                    {% include "_nav_dropdown.html" %}
+                </details>
+            </div>
+        </div>
+        <div style="flex:1;">
+            <div class="tp-title">📬 IRS Submission Dashboard</div>
+            <div class="tp-title-sub" style="color:#9ca3af;">
+                {{ app_title }} &nbsp;|&nbsp; Tax Year {{ tax_year }}
+                &nbsp;|&nbsp; Deadline: {{ filing_deadline }}
+            </div>
+        </div>
+        {# Overall state badge #}
+        {% set os = session_summary.get('overall_state', 'NOT_STARTED') %}
+        {% if os == 'GO' %}
+            <span class="badge badge-go">✓ GO</span>
+        {% elif os == 'NEEDS_FIXING' %}
+            <span class="badge badge-fixing">✗ NEEDS FIXING</span>
+        {% else %}
+            <span class="badge badge-none">○ NOT STARTED</span>
+        {% endif %}
+    </div>
+
+    {# ── Frame 1: Submission Checklist ──────────────────────────────── #}
+    <details class="tp-frame" open>
+        <summary>
+            <span class="frame-title">✅ IRS Submission Checklist</span>
+            {% set done = phase4.get('done_count', 0) %}
+            {% set total = phase4.get('total_count', 0) %}
+            <span class="badge {% if done == total and total > 0 %}badge-go{% elif done > 0 %}badge-ready{% else %}badge-none{% endif %}">
+                {{ done }} / {{ total }} complete
+            </span>
+            <span class="collapse-chevron">▾</span>
+        </summary>
+        <div class="frame-body">
+
+            {# Phase status strip #}
+            <div class="phase-strip">
+                {% for form_key, result in session_summary.get('form_results', {}).items() %}
+                <div class="phase-card">
+                    <div class="phase-label">{{ form_key | replace('Agent','') }}</div>
+                    <div class="phase-state">
+                        {% if result.get('state') == 'GO' %}
+                            <span class="xf-pass">✓ GO</span>
+                        {% elif result.get('state') == 'NEEDS_FIXING' %}
+                            <span class="xf-fail">✗ NEEDS FIXING</span>
+                        {% else %}
+                            <span style="color:#9ca3af;">○ Not run</span>
+                        {% endif %}
+                    </div>
+                    {% if result.get('last_run') %}
+                    <div style="font-size:11px; color:#9ca3af; margin-top:3px;">{{ result.last_run[:10] }}</div>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="phase-card">
+                    <div class="phase-label">Tax Agent</div>
+                    <div class="phase-state" style="color:#9ca3af;">○ Not yet run</div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {# Run agent button #}
+            <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <button class="btn btn-primary" onclick="runTaxAgent()">▶ Run Tax Agent (Phase 1+2)</button>
+                <button class="btn btn-secondary" onclick="assemblePackage()">📦 Assemble Submission Package</button>
+                <span id="agent-spinner" style="display:none; font-size:13px; color:#6b7280;">⏳ Running…</span>
+            </div>
+
+            {# XF audit results #}
+            {% set xf = session_summary.get('xf_audit', []) %}
+            {% if xf %}
+            <h4 style="font-size:13px; font-weight:700; color:#374151; margin:0 0 8px;">Cross-Form Audit (XF)</h4>
+            <table class="xf-table">
+                <thead><tr><th>Rule</th><th>Severity</th><th>Message</th></tr></thead>
+                <tbody>
+                {% for issue in xf %}
+                <tr>
+                    <td><b>{{ issue.get('rule_id','') }}</b></td>
+                    <td>
+                        {% if issue.get('severity') == 'ERROR' %}
+                            <span class="xf-fail">✗ ERROR</span>
+                        {% elif 'PASS' in issue.get('message','') %}
+                            <span class="xf-pass">✓ PASS</span>
+                        {% else %}
+                            <span class="xf-info">ℹ INFO</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:12px;">{{ issue.get('message','')[:160] }}{% if issue.get('message','') | length > 160 %}…{% endif %}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+
+            {# Package artifacts #}
+            {% if manifest %}
+            <h4 style="font-size:13px; font-weight:700; color:#374151; margin:16px 0 8px;">
+                Package Status:
+                <span class="badge {% if manifest.get('status') == 'READY' %}badge-go{% else %}badge-incomplete{% endif %}">
+                    {{ manifest.get('status','—') }}
+                </span>
+                &nbsp;<span style="font-size:11px; color:#9ca3af; font-weight:400;">Assembled: {{ manifest.get('assembled_at','')[:10] }}</span>
+            </h4>
+            <table class="art-table">
+                <thead><tr><th>File</th><th>Required</th><th>Present</th><th>SHA-256 (first 12)</th></tr></thead>
+                <tbody>
+                {% for art in manifest.get('artifacts', []) %}
+                <tr>
+                    <td style="font-family:monospace; font-size:12px;">{{ art.get('file','') }}</td>
+                    <td>{% if art.get('required') %}<b>Yes</b>{% else %}Optional{% endif %}</td>
+                    <td>
+                        {% if art.get('present') %}
+                            <span class="art-ok">✓</span>
+                        {% else %}
+                            <span class="art-miss">✗ Missing</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-family:monospace; font-size:11px; color:#9ca3af;">
+                        {{ (art.get('sha256') or '')[:12] }}{% if art.get('sha256') %}…{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% if manifest.get('missing_required') %}
+            <div style="margin-top:10px; padding:8px 12px; background:#fef9c3; border-radius:6px; font-size:12px; color:#92400e;">
+                <b>Missing required files:</b>
+                {% for m in manifest.get('missing_required', []) %}{{ m }}{% if not loop.last %}, {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div style="padding:10px 0; color:#9ca3af; font-size:13px; font-style:italic;">
+                Package not yet assembled. Click [Assemble Submission Package] above.
+            </div>
+            {% endif %}
+
+            {# Checklist items from phase4 #}
+            <h4 style="font-size:13px; font-weight:700; color:#374151; margin:16px 0 8px;">Submission Checklist</h4>
+            <ul class="chk-list">
+            {% for item in phase4.get('checklist', []) %}
+            <li class="chk-item">
+                <span class="chk-icon">{% if item.done %}✅{% else %}⬜{% endif %}</span>
+                <div>
+                    <div class="chk-label">{{ item.get('label','') }}</div>
+                    {% if not item.done and item.get('action') %}
+                    <div class="chk-action">{{ item.action }}</div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+            </ul>
+
+        </div>
+    </details>
+
+    {# ── Frame 2: Accountant Notification Letter ─────────────────────── #}
+    <details class="tp-frame" open>
+        <summary>
+            <span class="frame-title">✉️ Accountant Notification Letter</span>
+            {% if letter_exists %}
+                <span class="badge badge-go">✓ Ready</span>
+            {% else %}
+                <span class="badge badge-none">Not generated</span>
+            {% endif %}
+            <span class="collapse-chevron">▾</span>
+        </summary>
+        <div class="frame-body">
+            <p style="font-size:13px; color:#374151; margin:0 0 12px;">
+                Generate a PDF letter for your accountant / tax professional requesting review
+                of the IRS Form 1065 submission package. The letter includes the form list,
+                SHA-256 package integrity note, filing deadline, and IRS mailing address.
+            </p>
+
+            {% if entity %}
+            <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px 16px; margin-bottom:14px; font-size:13px;">
+                <div><b>{{ entity.get('entity_name','') }}</b></div>
+                <div style="color:#6b7280;">EIN: {{ entity.get('ein','') }}</div>
+                {% if f1065_data.get('B_PRDI_FirstNm') %}
+                <div style="color:#374151; margin-top:4px;">
+                    Principal Officer: {{ f1065_data.get('B_PRDI_FirstNm','') }} {{ f1065_data.get('B_PRDI_Last','') }}
+                    &nbsp;|&nbsp; {{ f1065_data.get('B_PRDI_Ph','') }}
+                </div>
+                {% endif %}
+                <div style="color:#6b7280; margin-top:4px;">Filing deadline: {{ filing_deadline }}</div>
+            </div>
+            {% endif %}
+
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="generateLetter()">📄 Generate Accountant Letter</button>
+                {% if letter_exists %}
+                <a href="/forms/AccountantLetter_{{ tax_year }}.pdf" target="_blank"
+                   class="btn btn-success">👁 View PDF</a>
+                {% endif %}
+                <span id="letter-spinner" style="display:none; font-size:13px; color:#6b7280;">⏳ Generating…</span>
+            </div>
+
+            {% if letter_exists %}
+            <div style="margin-top:12px; padding:8px 12px; background:#dcfce7; border-radius:6px; font-size:12px; color:#15803d;">
+                ✓ {{ letter_filename }} — ready in the forms directory.
+                <a href="/forms/AccountantLetter_{{ tax_year }}.pdf" target="_blank"
+                   style="color:#15803d; font-weight:600; margin-left:8px;">Open PDF ↗</a>
+            </div>
+            {% endif %}
+
+            <div style="margin-top:14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 16px; font-size:12px; color:#166534;">
+                <b>📮 IRS Mailing Address (if filing by mail)</b><br>
+                Department of the Treasury<br>
+                Internal Revenue Service<br>
+                Ogden, UT 84201-0011<br>
+                <i>Recommended: Certified mail, return receipt requested</i>
+            </div>
+        </div>
+    </details>
+
+    {# ── Frame 3: Submission Status ──────────────────────────────────── #}
+    <details class="tp-frame" open>
+        <summary>
+            <span class="frame-title">📋 Submission Status &amp; K-1 Delivery</span>
+            {% set sub = phase4.get('submission_status', {}) %}
+            {% if sub.get('filed_method') and sub.get('filed_method') != 'pending' %}
+                <span class="badge badge-go">✓ Filed: {{ sub.get('filed_method','') }}</span>
+            {% else %}
+                <span class="badge badge-none">Pending</span>
+            {% endif %}
+            <span class="collapse-chevron">▾</span>
+        </summary>
+        <div class="frame-body">
+
+            {# Filing status form #}
+            {% set sub = phase4.get('submission_status', {}) %}
+            <h4 style="font-size:13px; font-weight:700; color:#374151; margin:0 0 10px;">Filing Record</h4>
+            <div class="status-form" id="status-form">
+                <div>
+                    <label for="sf-date">Filed Date</label>
+                    <input type="date" id="sf-date" value="{{ sub.get('filed_date','') }}">
+                </div>
+                <div>
+                    <label for="sf-method">Filing Method</label>
+                    <select id="sf-method">
+                        <option value="pending" {% if sub.get('filed_method','pending') == 'pending' %}selected{% endif %}>Pending</option>
+                        <option value="mail" {% if sub.get('filed_method') == 'mail' %}selected{% endif %}>Mail (paper)</option>
+                        <option value="efiled" {% if sub.get('filed_method') == 'efiled' %}selected{% endif %}>e-Filed</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="sf-tracking">Tracking / Confirmation #</label>
+                    <input type="text" id="sf-tracking"
+                           value="{{ sub.get('tracking_number','') }}"
+                           placeholder="USPS certified mail # or e-file confirmation">
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <button class="btn btn-primary" onclick="saveStatus()">💾 Save Status</button>
+                </div>
+            </div>
+
+            {# K-1 Delivery #}
+            <h4 style="font-size:13px; font-weight:700; color:#374151; margin:20px 0 8px;">Schedule K-1 Delivery</h4>
+            <p style="font-size:12px; color:#6b7280; margin:0 0 10px;">
+                Mail K-1 to each partner by the filing deadline ({{ filing_deadline }}).
+                Record delivery date below.
+            </p>
+            <div class="k1-grid">
+            {% for o in owners %}
+            {% set oid = o.get('oID','') %}
+            {% set nm_raw = o.get('nm', oid) %}
+            {% if nm_raw is iterable and nm_raw is not string %}{% set nm = nm_raw[0] if nm_raw else oid %}{% else %}{% set nm = nm_raw %}{% endif %}
+            {% set k1_del = (sub.get('k1_delivered') or {}).get(oid, '') %}
+            <div class="k1-card">
+                <div class="k1-name">{{ nm }}</div>
+                <div class="k1-addr">{{ o.get('addr','') }}</div>
+                <div class="k1-date">
+                    {% if k1_del %}
+                        <span style="color:#15803d; font-weight:600;">✓ Delivered {{ k1_del }}</span>
+                    {% else %}
+                        <span style="color:#d97706;">⬜ Not yet delivered</span>
+                    {% endif %}
+                </div>
+                <div style="margin-top:8px; display:flex; gap:6px; align-items:center;">
+                    <input type="date" id="k1-date-{{ oid }}"
+                           value="{{ k1_del }}"
+                           style="font-size:12px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px;">
+                    <button class="btn btn-success"
+                            style="padding:4px 10px; font-size:12px;"
+                            onclick="saveK1('{{ oid }}')">Save</button>
+                </div>
+            </div>
+            {% endfor %}
+            </div>
+
+        </div>
+    </details>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function notify(msg, isErr) {
+    const el = document.getElementById('tp-notify');
+    el.textContent = msg;
+    el.className = isErr ? 'notify-err' : 'notify-ok';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+async function runTaxAgent() {
+    document.getElementById('agent-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/prepare', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            notify('✓ Tax Agent completed. Refreshing…', false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Tax Agent failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('agent-spinner').style.display = 'none';
+    }
+}
+
+async function assemblePackage() {
+    document.getElementById('agent-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/package', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            const status = d.manifest?.status || 'DONE';
+            notify(`✓ Package assembled — status: ${status}. Refreshing…`, false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Package assembly failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('agent-spinner').style.display = 'none';
+    }
+}
+
+async function generateLetter() {
+    document.getElementById('letter-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/accountant_letter', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            notify(`✓ Letter generated: ${d.filename}. Refreshing…`, false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Letter generation failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('letter-spinner').style.display = 'none';
+    }
+}
+
+async function saveStatus() {
+    const body = {
+        filed_date:      document.getElementById('sf-date').value,
+        filed_method:    document.getElementById('sf-method').value,
+        tracking_number: document.getElementById('sf-tracking').value,
+    };
+    try {
+        const r = await fetch('/api/tax/submission/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.ok) { notify('✓ Status saved.', false); }
+        else       { notify('✗ ' + (d.error || 'Save failed'), true); }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    }
+}
+
+async function saveK1(oid) {
+    const dateEl = document.getElementById('k1-date-' + oid);
+    const dateVal = dateEl ? dateEl.value : '';
+    if (!dateVal) { notify('Enter a date before saving.', true); return; }
+    try {
+        const r = await fetch('/api/tax/submission/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ k1_delivered: { [oid]: dateVal } }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            notify(`✓ K-1 delivery recorded for ${oid}.`, false);
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            notify('✗ ' + (d.error || 'Save failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    }
+}
+</script>
+{% endblock %}
