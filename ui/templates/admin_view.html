@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .admin-title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 20px; border-radius: 10px;
+    }
+    .admin-toolbar {
+        display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
+    }
+    .admin-toolbar .menu details { position: relative; }
+    .admin-toolbar .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: #374151; color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .admin-title { font-size: 18px; font-weight: 700; }
+    .admin-title-sub { font-size: 13px; color: #6b7280; }
+
+    /* ── Collapsible frames ── */
+    .admin-frame {
+        background: white; border-radius: 10px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        margin-bottom: 16px; overflow: hidden;
+    }
+    .admin-frame summary {
+        display: flex; align-items: center; gap: 10px;
+        padding: 14px 18px; cursor: pointer; list-style: none;
+        border-bottom: 2px solid #e5e7eb;
+        background: #f9fafb;
+    }
+    .admin-frame summary::-webkit-details-marker { display: none; }
+    .admin-frame[open] summary { border-bottom-color: #d1d5db; }
+    .frame-title { font-size: 15px; font-weight: 700; color: #111827; flex: 1; }
+    .frame-count { font-size: 12px; color: #9ca3af; }
+    .frame-edit-btn {
+        font-size: 12px; padding: 4px 12px; border-radius: 6px;
+        background: #2563eb; color: white; text-decoration: none;
+        border: none; cursor: pointer; white-space: nowrap;
+    }
+    .frame-edit-btn:hover { background: #1d4ed8; }
+    .collapse-chevron {
+        font-size: 12px; color: #6b7280; transition: transform 0.15s;
+    }
+    details[open] .collapse-chevron { transform: rotate(180deg); }
+
+    /* ── Data table ── */
+    .admin-table-wrap { overflow-x: auto; padding: 16px 18px; }
+    .admin-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    .admin-table th {
+        background: #f3f4f6; border: 1px solid #e5e7eb;
+        padding: 7px 10px; text-align: left; font-weight: 600;
+        white-space: nowrap;
+    }
+    .admin-table td {
+        border: 1px solid #e5e7eb; padding: 7px 10px;
+        vertical-align: top; max-width: 280px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .admin-table tr:hover td { background: #f9fafb; }
+    .admin-empty {
+        color: #9ca3af; font-size: 13px; font-style: italic;
+        padding: 12px 0;
+    }
+    /* pct field: render as % */
+    .pct-cell { font-variant-numeric: tabular-nums; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ── Sticky title bar ─────────────────────────────────────────────── -->
+<div class="panel admin-title-panel">
+    <div class="admin-toolbar">
+        <div class="menu">
+            <details>
+                <summary>☰</summary>
+                {% include '_nav_dropdown.html' %}
+            </details>
+        </div>
+        <span class="admin-title">{{ app_title }}</span>
+        <span class="admin-title-sub" style="color:#9ca3af">·</span>
+        <span class="admin-title-sub">⚙️ LLC Admin</span>
+        <a href="{{ url_for('home') }}"
+           style="margin-left:auto;font-size:13px;color:#6b7280;text-decoration:none">
+            ← Home
+        </a>
+    </div>
+</div>
+
+<!-- ── Collapsible frames ──────────────────────────────────────────── -->
+{% for frame in frames %}
+<details class="admin-frame" open>
+    <summary>
+        <span class="collapse-chevron">▼</span>
+        <span class="frame-title">{{ frame.label }}</span>
+        <span class="frame-count">{{ frame.rows | length }} record{{ 's' if frame.rows | length != 1 else '' }}</span>
+        <a href="{{ frame.edit_url }}" class="frame-edit-btn">✎ Open Editor</a>
+    </summary>
+
+    <div class="admin-table-wrap">
+        {% if frame.rows %}
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    {% for col in frame.columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in frame.rows %}
+                <tr>
+                    {% for col in frame.columns %}
+                    <td title="{{ row.get(col, '') }}">
+                        {%- set val = row.get(col, '') -%}
+                        {%- if col == 'pct' and val != '' -%}
+                            <span class="pct-cell">{{ "%.0f%%"|format(val * 100) }}</span>
+                        {%- elif val is iterable and val is not string -%}
+                            {{ val | join(', ') }}
+                        {%- else -%}
+                            {{ val }}
+                        {%- endif -%}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="admin-empty">No records yet. Use ✎ Open Editor to add entries.</p>
+        {% endif %}
+    </div>
+</details>
+{% endfor %}
+{% endblock %}

@@ -42,6 +42,9 @@ from ui.llcAssets          import llcAssets
 from ui.llcExpRev          import llcExpRev
 from ui.llcPayables        import llcPayables
 from ui.llcReceivables     import llcReceivables
+from ui.llcOwners          import llcOwners
+from ui.llcCustomers       import llcCustomers
+from ui.llcMilestones      import llcMilestones
 from ui.stmtGL_View  import stmtGL_View  as stmtGeneralLedger
 from ui.stmtBS_View  import stmtBS_View  as stmtBalanceSheet
 from ui.stmtIS_View  import stmtIS_View  as stmtIncomeStmt
@@ -96,6 +99,10 @@ class llcMgmt:
         "llcForm8825":         "Form 8825",
         "llcForm4562":         "Form 4562",
         "yeFinancialReport":   "Financial Report\nYE Report",
+        # LLC Admin directory views
+        "llcOwners":           "Members / Owners",
+        "llcCustomers":        "Tenants / Customers",
+        "llcMilestones":       "State / Fed Milestones",
     }
 
     VIEW_TITLES = {
@@ -107,6 +114,17 @@ class llcMgmt:
         "llcFormK1":          "Schedule K-1 – Partner's Share of Income",
         "llcForm8825":        "Form 8825 – Rental Real Estate Income and Expenses",
         "llcForm4562":        "Form 4562 – Depreciation and Amortization",
+        # Admin directory views
+        "llcOwners":          "LLC Members / Owners",
+        "llcCustomers":       "Tenants / Customers",
+        "llcMilestones":      "State & Federal Milestones",
+    }
+
+    # Fixed column sets for admin directory views (no COA mapping)
+    ADMIN_COLUMNS = {
+        "llcOwners":     ["oID", "nm", "addr", "status", "memType", "pct", "kw"],
+        "llcCustomers":  ["oID", "nm", "addr", "rent", "start", "kwList"],
+        "llcMilestones": ["dueDate", "agency", "form", "status", "notes"],
     }
 
     # View groups for the home page
@@ -296,6 +314,10 @@ class llcMgmt:
             "Form8825":             "llcForm8825",
             "llcForm4562":          "llcForm4562",
             "Form4562":             "llcForm4562",
+            # Admin directory views
+            "llcOwners":            "llcOwners",
+            "llcCustomers":         "llcCustomers",
+            "llcMilestones":        "llcMilestones",
         }
         return aliases.get(name, name)
 
@@ -373,23 +395,25 @@ class llcMgmt:
         # pointing to the empty JSON DB. If no sibling is available we fall
         # back to a memory-only WkNode so the view still renders with
         # headers + zero rows instead of "Under Construction".
-        for ap_ar, default_filename in (
-            ("llcPayables",    "llcPayables_WBGroupLLC.json"),
-            ("llcReceivables", "llcReceivables_WBGroupLLC.json"),
-        ):
-            if ap_ar in objects:
+        _auto_register = [
+            ("llcPayables",    "llcPayables_WBGroupLLC.json",    llcPayables),
+            ("llcReceivables", "llcReceivables_WBGroupLLC.json",  llcReceivables),
+            ("llcOwners",      "llcOwners_WBGroupLLC.json",       llcOwners),
+            ("llcCustomers",   "llcCustomers_WBGroupLLC.json",    llcCustomers),
+            ("llcMilestones",  "llcMilestones_WBGroupLLC.json",   llcMilestones),
+        ]
+        for key, default_fn, cls in _auto_register:
+            if key in objects:
                 continue
-            wk = self._auto_wknode(ap_ar, default_filename)
+            wk = self._auto_wknode(key, default_fn)
             if wk is None:
                 continue
-            mgr = llcPayables(wk) if ap_ar == "llcPayables" else llcReceivables(wk)
+            mgr = cls(wk)
             if hasattr(mgr, "bind_session"):
                 mgr.bind_session(self.eSession)
-            objects[ap_ar] = mgr
-            # Make it visible in the eSession oDict so the home page
-            # session-objects table lists it too.
+            objects[key] = mgr
             try:
-                self.eSession.oDict.setdefault(ap_ar, wk)
+                self.eSession.oDict.setdefault(key, wk)
             except Exception:
                 pass
 
@@ -437,7 +461,12 @@ class llcMgmt:
         }
         return alias_map.get(value, "all")
 
+    def _is_dir_view(self, obj_type: str) -> bool:
+        return obj_type in self.ADMIN_COLUMNS
+
     def _get_columns(self, rows: List[Dict[str, Any]], obj_type: str, view_mode: str = "all") -> List[str]:
+        if obj_type in self.ADMIN_COLUMNS:
+            return list(self.ADMIN_COLUMNS[obj_type])
         if self._supports_record_views(obj_type):
             mode = self._normalize_view_mode(view_mode)
             return list(self.RECORD_VIEW_OPTIONS[mode])
@@ -748,6 +777,30 @@ class llcMgmt:
             except Exception as exc:
                 app.logger.error("Switch Year failed: %s", exc)
             return redirect(url_for("home"))
+
+        # ── LLC Admin ─────────────────────────────────────────────────────────
+        @app.route("/admin")
+        def llc_admin():
+            def _frame(key):
+                mgr = self.objects.get(key)
+                rows = mgr.load() if mgr else []
+                return {
+                    "key":     key,
+                    "label":   self.VIEW_LABELS.get(key, key),
+                    "columns": self.ADMIN_COLUMNS.get(key, []),
+                    "rows":    rows,
+                    "edit_url": url_for("view_object", obj_type=key),
+                }
+            frames = [
+                _frame("llcOwners"),
+                _frame("llcCustomers"),
+                _frame("llcMilestones"),
+            ]
+            return render_template(
+                "admin_view.html",
+                title=self.title,
+                frames=frames,
+            )
 
         # ── View ──────────────────────────────────────────────────────────────
         @app.route("/view/yeFinancialReport")
