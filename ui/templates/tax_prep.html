@@ -136,6 +136,113 @@
     .notify-ok  { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
     .notify-err { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 </style>
+
+<script>
+function notify(msg, isErr) {
+    const el = document.getElementById('tp-notify');
+    el.textContent = msg;
+    el.className = isErr ? 'notify-err' : 'notify-ok';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+async function runTaxAgent() {
+    document.getElementById('agent-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/prepare', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            notify('✓ Tax Agent completed. Refreshing…', false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Tax Agent failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('agent-spinner').style.display = 'none';
+    }
+}
+
+async function assemblePackage() {
+    document.getElementById('agent-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/package', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            const status = d.manifest?.status || 'DONE';
+            notify(`✓ Package assembled — status: ${status}. Refreshing…`, false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Package assembly failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('agent-spinner').style.display = 'none';
+    }
+}
+
+async function generateLetter() {
+    document.getElementById('letter-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/accountant_letter', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            notify(`✓ Letter generated: ${d.filename}. Refreshing…`, false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'Letter generation failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('letter-spinner').style.display = 'none';
+    }
+}
+
+async function saveStatus() {
+    const body = {
+        filed_date:      document.getElementById('sf-date').value,
+        filed_method:    document.getElementById('sf-method').value,
+        tracking_number: document.getElementById('sf-tracking').value,
+    };
+    try {
+        const r = await fetch('/api/tax/submission/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.ok) { notify('✓ Status saved.', false); }
+        else       { notify('✗ ' + (d.error || 'Save failed'), true); }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    }
+}
+
+async function saveK1(oid) {
+    const dateEl = document.getElementById('k1-date-' + oid);
+    const dateVal = dateEl ? dateEl.value : '';
+    if (!dateVal) { notify('Enter a date before saving.', true); return; }
+    try {
+        const r = await fetch('/api/tax/submission/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ k1_delivered: { [oid]: dateVal } }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            notify(`✓ K-1 delivery recorded for ${oid}.`, false);
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            notify('✗ ' + (d.error || 'Save failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    }
+}
+</script>
 {% endblock %}
 
 {% block content %}
@@ -445,111 +552,3 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-function notify(msg, isErr) {
-    const el = document.getElementById('tp-notify');
-    el.textContent = msg;
-    el.className = isErr ? 'notify-err' : 'notify-ok';
-    el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
-}
-
-async function runTaxAgent() {
-    document.getElementById('agent-spinner').style.display = '';
-    try {
-        const r = await fetch('/api/tax/prepare', { method: 'POST' });
-        const d = await r.json();
-        if (d.ok) {
-            notify('✓ Tax Agent completed. Refreshing…', false);
-            setTimeout(() => location.reload(), 1200);
-        } else {
-            notify('✗ ' + (d.error || 'Tax Agent failed'), true);
-        }
-    } catch(e) {
-        notify('✗ Network error: ' + e, true);
-    } finally {
-        document.getElementById('agent-spinner').style.display = 'none';
-    }
-}
-
-async function assemblePackage() {
-    document.getElementById('agent-spinner').style.display = '';
-    try {
-        const r = await fetch('/api/tax/package', { method: 'POST' });
-        const d = await r.json();
-        if (d.ok) {
-            const status = d.manifest?.status || 'DONE';
-            notify(`✓ Package assembled — status: ${status}. Refreshing…`, false);
-            setTimeout(() => location.reload(), 1200);
-        } else {
-            notify('✗ ' + (d.error || 'Package assembly failed'), true);
-        }
-    } catch(e) {
-        notify('✗ Network error: ' + e, true);
-    } finally {
-        document.getElementById('agent-spinner').style.display = 'none';
-    }
-}
-
-async function generateLetter() {
-    document.getElementById('letter-spinner').style.display = '';
-    try {
-        const r = await fetch('/api/tax/accountant_letter', { method: 'POST' });
-        const d = await r.json();
-        if (d.ok) {
-            notify(`✓ Letter generated: ${d.filename}. Refreshing…`, false);
-            setTimeout(() => location.reload(), 1200);
-        } else {
-            notify('✗ ' + (d.error || 'Letter generation failed'), true);
-        }
-    } catch(e) {
-        notify('✗ Network error: ' + e, true);
-    } finally {
-        document.getElementById('letter-spinner').style.display = 'none';
-    }
-}
-
-async function saveStatus() {
-    const body = {
-        filed_date:      document.getElementById('sf-date').value,
-        filed_method:    document.getElementById('sf-method').value,
-        tracking_number: document.getElementById('sf-tracking').value,
-    };
-    try {
-        const r = await fetch('/api/tax/submission/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        const d = await r.json();
-        if (d.ok) { notify('✓ Status saved.', false); }
-        else       { notify('✗ ' + (d.error || 'Save failed'), true); }
-    } catch(e) {
-        notify('✗ Network error: ' + e, true);
-    }
-}
-
-async function saveK1(oid) {
-    const dateEl = document.getElementById('k1-date-' + oid);
-    const dateVal = dateEl ? dateEl.value : '';
-    if (!dateVal) { notify('Enter a date before saving.', true); return; }
-    try {
-        const r = await fetch('/api/tax/submission/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ k1_delivered: { [oid]: dateVal } }),
-        });
-        const d = await r.json();
-        if (d.ok) {
-            notify(`✓ K-1 delivery recorded for ${oid}.`, false);
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            notify('✗ ' + (d.error || 'Save failed'), true);
-        }
-    } catch(e) {
-        notify('✗ Network error: ' + e, true);
-    }
-}
-</script>
-{% endblock %}
