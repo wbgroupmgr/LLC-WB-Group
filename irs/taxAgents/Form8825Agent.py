@@ -206,12 +206,21 @@ class _SectionAgent(IRSFormsAgent):
                 continue
             briefs = [self._txn_brief(r) for r in rs]
             props  = {b['prop'] for b in briefs if b['prop']}
-            # Exclude owner-contribution legs (contra = Acct.Equity.*) from the
-            # purchase/return signal — an owner funding a same-day purchase is not
-            # a refund and should not trip the forensic.
+            # Owner-contribution clusters: if ANY row in the cluster carries an
+            # Equity account (either as primary acct or contra), the cash flows
+            # are explained by an owner funding a same-day asset purchase —
+            # not a purchase+refund error.  Skip the has_return check entirely.
+            has_equity = any(
+                'Equity' in b['acct'] or 'Equity' in b['contra']
+                for b in briefs
+            )
+            # Exclude owner-contribution legs from dirs; if all remaining cash
+            # flows collapse to one direction, has_return stays False.
             dirs   = {b['cash_dir'] for b in briefs
-                      if b['cash_dir'] and 'Equity' not in b['contra']}
-            has_return = ('in' in dirs and 'out' in dirs)   # purchase + refund
+                      if b['cash_dir']
+                      and 'Equity' not in b['contra']
+                      and 'Equity' not in b['acct']}
+            has_return = (not has_equity) and ('in' in dirs and 'out' in dirs)
             multi_prop = len(props) > 1
             seen, dup = set(), False
             for b in briefs:
@@ -968,6 +977,20 @@ class AgentF8825_NetIncome(_SectionAgent):
                 continue
             cip_txns.append(b)
 
+        # If the math gap exists but NO GL expense rows are found for CIP properties,
+        # the gap is a stale-IS or rounding artifact — the books are likely correct.
+        # Downgrade to INFO so the user isn't alarmed by a phantom ERROR.
+        if not cip_txns:
+            return self.format_issue(
+                'F8NI-R04', self.INFO,
+                f"Under-construction property {cip_names}: IS.total_expenses vs "
+                f"active-column expense sum gap = ${cip_gap:,.2f}, but no GL expense "
+                f"rows found for {cip_names} — books appear correctly capitalized. "
+                f"Re-run the analysis after any recent GL edits to confirm.",
+                'IRC §263(a); IRC §446',
+                "No action required if CIP expenses are already in "
+                "Acct.Fixed.Tangible.InConstruction. Re-run to confirm.")
+
         return self.format_issue(
             'F8NI-R04', self.ERROR,
             f"Under-construction property {cip_names} has ${cip_gap:,.2f} in GL expense entries "
@@ -1149,8 +1172,37 @@ class Form8825Agent(IRSFormsAgent):
     def getSummary(self) -> Dict[str, Any]:
         state = self._load_session_state()
         if state is None:
-            return self._empty_summary()
+            return self.run_phases_1_2()   # no cache → run fresh
+        # Auto-refresh: if any source data file is newer than the session state,
+        # re-run so the UI never shows stale results after a GL edit.
+        if self._session_is_stale(state):
+            return self.run_phases_1_2()
         return state
+
+    def _session_is_stale(self, state: Dict[str, Any]) -> bool:
+        """True if any ledger source file is newer than the saved session state."""
+        last_run_str = state.get('last_run')
+        if not last_run_str:
+            return True
+        try:
+            last_run_ts = datetime.fromisoformat(
+                last_run_str.replace('Z', '+00:00')).timestamp()
+        except Exception:
+            return True
+        # Instantiate the canonical source DBs and check their file mtimes.
+        try:
+            from ledger.llcExpRev import llcExpRev
+            from ledger.llcAssets import llcAssets
+            for db_cls in (llcExpRev, llcAssets):
+                try:
+                    db_path = Path(db_cls(self.llc).FN())
+                    if db_path.exists() and db_path.stat().st_mtime > last_run_ts:
+                        return True
+                except Exception:
+                    pass
+        except ImportError:
+            pass
+        return False
 
     # ── Session state persistence ─────────────────────────────────────────────
 
