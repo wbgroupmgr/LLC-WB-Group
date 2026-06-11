@@ -42,10 +42,11 @@
         border-bottom: 1px solid #f9fafb; font-size: 12px;
     }
     .issue-row:last-child { border-bottom: 0; }
-    .issue-sev { font-weight: 700; min-width: 50px; }
-    .sev-error { color: #991b1b; }
-    .sev-warn  { color: #92400e; }
-    .sev-info  { color: #166534; }    /* green — no action required */
+    .issue-sev { font-weight: 700; min-width: 56px; }
+    .sev-error { display:inline-block; background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; border-radius:4px; padding:1px 6px; font-size:11px; }
+    .sev-warn  { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:4px; padding:1px 6px; font-size:11px; }
+    .sev-info  { display:inline-block; background:#dcfce7; color:#166534; border:1px solid #86efac; border-radius:4px; padding:1px 6px; font-size:11px; }
+    .issue-rule-id { font-family: monospace; font-size: 11px; color: #6b7280; align-self: center; white-space: nowrap; }
     .issue-msg   { flex: 1; color: #374151; }
     .issue-cite  { color: #9ca3af; font-style: italic; font-size: 11px; }
     .issue-action { color: #1d4ed8; font-size: 11px; }
@@ -239,11 +240,11 @@
                         {% if issue.severity == 'ERROR' %}sev-error
                         {% elif issue.severity == 'WARN' %}sev-warn
                         {% else %}sev-info{% endif %}">
-                        {% if issue.severity == 'ERROR' %}[!]
-                        {% elif issue.severity == 'WARN' %}[⚠]
-                        {% else %}[i]{% endif %}
-                        {{ issue.rule_id }}
+                        {% if issue.severity == 'ERROR' %}ERROR
+                        {% elif issue.severity == 'WARN' %}WARN
+                        {% else %}INFO{% endif %}
                     </span>
+                    <span class="issue-rule-id">{{ issue.rule_id }}</span>
                     <span class="issue-msg">
                         {# ── ACTION FIRST — what to do, before the explanation ── #}
                         {% if issue.action %}
