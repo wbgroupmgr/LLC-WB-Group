@@ -120,12 +120,23 @@ class llcMgmt:
         "llcMilestones":      "State & Federal Milestones",
     }
 
-    # Fixed column sets for admin directory views (no COA mapping)
+    # Fixed column sets for admin directory views (no COA mapping).
+    # These drive the table_view EDITOR — editable fields only.
     ADMIN_COLUMNS = {
-        "llcOwners":     ["oID", "nm", "addr", "status", "memType", "pct", "kw"],
+        "llcOwners":     ["oID", "nm", "addr", "status", "memType", "pct", "SSN", "kw"],
         "llcCustomers":  ["oID", "nm", "addr", "rent", "start", "kwList"],
         "llcMilestones": ["dueDate", "agency", "form", "status", "notes"],
     }
+
+    # Admin VIEW display columns — may include computed fields not stored in JSON.
+    # SSN masked; RetainedEarning injected by /admin route from IS.
+    ADMIN_DISPLAY_COLUMNS = {
+        "llcOwners":     ["oID", "nm", "status", "pct", "SSN", "RetainedEarning"],
+        "llcCustomers":  ["oID", "nm", "addr", "rent", "start"],
+        "llcMilestones": ["dueDate", "agency", "form", "status", "notes"],
+    }
+    # Columns that are computed (not stored) — shown read-only in admin_view
+    ADMIN_COMPUTED_COLS = {"RetainedEarning"}
 
     # View groups for the home page
     VIEW_GROUPS = [
@@ -781,16 +792,40 @@ class llcMgmt:
         # ── LLC Admin ─────────────────────────────────────────────────────────
         @app.route("/admin")
         def llc_admin():
+            # Compute YTD RetainedEarning per owner from IS (net_income × pct)
+            owner_re: Dict[str, float] = {}
+            try:
+                is_mgr = self.objects.get("stmtIncomeStmt")
+                if is_mgr:
+                    owners_raw = self.objects.get("llcOwners")
+                    owners_list = owners_raw.load() if owners_raw else []
+                    _, _, pm_summary = is_mgr.load_per_member(details=False)
+                    ni = float(pm_summary.get("net_income", 0) or 0)
+                    for o in owners_list:
+                        oid = o.get("oID", "")
+                        pct = float(o.get("pct", 0) or 0)
+                        owner_re[oid] = round(ni * pct, 2)
+            except Exception:
+                pass  # leave owner_re empty — display shows — in template
+
             def _frame(key):
-                mgr = self.objects.get(key)
-                rows = mgr.load() if mgr else []
+                mgr  = self.objects.get(key)
+                rows = list(mgr.load()) if mgr else []
+                # Inject computed columns into owner rows
+                if key == "llcOwners":
+                    for row in rows:
+                        oid = row.get("oID", "")
+                        if oid in owner_re:
+                            row["RetainedEarning"] = owner_re[oid]
                 return {
-                    "key":     key,
-                    "label":   self.VIEW_LABELS.get(key, key),
-                    "columns": self.ADMIN_COLUMNS.get(key, []),
-                    "rows":    rows,
-                    "edit_url": url_for("view_object", obj_type=key),
+                    "key":           key,
+                    "label":         self.VIEW_LABELS.get(key, key),
+                    "columns":       self.ADMIN_DISPLAY_COLUMNS.get(key, self.ADMIN_COLUMNS.get(key, [])),
+                    "computed_cols": list(self.ADMIN_COMPUTED_COLS),
+                    "rows":          rows,
+                    "edit_url":      url_for("view_object", obj_type=key),
                 }
+
             frames = [
                 _frame("llcOwners"),
                 _frame("llcCustomers"),

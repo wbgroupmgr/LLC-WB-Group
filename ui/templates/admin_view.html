@@ -26,14 +26,14 @@
         box-shadow: 0 1px 4px rgba(0,0,0,.08);
         margin-bottom: 16px; overflow: hidden;
     }
-    .admin-frame summary {
+    .admin-frame > summary {
         display: flex; align-items: center; gap: 10px;
         padding: 14px 18px; cursor: pointer; list-style: none;
         border-bottom: 2px solid #e5e7eb;
         background: #f9fafb;
     }
-    .admin-frame summary::-webkit-details-marker { display: none; }
-    .admin-frame[open] summary { border-bottom-color: #d1d5db; }
+    .admin-frame > summary::-webkit-details-marker { display: none; }
+    .admin-frame[open] > summary { border-bottom-color: #d1d5db; }
     .frame-title { font-size: 15px; font-weight: 700; color: #111827; flex: 1; }
     .frame-count { font-size: 12px; color: #9ca3af; }
     .frame-edit-btn {
@@ -55,19 +55,63 @@
         padding: 7px 10px; text-align: left; font-weight: 600;
         white-space: nowrap;
     }
+    .admin-table th.col-computed {
+        background: #f0fdf4; color: #16a34a;
+        font-style: italic;
+    }
     .admin-table td {
         border: 1px solid #e5e7eb; padding: 7px 10px;
         vertical-align: top; max-width: 280px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .admin-table td.cell-computed {
+        color: #16a34a; font-style: italic; font-variant-numeric: tabular-nums;
+    }
     .admin-table tr:hover td { background: #f9fafb; }
     .admin-empty {
-        color: #9ca3af; font-size: 13px; font-style: italic;
-        padding: 12px 0;
+        color: #9ca3af; font-size: 13px; font-style: italic; padding: 12px 0;
     }
-    /* pct field: render as % */
+    /* SSN masked display */
+    .ssn-masked { font-family: monospace; letter-spacing: 0.04em; color: #374151; }
+    /* numeric cells */
+    .num-cell { font-variant-numeric: tabular-nums; text-align: right; }
+    /* pct cell */
     .pct-cell { font-variant-numeric: tabular-nums; }
+    /* computed badge */
+    .computed-badge {
+        display: inline-block; font-size: 10px; font-weight: 700;
+        background: #dcfce7; color: #16a34a; border-radius: 4px;
+        padding: 1px 5px; margin-left: 4px; text-transform: uppercase;
+        letter-spacing: 0.05em; vertical-align: middle;
+    }
 </style>
+
+<script>
+/* SSN masking ───────────────────────────────────────────────────── */
+function maskSSN(v) {
+    if (!v) return "—";
+    const s = String(v).replace(/\D/g, "");
+    const last4 = s.length >= 4 ? s.slice(-4) : s.padStart(4, "?");
+    return "***-**-" + last4;
+}
+function toggleSSN(btn) {
+    const span = btn.previousElementSibling;
+    if (span.dataset.visible === "1") {
+        span.textContent = maskSSN(span.dataset.full);
+        span.dataset.visible = "0";
+        btn.textContent = "👁";
+    } else {
+        span.textContent = span.dataset.full || "—";
+        span.dataset.visible = "1";
+        btn.textContent = "🙈";
+    }
+}
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".ssn-masked[data-full]").forEach(span => {
+        span.textContent = maskSSN(span.dataset.full);
+    });
+});
+</script>
 {% endblock %}
 
 {% block content %}
@@ -92,6 +136,7 @@
 
 <!-- ── Collapsible frames ──────────────────────────────────────────── -->
 {% for frame in frames %}
+{% set computed = frame.computed_cols | default([]) %}
 <details class="admin-frame" open>
     <summary>
         <span class="collapse-chevron">▼</span>
@@ -106,7 +151,10 @@
             <thead>
                 <tr>
                     {% for col in frame.columns %}
-                    <th>{{ col }}</th>
+                    <th class="{{ 'col-computed' if col in computed else '' }}">
+                        {{ col }}
+                        {% if col in computed %}<span class="computed-badge">calc</span>{% endif %}
+                    </th>
                     {% endfor %}
                 </tr>
             </thead>
@@ -114,16 +162,51 @@
                 {% for row in frame.rows %}
                 <tr>
                     {% for col in frame.columns %}
-                    <td title="{{ row.get(col, '') }}">
-                        {%- set val = row.get(col, '') -%}
-                        {%- if col == 'pct' and val != '' -%}
-                            <span class="pct-cell">{{ "%.0f%%"|format(val * 100) }}</span>
-                        {%- elif val is iterable and val is not string -%}
-                            {{ val | join(', ') }}
-                        {%- else -%}
-                            {{ val }}
-                        {%- endif -%}
+                    {%- set val = row.get(col, '') -%}
+                    {%- set is_computed = col in computed -%}
+
+                    {%- if col == 'SSN' -%}
+                    {%- set ssn_str = (val | string) if val else '' -%}
+                    <td>
+                        <span class="ssn-masked" data-full="{{ ssn_str }}" data-visible="0">—</span>
+                        {% if ssn_str %}
+                        <button onclick="toggleSSN(this)"
+                                style="border:none;background:none;cursor:pointer;font-size:12px;padding:0 4px"
+                                title="Show/hide SSN">👁</button>
+                        {% endif %}
                     </td>
+
+                    {%- elif col == 'RetainedEarning' -%}
+                    <td class="cell-computed num-cell"
+                        title="YTD IS net income × ownership %">
+                        {%- if val != '' and val is not none -%}
+                            ${{ "{:,.2f}".format(val) }}
+                        {%- else -%}—{%- endif -%}
+                    </td>
+
+                    {%- elif col == 'rent' -%}
+                    <td class="num-cell"
+                        title="{{ val }}">
+                        {%- if val != '' and val is not none -%}
+                            ${{ "{:,.2f}".format(val | float) }}
+                        {%- else -%}—{%- endif -%}
+                    </td>
+
+                    {%- elif col == 'pct' -%}
+                    <td class="pct-cell num-cell" title="{{ val }}">
+                        {%- if val != '' and val is not none -%}
+                            {{ "%.0f%%"|format(val * 100) }}
+                        {%- else -%}—{%- endif -%}
+                    </td>
+
+                    {%- elif val is iterable and val is not string -%}
+                    <td title="{{ val | join(', ') }}">{{ val | join(', ') }}</td>
+
+                    {%- else -%}
+                    <td class="{{ 'cell-computed' if is_computed else '' }}"
+                        title="{{ val }}">{{ val if val != '' and val is not none else '—' }}</td>
+                    {%- endif -%}
+
                     {% endfor %}
                 </tr>
                 {% endfor %}
