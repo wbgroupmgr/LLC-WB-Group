@@ -125,6 +125,11 @@
             flex-wrap: wrap;
         }
         .nowrap { white-space: nowrap; }
+        /* ── New Transaction Edit Model row states (issue #8) ── */
+        .row-editing > td        { background: #fef3c7 !important; }
+        .row-pending-update > td { background: #fef9ec !important; }
+        .row-pending-delete > td { background: #fee2e2 !important; text-decoration: line-through; color: #9ca3af; }
+        .row-pending-add > td    { background: #dcfce7 !important; }
     </style>
     {% block head_extra %}{% endblock %}
 </head>

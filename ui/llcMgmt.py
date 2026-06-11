@@ -1176,6 +1176,67 @@ class llcMgmt:
                 saved = s(manager.save(new_rows))
                 return jsonify({"ok": True, "data": saved})
 
+            if cmd == "batch":
+                # Accept JSON body or form-encoded payload
+                body = request.get_json(silent=True) or {}
+                if not body.get("ops"):
+                    raw = request.values.get("payload", "{}")
+                    body = self._parse_payload(raw, {})
+                ops = body.get("ops", [])
+                if not ops:
+                    return jsonify({"ok": False, "error": "no ops in batch"}), 400
+
+                rows   = list(manager.load())
+                errors = []
+                delete_ids: Set[str] = set()
+                adds: List[Dict[str, Any]] = []
+
+                for op in ops:
+                    sub = op.get("cmd")
+                    if sub == "update":
+                        idx_raw = op.get("idx")
+                        rid     = str(op.get("id", ""))
+                        payload = dict(op.get("payload") or {})
+                        updated = False
+                        if idx_raw is not None:
+                            try:
+                                i = int(idx_raw)
+                                if 0 <= i < len(rows):
+                                    payload['tID'] = rows[i].get('tID')
+                                    rows[i] = payload
+                                    updated = True
+                            except (TypeError, ValueError):
+                                pass
+                        if not updated:
+                            for i, row in enumerate(rows):
+                                if self._row_id(row, i) == rid:
+                                    payload['tID'] = row.get('tID')
+                                    rows[i] = payload
+                                    updated = True
+                                    break
+                        if not updated:
+                            errors.append(f"update: record not found (id={rid!r})")
+                    elif sub == "add":
+                        payload = dict(op.get("payload") or {})
+                        payload['tID'] = self._gen_unique_tid(payload, rows + adds)
+                        adds.append(payload)
+                    elif sub == "delete":
+                        rid = str(op.get("id", ""))
+                        if rid:
+                            delete_ids.add(rid)
+                    else:
+                        errors.append(f"unknown sub-cmd: {sub!r}")
+
+                if errors:
+                    return jsonify({"ok": False, "error": "; ".join(errors)}), 400
+
+                if delete_ids:
+                    rows = [row for i, row in enumerate(rows)
+                            if self._row_id(row, i) not in delete_ids]
+                rows.extend(adds)
+                saved = s(manager.save(rows))
+                return jsonify({"ok": True, "data": saved})
+
             return jsonify({"ok": False, "error": f"Unknown command: {cmd}"}), 400
 
         # ── Book→IRS Aid routes (v0.1) ──────────────────────────────────────
