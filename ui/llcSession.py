@@ -65,6 +65,16 @@ class WkNode:
 
     def load(self) -> Any:
         if self.file_path.exists():
+            # Auto-refresh when real file is newer (git pull, migration, external edit).
+            obj_path = Path(self.o.FN())
+            try:
+                if obj_path.exists() and obj_path.stat().st_mtime > self.file_path.stat().st_mtime:
+                    data = self.o.load()
+                    self.save(data)
+                    print(f"⚠ WkNode: stale working file refreshed from {obj_path.name}")
+                    return data
+            except OSError:
+                pass
             return read_json_data(self.file_path)
         data = self.o.load()
         self.save(data)

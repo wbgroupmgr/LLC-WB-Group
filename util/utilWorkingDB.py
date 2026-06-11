@@ -52,7 +52,20 @@ class utilWorkingDB(ledgerDB):
         return f"/tmp/{self.o.oID}_{self.o.llc.objName}_temp.json"
 
     def load(self):
-        if Path(self.FN()).exists():
+        tmp_path  = Path(self.FN())
+        real_path = Path(self.o.FN())
+        if tmp_path.exists():
+            # Auto-refresh when real file is newer — covers git pull, external
+            # migration scripts, or any write that bypassed the edit session.
+            # After savePayload() real→temp are both written (temp last), so
+            # temp.mtime ≥ real.mtime and this branch is never triggered for
+            # normal editor saves.
+            if real_path.exists():
+                try:
+                    if real_path.stat().st_mtime > tmp_path.stat().st_mtime:
+                        self._refresh_from_real()
+                except OSError:
+                    pass
             tList = super().load()
             tList = self.llc.coa.getAcctType(tList)
             # filter to active fiscal year (single shared DB contains all years)
@@ -61,6 +74,18 @@ class utilWorkingDB(ledgerDB):
                 tList = [r for r in tList if str(r.get('dt', '')).startswith(yr)]
             return tList
         return []
+
+    def _refresh_from_real(self):
+        '''Unconditionally copy real DB → working file (stale-temp recovery).'''
+        try:
+            with open(self.o.FN(), 'r') as fio:
+                jStr = fio.read()
+            wkList = json.loads(jStr.replace('NaN', 'null'))
+            self.save(wkList)
+            self.oTime = self.fnTime(self.FN())
+            print(f"⚠ utilWorkingDB: stale temp refreshed from {Path(self.o.FN()).name}")
+        except Exception as err:
+            print(f"⚠ utilWorkingDB: refresh from real failed: {err}")
 
     #
     ## ---------- Working  file services

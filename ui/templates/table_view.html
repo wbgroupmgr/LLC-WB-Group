@@ -380,7 +380,7 @@
     }
 
     async function resetFromObject() {
-        if (!confirm("Reset working file from object file?")) return;
+        if (!confirm("Flush working session and reload from DB?\n\nThis discards any unsaved working changes and refreshes the view from the committed data file.")) return;
         const result = await postCmd({ cmd: "reset_from_object" });
         if (!result.ok) {
             alert(result.error || "Reset failed");
@@ -696,7 +696,7 @@
                         <button class="act-success" onclick="openAddEditor()">➕ Add</button>
                         <button class="act-primary" onclick="saveAndPublish()">💾 Save-Publish</button>
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh View</button>
-                        <button onclick="resetFromObject()">↺ Refresh DB</button>
+                        <button onclick="resetFromObject()">🔄 Flush & Reload from DB</button>
                         {% else %}
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
                         {% endif %}
