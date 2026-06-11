@@ -6,6 +6,47 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] — 2026-06-11  **IRS Guided Review — Form 8825 / 4562 / 1065 all GO**
+
+All three IRS Guided Review agents confirmed correct. No false-positive
+ERRORs or WARNings. Schedule K-1 SSN-per-member deferred to v1.2.
+
+### Added
+- **`BooksContext`** (`util/utilEditSession.py`): session-level lazy GL
+  snapshot shared by both `eSession.books` and `llc.books`. IRS agents
+  (which receive only `llc`) reuse the cached snapshot instead of
+  building a second `stmtGL` pass. Invalidated automatically by
+  `llcRecordsView.savePayload()` on every DB write.
+- **INFO / WARN / ERROR badge labels** in Guided Review issue rows
+  (`ui/templates/agent_generic_review.html`): replaces icon-only color
+  display with `ERROR` / `WARN` / `INFO` pill badges. Rule ID moved to a
+  separate monospace span after the badge.
+
+### Fixed
+- **`stmtIS.taxAggregates()` Debit-only overcounting** (`ledger/stmtIS.py`):
+  the v0.2 fast path (`rptFinancialReport.taxData()`) summed only the
+  Debit column for expense accounts, overcounting when the same account
+  had both a Debit and an offsetting Credit (e.g. an expense + its
+  refund/return). Guard added: skip fast path when `gl_records` were
+  explicitly passed to `stmtIS`. `_taxAggregates_local()` (Debit − Credit)
+  is now always used for all IRS agent calls via `_GLContext`.
+  Root cause of persistent F8EX-R05 false-positive ERROR on server with
+  `--load`: `utilEditSession` initialises `llc.bk` (via `_Bank()`), which
+  lets `rptFinancialReport.__init__` succeed; standalone tests skip it.
+- **`Form8825Agent._GLContext.build()`**: checks `llc.books` (BooksContext)
+  first so all four section agents within one run share a single snapshot
+  (`inject_context()`) — no extra file reads.
+- **`getSummary()` always-fresh**: never reads cached session-state JSON
+  as truth; always calls `run_phases_1_2()` fresh per request.
+
+### Documentation
+- `docs/Books/design_LLC_02-App-Accounting.md`: added "BooksContext —
+  Shared GL Snapshot (v1.1)" and "taxAggregates() Correctness Rule (v1.1)"
+  sections documenting the three-pipeline problem, BooksContext invariant,
+  and the Debit-only overcounting guard.
+
+---
+
 ## [0.3.0] — 2026-05-18  **PythonAnywhere Production Milestone**
 
 First version fully operational on PythonAnywhere under MultiTaskWS

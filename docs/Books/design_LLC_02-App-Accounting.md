@@ -207,4 +207,56 @@ util/utilWorkingDB.py
 util/utilEditSession.py
 ````
 
+---
+
+## BooksContext — Shared GL Snapshot (v1.1)
+
+### Problem: Three Isolated GL Pipelines
+
+Before v1.1, there were three independent GL build pipelines per request:
+
+| Pipeline | Entry point | Reads |
+|---|---|---|
+| UI views | `llcReportEngine.getGLList()` | real Accts/*.json |
+| IRS agents | `stmtGL(llc)._rows` | real Accts/*.json |
+| BookToIRS | `stmtIS_Tax(llc)` → `stmtGL(llc)` | real Accts/*.json |
+
+All three read the same files but built independently — wasting I/O and risking subtle drift if any pipeline added caching or filtering.
+
+### Solution: `BooksContext` on `eSession` and `llc`
+
+`util/utilEditSession.BooksContext` is a lazy, invalidation-aware GL snapshot:
+
+```python
+class BooksContext:
+    # gl_rows built on first access via stmtGL(llc)._rows
+    # invalidated by llcRecordsView.savePayload() on every DB write
+
+eSession.books = BooksContext(llc)
+llc.books      = eSession.books   # accessible to IRS agents (have llc, not eSession)
+```
+
+**Invariant:** `llc.books.gl_rows` is always the current on-disk GL. Any code that needs GL rows should prefer `llc.books.gl_rows` over calling `stmtGL(llc)` directly. `savePayload()` is the sole write point; it calls `books.invalidate()` automatically.
+
+**`Form8825Agent._GLContext.build(llc)`** checks `llc.books` first — all section agents in one run share a single snapshot via `inject_context()`.
+
+---
+
+## taxAggregates() Correctness Rule (v1.1)
+
+`stmtIS.taxAggregates()` has a v0.2 fast path that calls `rptFinancialReport.taxData()`. That legacy function sums only the **Debit column** for expense accounts — it ignores Credit entries. When an account has both a Debit and an offsetting Credit (e.g. an expense + its return/refund), the Debit is counted but the Credit is not, overstating `total_expenses`.
+
+**Rule (enforced in code):** when `gl_records` were explicitly passed to `stmtIS`, skip the fast path. The Balance-based `_taxAggregates_local()` (Debit − Credit) is authoritative.
+
+```python
+# guard in stmtIS.taxAggregates():
+if self._init_gl_records is None:
+    # try rptFinancialReport fast path
+    ...
+if not agg:
+    agg = self._taxAggregates_local()  # always correct
+```
+
+All IRS agent calls pass `gl_records=gl_rows` (via `_GLContext`), so they always get the correct Balance-based total.
+
 
