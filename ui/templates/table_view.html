@@ -18,9 +18,8 @@
     let activeRowIndex  = null;
 
     // ── New edit model state ──────────────────────────────────────────────────
-    const pendingOps  = new Map();  // rowKey → {cmd, id, idx, payload}
-    let   editQueue   = [];
-    let   editQueuePos = 0;
+    const pendingOps  = new Map();   // rowKey → {cmd, id, idx, payload}
+    const editingKeys = new Set();   // rowKeys currently open for inline edit
     let   coaList     = [];
 
     // ── Utilities ─────────────────────────────────────────────────────────────
@@ -308,29 +307,38 @@
     }
 
     // ── Setup keyboard nav for an open inline-edit row ────────────────────────
+    // Escape = cancelEdit (all open rows).
+    // Tab on last input of the last editing row in DOM order = doneEdit (all).
+    // Tab on last input of any other editing row = natural Tab (moves to next row).
+    // Enter on last input = doneEdit.
     function setupRowKeyboard(tr, key) {
         const inputs = Array.from(tr.querySelectorAll(".inline-input"));
         inputs.forEach((inp, i) => {
             inp.addEventListener("keydown", e => {
                 if (e.key === "Escape") {
                     e.preventDefault();
-                    cancelInlineRow(key);
+                    cancelEdit();
                 } else if (e.key === "Tab" && !e.shiftKey && i === inputs.length - 1) {
-                    e.preventDefault();
-                    finishInlineRow(key);
+                    // Only intercept if this is the last editing row in DOM order
+                    const allEditing = Array.from(document.querySelectorAll("tr.row-editing"));
+                    if (allEditing[allEditing.length - 1] === tr) {
+                        e.preventDefault();
+                        doneEdit();
+                    }
+                    // else: natural Tab moves focus to the next editing row's first input
                 } else if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     if (i < inputs.length - 1) inputs[i + 1].focus();
-                    else finishInlineRow(key);
+                    else doneEdit();
                 }
             });
         });
     }
 
-    // ── Start inline edit for a row ───────────────────────────────────────────
-    function startInlineEdit(key) {
+    // ── Open one row for inline editing ───────────────────────────────────────
+    function startInlineEdit(key, doFocus = true) {
         const tr = rowTr(key);
-        if (!tr) { advanceEditQueueFrom(key); return; }
+        if (!tr || editingKeys.has(key)) return;
 
         // Un-delete if currently pending_delete
         if (tr.classList.contains("row-pending-delete")) {
@@ -360,29 +368,29 @@
         tr.classList.remove("row-pending-update", "row-pending-add");
         tr.classList.add("row-editing");
         updateChgBadge(tr, "~", "chg-edit");
+        editingKeys.add(key);
 
         setupRowKeyboard(tr, key);
-        const first = tr.querySelector(".inline-input");
-        if (first) first.focus();
-
-        updateSelectionBarMode();
+        if (doFocus) {
+            const first = tr.querySelector(".inline-input");
+            if (first) first.focus();
+        }
     }
 
-    // ── Finish inline edit: capture values → pendingOps ──────────────────────
+    // ── Capture one row's edits → pendingOps (called by doneEdit) ────────────
     function finishInlineRow(key) {
         const tr = rowTr(key);
-        if (!tr) { advanceEditQueueFrom(key); return; }
+        editingKeys.delete(key);
+        if (!tr) return;
 
         const rowIndex = parseInt(tr.dataset.rowIndex, 10);
         const isNew    = isNewRow(key);
 
-        // Collect edited values from inputs
         const edited = {};
         tr.querySelectorAll(".inline-input").forEach(inp => {
             edited[inp.dataset.col] = parseValue(inp.value);
         });
 
-        // Build full payload (preserve non-visible fields)
         let payload;
         if (isNew) {
             const existingOp = pendingOps.get(key);
@@ -393,7 +401,6 @@
             payload = { ...orig, ...edited };
         }
 
-        // Update display cells with new values (close inputs)
         tr.querySelectorAll("td[data-col]").forEach(td => {
             const col = td.dataset.col;
             const val = edited[col];
@@ -413,15 +420,13 @@
             updateChgBadge(tr, "✎", "chg-edit");
             pendingOps.set(key, { cmd: "update", id: tr.dataset.tid, idx: rowIndex, payload });
         }
-
-        advanceEditQueueFrom(key);
-        updateCommitBar();
     }
 
-    // ── Cancel inline edit: revert row ────────────────────────────────────────
+    // ── Revert one row (called by cancelEdit) ─────────────────────────────────
     function cancelInlineRow(key) {
         const tr = rowTr(key);
-        if (!tr) { editQueue = editQueue.filter(k => k !== key); updateSelectionBarMode(); return; }
+        editingKeys.delete(key);
+        if (!tr) return;
 
         const rowIndex = parseInt(tr.dataset.rowIndex, 10);
 
@@ -434,41 +439,28 @@
             pendingOps.delete(key);
             restoreChgBadge(tr);
         }
+    }
 
-        editQueue = editQueue.filter(k => k !== key);
+    // ── Done / Cancel act on ALL currently open rows ──────────────────────────
+    function doneEdit() {
+        if (!editingKeys.size) return;
+        Array.from(editingKeys).forEach(k => finishInlineRow(k));
+        editingKeys.clear();
         updateSelectionBarMode();
         updateCommitBar();
     }
 
-    // ── Edit queue advance ────────────────────────────────────────────────────
-    function advanceEditQueueFrom(key) {
-        const pos = editQueue.indexOf(key);
-        if (pos === -1) return;
-        editQueuePos = pos + 1;
-        if (editQueuePos < editQueue.length) {
-            startInlineEdit(editQueue[editQueuePos]);  // startInlineEdit calls updateSelectionBarMode
-        } else {
-            editQueue    = [];
-            editQueuePos = 0;
-            updateSelectionBarMode();
-        }
-    }
-
-    function updateEditQueueIndicator() {
-        const lbl = document.getElementById("editQueueLabel");
-        if (!lbl) return;
-        if (editQueue.length > 1 && editQueuePos < editQueue.length) {
-            lbl.textContent = `Editing ${editQueuePos + 1} of ${editQueue.length}`;
-            lbl.style.display = "inline";
-        } else {
-            lbl.textContent = "";
-            lbl.style.display = "none";
-        }
+    function cancelEdit() {
+        if (!editingKeys.size) return;
+        Array.from(editingKeys).forEach(k => cancelInlineRow(k));
+        editingKeys.clear();
+        updateSelectionBarMode();
+        updateCommitBar();
     }
 
     // ── Selection bar — two modes ─────────────────────────────────────────────
     // select-mode: Edit / Delete / Dup / JSON  (shown when ≥1 row checked)
-    // edit-mode:   ✓ Done / ✗ Cancel          (shown when a row is open for inline edit)
+    // edit-mode:   ✓ Done / ✗ Cancel          (shown while any row is open for editing)
     function getSelectedRows() {
         const result = [];
         document.querySelectorAll(".row-select:checked").forEach(cb => {
@@ -480,44 +472,36 @@
     }
 
     function updateSelectionBarMode() {
-        const bar        = document.getElementById("selectionBar");
+        const bar       = document.getElementById("selectionBar");
         if (!bar) return;
-        const grpSelect  = document.getElementById("actGrpSelect");
-        const grpEdit    = document.getElementById("actGrpEdit");
-        const cnt        = document.getElementById("selCount");
-        const lbl        = document.getElementById("editQueueLabel");
+        const grpSelect = document.getElementById("actGrpSelect");
+        const grpEdit   = document.getElementById("actGrpEdit");
+        const cnt       = document.getElementById("selCount");
+        const lbl       = document.getElementById("editQueueLabel");
 
-        const isEditing  = editQueue.length > 0 && editQueuePos < editQueue.length;
-        const selCount   = getSelectedRows().length;
+        const isEditing = editingKeys.size > 0;
+        const selCount  = getSelectedRows().length;
 
         if (isEditing) {
-            // Edit-mode: show Done/Cancel, hide select buttons
             bar.style.display = "flex";
             if (grpSelect) grpSelect.style.display = "none";
             if (grpEdit)   grpEdit.style.display   = "flex";
             if (cnt) cnt.textContent = "";
             if (lbl) {
-                if (editQueue.length > 1) {
-                    lbl.textContent = `Editing ${editQueuePos + 1} of ${editQueue.length}`;
-                    lbl.style.display = "inline";
-                } else {
-                    lbl.textContent = "Editing row…";
-                    lbl.style.display = "inline";
-                }
+                lbl.textContent   = editingKeys.size > 1
+                    ? `Editing ${editingKeys.size} rows` : "Editing row…";
+                lbl.style.display = "inline";
             }
         } else {
-            // Select-mode
             if (grpSelect) grpSelect.style.display = "flex";
             if (grpEdit)   grpEdit.style.display   = "none";
             if (lbl) { lbl.textContent = ""; lbl.style.display = "none"; }
             bar.style.display = selCount > 0 ? "flex" : "none";
             if (cnt) cnt.textContent = `${selCount} selected`;
 
-            // JSON button disabled unless exactly 1 row selected
             const btnJSON = document.getElementById("btnJSON");
             if (btnJSON) btnJSON.disabled = selCount !== 1;
 
-            // Sync select-all checkbox
             const total     = document.querySelectorAll(".row-select").length;
             const selectAll = document.getElementById("selectAll");
             if (selectAll) {
@@ -527,18 +511,7 @@
         }
     }
 
-    // Keep old name as alias (called by checkbox delegation and revertAll)
     function selChanged() { updateSelectionBarMode(); }
-
-    // Done / Cancel for the currently open inline-edit row
-    function doneEdit() {
-        if (editQueue.length === 0) return;
-        finishInlineRow(editQueue[editQueuePos]);
-    }
-    function cancelEdit() {
-        if (editQueue.length === 0) return;
-        cancelInlineRow(editQueue[editQueuePos]);
-    }
 
     // ── Commit bar ────────────────────────────────────────────────────────────
     function updateCommitBar() {
@@ -550,14 +523,12 @@
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
+    // Edit: open ALL selected rows simultaneously; focus the first one.
     function actionEdit() {
-        const sel = getSelectedRows();
-        if (!sel.length) return;
-        // Skip rows already being edited
-        editQueue    = sel.filter(({tr}) => !tr.classList.contains("row-editing")).map(({key}) => key);
-        editQueuePos = 0;
-        if (!editQueue.length) return;
-        startInlineEdit(editQueue[0]);  // startInlineEdit calls updateSelectionBarMode
+        const toEdit = getSelectedRows().filter(({tr}) => !tr.classList.contains("row-editing"));
+        if (!toEdit.length) return;
+        toEdit.forEach(({key}, i) => startInlineEdit(key, i === 0));
+        updateSelectionBarMode();
     }
 
     function actionDelete() {
@@ -628,9 +599,11 @@
 
         tbody.insertBefore(newTr, tbody.firstChild);
         pendingOps.set(key, { cmd: "add", id: null, idx: -1, payload: {} });
+        editingKeys.add(key);
         setupRowKeyboard(newTr, key);
         const first = newTr.querySelector(".inline-input");
         if (first) first.focus();
+        updateSelectionBarMode();
         updateCommitBar();
     }
 
@@ -726,8 +699,7 @@
         });
 
         pendingOps.clear();
-        editQueue    = [];
-        editQueuePos = 0;
+        editingKeys.clear();
         updateCommitBar();
         updateSelectionBarMode();
     }
