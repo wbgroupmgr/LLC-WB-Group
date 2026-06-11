@@ -389,7 +389,25 @@ Storage: `books/{year}/Forms/IRS_Submission_{year}/manifest.json`
 
 ### Phase 4 — Submission
 
-The LLCTaxAgent guides the bookkeeper through the final IRS submission workflow. This phase is **informational and checklist-driven** — the agent does not electronically file (MeF/e-file is out of scope for v1.0). It provides expert knowledge on what to do and tracks status.
+This phase is **informational and checklist-driven** — the agent does not electronically file (MeF/e-file is out of scope for v1.0). It provides expert knowledge on what to do and tracks status.
+
+The LLCTaxAgent guides the bookkeeper through the final IRS submission workflow, per below:
+
+1. Work thru all the IRS Forms till they are all GO.  (FormXXX_Agent and the set of section agents).
+2. Select Submit IRS - that will open the LLCTaxAgent's "IRS Submission Agent" view (Submit view).
+3. The submit view provides the following frames:
+    - IRS Submission Checklist view that behaves like the form "Guided Review"
+        - show each check item,
+        - action items needed and aids to help complete the item.
+    - Accountant Preview Letter
+        - creates an Accountant Notification Letter (pdf) requesting the accountant to preview the IRS package
+        - instructions on how to login and review the IRS submission package contents online. 
+    - IRS Submission - commit to create the IRS package (per Phase 3)
+        - builds IRS submiossion package
+        - puts IRS submission package onto final delivery folder
+        - Send package to IRS electronically or describes steps needed to accomplish this
+             (this will be hard to test... as we can only send once). 
+
 
 #### Submission Checklist (surfaced in `/view/tax_prep`)
 

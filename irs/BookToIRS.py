@@ -142,11 +142,8 @@ class BookToIRS:
         return self._accountingDir() / ".bookNS_backups"
 
     def _namespacePath(self) -> Path:
-        try:
-            irs_dir = Path(self.llc.acctDir(dirName="ye")) / "Forms_IRS"
-        except Exception:
-            irs_dir = self._accountingDir() / "YE_Tax_Records" / "Forms_IRS"
-        return irs_dir / f"{self.formNm}_namespace.json"
+        # namespace files live alongside bookNS files: books/{year}/Forms/
+        return self._accountingDir() / "Forms" / f"{self.formNm}_namespace.json"
 
     def _profilePath(self) -> Path:
         """Canonical ``llcProfile_<llcName>.json`` (the per-LLC profile JSON

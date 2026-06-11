@@ -175,7 +175,7 @@ class AgentSchK1_Identity(_SectionAgent):
         if isinstance(nm, list):
             nm = ' '.join(nm)
         pct = _owner_pct(owner)
-        tin = owner.get('ssn', owner.get('tin', owner.get('TIN', '')))
+        tin = owner.get('SSN', owner.get('ssn', owner.get('tin', owner.get('TIN', ''))))
         tin_masked = f"***-**-{str(tin)[-4:]}" if tin and len(str(tin).replace('-', '')) >= 4 else 'TIN missing'
         return f"Identity: {nm}, {pct*100:.2f}%, {tin_masked}."
 
@@ -188,7 +188,7 @@ class AgentSchK1_Identity(_SectionAgent):
         SSN must be 9 digits (strip dashes). A missing or malformed TIN causes
         IRS matching failure and may trigger penalties under IRC §6722.
         """
-        tin  = str(owner.get('ssn', owner.get('tin', owner.get('TIN', '')))).replace('-', '').strip()
+        tin  = str(owner.get('SSN', owner.get('ssn', owner.get('tin', owner.get('TIN', ''))))).replace('-', '').strip()
         oID  = owner.get('oID', owner.get('ownerID', ''))
         nm   = owner.get('nm', owner.get('name', oID))
         if isinstance(nm, list):
