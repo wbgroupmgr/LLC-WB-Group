@@ -44,17 +44,17 @@
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Income',                data: incomes, backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3 },
-                        { label: 'Oper. Expense',         data: expOp,   backgroundColor: 'rgba(239,68,68,0.75)',  borderRadius: 3 },
-                        { label: 'Depreciation (Cap.)',   data: expCap,  backgroundColor: 'rgba(59,130,246,0.75)', borderRadius: 3 },
+                        { label: 'Income',      data: incomes, backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3, stack: 'income' },
+                        { label: 'Exp: Ops',    data: expOp,   backgroundColor: 'rgba(239,68,68,0.75)',  borderRadius: 0, stack: 'expense' },
+                        { label: 'Exp:NonOps',  data: expCap,  backgroundColor: 'rgba(59,130,246,0.75)', borderRadius: 3, stack: 'expense' },
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { labels: { color: '#d1d5db', font: { size: 11 } } } },
                     scales: {
-                        x: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' } },
-                        y: { ticks: { color: '#9ca3af', font: { size: 10 },
+                        x: { stacked: true, ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+                        y: { stacked: true, ticks: { color: '#9ca3af', font: { size: 10 },
                                       callback: v => '$' + (Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'k' : v) },
                              grid: { color: 'rgba(255,255,255,.08)' } },
                     }
