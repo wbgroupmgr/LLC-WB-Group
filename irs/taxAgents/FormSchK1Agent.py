@@ -489,10 +489,8 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
         # Get mortgage from BS if available
         mortgage = 0.0
         try:
-            from stmt.stmtBS import stmtBalanceSheet
-            bs = stmtBalanceSheet(self.llc)
-            agg = bs.taxAggregates() if hasattr(bs, 'taxAggregates') else {}
-            mortgage = _safe_float(agg.get('mortgage', 0))
+            from ledger.stmtBS import stmtBS_Tax
+            mortgage = _safe_float(stmtBS_Tax(self.llc).taxAggregates().get('mortgage', 0))
         except Exception:
             pass
 

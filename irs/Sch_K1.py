@@ -450,10 +450,8 @@ class Sch_K1(Form1065):
         # W&B: typical commercial RE mortgage = qualified nonrecourse (§465(b)(6))
         mortgage_total = 0.0
         try:
-            from stmt.stmtBS import stmtBalanceSheet
-            bs_agg = stmtBalanceSheet(self.llc).taxAggregates() if hasattr(
-                stmtBalanceSheet(self.llc), 'taxAggregates') else {}
-            mortgage_total = float(bs_agg.get("mortgage", 0))
+            from ledger.stmtBS import stmtBS_Tax
+            mortgage_total = float(stmtBS_Tax(self.llc).taxAggregates().get("mortgage", 0))
         except Exception:
             pass
         # Fall back to bs_data if available
