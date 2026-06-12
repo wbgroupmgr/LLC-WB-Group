@@ -31,10 +31,11 @@
             set('fsEarnedPnl',  data.earned_pnl, data.earned_pnl < 0 ? 'fs-negative' : 'fs-positive');
 
             // Bar chart
-            const monthly = data.monthly || [];
-            const labels   = monthly.map(m => m.label);
-            const incomes  = monthly.map(m => m.income);
-            const expenses = monthly.map(m => m.expense);
+            const monthly   = data.monthly || [];
+            const labels     = monthly.map(m => m.label);
+            const incomes    = monthly.map(m => m.income);
+            const expOp      = monthly.map(m => m.expense_op);
+            const expCap     = monthly.map(m => m.expense_cap);
             const ctx = document.getElementById('fsBarChart');
             if (!ctx) return;
             if (_fsChart) _fsChart.destroy();
@@ -43,8 +44,9 @@
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Income',  data: incomes,  backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3 },
-                        { label: 'Expense', data: expenses, backgroundColor: 'rgba(239,68,68,0.75)',  borderRadius: 3 },
+                        { label: 'Income',                data: incomes, backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3 },
+                        { label: 'Oper. Expense',         data: expOp,   backgroundColor: 'rgba(239,68,68,0.75)',  borderRadius: 3 },
+                        { label: 'Depreciation (Cap.)',   data: expCap,  backgroundColor: 'rgba(59,130,246,0.75)', borderRadius: 3 },
                     ]
                 },
                 options: {

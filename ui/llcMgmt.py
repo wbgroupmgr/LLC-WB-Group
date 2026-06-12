@@ -818,11 +818,14 @@ class llcMgmt:
                     ym  = dt[:7]   # "2025.08"
                     amt = float(r.get('amt') or 0)
                     if ym not in monthly:
-                        monthly[ym] = {'income': 0.0, 'expense': 0.0}
+                        monthly[ym] = {'income': 0.0, 'expense_op': 0.0, 'expense_cap': 0.0}
                     if acct.startswith('Acct.Rev'):
                         monthly[ym]['income'] = round(monthly[ym]['income'] + amt, 2)
+                    elif acct == 'Acct.Exp.Depreciation':
+                        # Capitalization expense — depreciation recorded at year-end
+                        monthly[ym]['expense_cap'] = round(monthly[ym]['expense_cap'] + amt, 2)
                     elif acct.startswith('Acct.Exp'):
-                        monthly[ym]['expense'] = round(monthly[ym]['expense'] + amt, 2)
+                        monthly[ym]['expense_op'] = round(monthly[ym]['expense_op'] + amt, 2)
 
                 _ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -833,9 +836,10 @@ class llcMgmt:
                         lbl = _ABBR[int(parts[1])] if len(parts) >= 2 else ym
                     except (ValueError, IndexError):
                         lbl = ym
-                    chart_data.append({'label': lbl,
-                                       'income':  monthly[ym]['income'],
-                                       'expense': monthly[ym]['expense']})
+                    chart_data.append({'label':       lbl,
+                                       'income':      monthly[ym]['income'],
+                                       'expense_op':  monthly[ym]['expense_op'],
+                                       'expense_cap': monthly[ym]['expense_cap']})
 
                 return jsonify({
                     'ok':             True,
