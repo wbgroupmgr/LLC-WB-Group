@@ -48,88 +48,180 @@ except ImportError:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  DATE PARSING  — "Jan. 01" or "01/01" → (month_str, day_str)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _parse_month_day(date_str: str):
+    """Return (MM, DD) strings from 'Jan. 01' or 'MM/DD' or 'MM-DD'."""
+    _MONTH_MAP = {
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+        'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+        'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+    }
+    s = str(date_str or '').strip().lower()
+    for abbr, mm in _MONTH_MAP.items():
+        if s.startswith(abbr):
+            day_m = re.search(r'(\d{1,2})\s*$', s)
+            return mm, (day_m.group(1).zfill(2) if day_m else '01')
+    m = re.match(r'(\d{1,2})[/\-](\d{1,2})', s)
+    if m:
+        return m.group(1).zfill(2), m.group(2).zfill(2)
+    return '01', '01'
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  K-1 FIELD MAP  (logicalKey → fill spec)
 # ════════════════════════════════════════════════════════════════════════════
 
 _FILL_MAP_K1: Dict[str, Dict] = {
 
-    # ── Partnership identification (same for every K-1) ──────────────────
-    "K1_EIN":     {"source": "entity",  "path": "ein",
-                   "note": "Partnership EIN"},
-    "K1_TaxYr":   {"source": "F1065",   "path": "tax_year",
-                   "note": "2-digit tax year, e.g. '25'"},
-    "K1_PtEIN":   {"source": "partner", "path": "ein",
-                   "note": "Partner's SSN or EIN"},
-    "K1_PshipNm": {"source": "entity",  "path": "entity_name",
-                   "note": "Partnership name"},
-    "K1_PshipAddr": {"source": "entity", "path": "address",
-                     "note": "Partnership address"},
+    # ── Tax year header (same for every K-1) ────────────────────────────────
+    "K1_TaxYrBeginMon": {"source": "F1065", "path": "date_from_month",
+                         "note": "Tax year beginning — month (MM)"},
+    "K1_TaxYrBeginDay": {"source": "F1065", "path": "date_from_day",
+                         "note": "Tax year beginning — day (DD)"},
+    "K1_TaxYrEndMon":   {"source": "F1065", "path": "date_to_month",
+                         "note": "Tax year ending — month (MM)"},
+    "K1_TaxYrEndDay":   {"source": "F1065", "path": "date_to_day",
+                         "note": "Tax year ending — day (DD)"},
+    "K1_TaxYr":         {"source": "F1065", "path": "tax_year_2d",
+                         "note": "Tax year ending — 2-digit (e.g. '25')"},
+    "K1_Final":         {"source": "F1065", "path": "is_final_k1",
+                         "note": "Final K-1 flag (checkBox — only set when True)"},
+    "K1_Amended":       {"source": "F1065", "path": "is_amended_k1",
+                         "note": "Amended K-1 flag (checkBox — only set when True)"},
 
-    # ── Partner identification ────────────────────────────────────────────
-    "K1_PtName":  {"source": "partner", "path": "name",
-                   "note": "Partner's name"},
-    "K1_PtAddr":  {"source": "partner", "path": "address",
-                   "note": "Partner's address"},
-    "K1_PtType":  {"source": "partner", "path": "mem_type",
-                   "note": "General / limited / LLC member"},
-    "K1_PtStatus": {"source": "partner", "path": "status",
-                    "note": "Active / passive status"},
+    # ── Partnership identification (Part I, same for every K-1) ─────────────
+    "K1_EIN":       {"source": "entity",  "path": "ein",
+                     "note": "Partnership EIN (Line A)"},
+    "K1_PshipNm":   {"source": "entity",  "path": "entity_name",
+                     "note": "Partnership name (Line B)"},
+    "K1_PshipAddr": {"source": "entity",  "path": "address",
+                     "note": "Partnership street address (Line B)"},
+    "K1_PshipCSZ":  {"source": "entity",  "path": "city_state_zip",
+                     "note": "Partnership city/state/ZIP (Line B)"},
+    "K1_IRSCtr":    {"source": "F1065",   "path": "irs_center",
+                     "note": "IRS Service Center (Line C)"},
+    "K1_PTP":       {"source": "F1065",   "path": "is_ptp",
+                     "note": "PTP flag (Line D) — always False for private LLC"},
 
-    # ── Partner percentages (Box J) ───────────────────────────────────────
-    "K1_J_Profit":  {"source": "partner", "path": "pct_str",
-                     "note": "Profit % (end of year)"},
-    "K1_J_Loss":    {"source": "partner", "path": "pct_str",
-                     "note": "Loss % (end of year)"},
-    "K1_J_Capital": {"source": "partner", "path": "pct_str",
-                     "note": "Capital % (end of year)"},
+    # ── Partner identification (Part II, per-partner) ────────────────────────
+    "K1_PtEIN":     {"source": "partner", "path": "ein",
+                     "note": "Partner's SSN or EIN (Line E)"},
+    "K1_PtName":    {"source": "partner", "path": "name",
+                     "note": "Partner's name (Line F)"},
+    "K1_PtAddr":    {"source": "partner", "path": "address",
+                     "note": "Partner's address/city/state/ZIP (Line F)"},
+    "K1_PtTypeGP":  {"source": "partner", "path": "is_gp_manager",
+                     "note": "Line G: GP/LLC member-manager checkbox"},
+    "K1_PtTypeLP":  {"source": "partner", "path": "is_lp_member",
+                     "note": "Line G: LP/LLC member checkbox"},
+    "K1_PtDomestic":{"source": "partner", "path": "is_domestic",
+                     "note": "Line H1: Domestic partner"},
+    "K1_PtForeign": {"source": "partner", "path": "is_foreign",
+                     "note": "Line H1: Foreign partner"},
+    "K1_PtDE":      {"source": "partner", "path": "is_de",
+                     "note": "Line H2: Disregarded entity"},
+    "K1_PtRetPlan": {"source": "partner", "path": "is_ret_plan",
+                     "note": "Line I: Partner is retirement plan"},
 
-    # ── Box 1 — Ordinary business income (loss) ──────────────────────────
+    # ── Box J — ownership percentages (end of year) ──────────────────────────
+    "K1_J_Profit":    {"source": "partner", "path": "pct_str",
+                       "note": "Box J Profit % end of year"},
+    "K1_J_Loss":      {"source": "partner", "path": "pct_str",
+                       "note": "Box J Loss % end of year"},
+    "K1_J_Capital":   {"source": "partner", "path": "pct_str",
+                       "note": "Box J Capital % end of year"},
+    # Beginning of year — blank for first year; same as end for ongoing
+    "K1_J_ProfitBeg": {"source": "partner", "path": "pct_str_beg",
+                       "note": "Box J Profit % beginning of year"},
+    "K1_J_LossBeg":   {"source": "partner", "path": "pct_str_beg",
+                       "note": "Box J Loss % beginning of year"},
+    "K1_J_CapBeg":    {"source": "partner", "path": "pct_str_beg",
+                       "note": "Box J Capital % beginning of year"},
+
+    # ── Box K1 — partner's share of liabilities ──────────────────────────────
+    # IRC §752; Treas. Reg. §1.752-2/3
+    # W&B: typical commercial RE mortgage = qualified nonrecourse (§465(b)(6))
+    "K1_K_Nonrec":   {"source": "partner_BS", "path": "nonrecourse",
+                      "note": "Box K1: Nonrecourse liabilities × pct (end)"},
+    "K1_K_QNR":      {"source": "partner_BS", "path": "qnr",
+                      "note": "Box K1: Qualified nonrecourse financing × pct (end)"},
+    "K1_K_Rec":      {"source": "partner_BS", "path": "recourse",
+                      "note": "Box K1: Recourse liabilities × pct (end)"},
+
+    # ── Box L — capital account analysis (tax basis, Rev. Proc. 2020-13) ────
+    "K1_L_TaxBasis": {"source": "F1065",      "path": "cap_tax_basis_flag",
+                      "note": "Box L method: Tax basis (checkBox, always checked)"},
+    "K1_L1":         {"source": "partner_cap", "path": "beg_capital",
+                      "note": "Box L: Capital account beginning of year"},
+    "K1_L2":         {"source": "partner_cap", "path": "contributions",
+                      "note": "Box L: Capital contributed during year"},
+    "K1_L3":         {"source": "partner_cap", "path": "net_income",
+                      "note": "Box L: Current year net income (loss) × pct"},
+    "K1_L4":         {"source": "partner_cap", "path": "distributions",
+                      "note": "Box L: Withdrawals and distributions"},
+    "K1_L5":         {"source": "partner_cap", "path": "end_capital",
+                      "note": "Box L: Ending capital account"},
+
+    # ── Line N — §704(c) unrecognized gain/loss ──────────────────────────────
+    "K1_N_Beg": {"source": "partner", "path": "sec704c_beg",
+                 "note": "Line N: Net §704(c) gain — beginning ($0 if cash-only)"},
+    "K1_N_End": {"source": "partner", "path": "sec704c_end",
+                 "note": "Line N: Net §704(c) gain — end ($0 if cash-only)"},
+
+    # ── Part III — Income / Deductions (per-partner) ─────────────────────────
+    # Box 1: IRC §469(c)(2) — rental LLC MUST be $0 (passive, not ordinary)
     "K1_1":  {"source": "partner_IS", "path": "ordinary_income",
-               "note": "Box 1: Ordinary income × partner P&L %"},
-
-    # ── Box 2 — Net rental real estate income (loss) ─────────────────────
-    "K1_2":  {"source": "partner_IS", "path": "rent_income",
-               "note": "Box 2: Rental income × partner P&L %"},
-
-    # ── Box 5 — Interest income ───────────────────────────────────────────
+               "note": "Box 1: Ordinary income × pct — MUST be $0 (IRC §469(c)(2))"},
+    # Box 2: Books-First (IRC §446/703) — IS.net_rental × pct
+    "K1_2":  {"source": "partner_IS", "path": "net_rental",
+               "note": "Box 2: Net rental income × pct (Books-First IRC §446)"},
+    # Box 3: Other rental — $0 for real-estate-only LLC
+    "K1_3":  {"source": "partner_IS", "path": "other_rental",
+               "note": "Box 3: Other net rental income — $0"},
+    # Box 4: Guaranteed payments — $0 (IRC §707(c)); W&B has none
+    "K1_4a": {"source": "partner_IS", "path": "guaranteed_svcs",
+               "note": "Box 4a: Guaranteed payments for services — $0"},
+    "K1_4b": {"source": "partner_IS", "path": "guaranteed_cap",
+               "note": "Box 4b: Guaranteed payments for capital — $0"},
+    "K1_4c": {"source": "partner_IS", "path": "guaranteed_tot",
+               "note": "Box 4c: Total guaranteed payments — $0"},
+    # Box 5: Interest income (IRC §702(a)(1) separately stated)
     "K1_5":  {"source": "partner_IS", "path": "interest_income",
-               "note": "Box 5: Interest income × partner P&L %"},
-
-    # ── Box 14 — Self-employment earnings ────────────────────────────────
+               "note": "Box 5: Interest income × pct"},
+    # Boxes 6-10: Investment items — $0 unless property sold
+    "K1_6a": {"source": "partner_IS", "path": "ord_dividends",
+               "note": "Box 6a: Ordinary dividends — $0"},
+    "K1_7":  {"source": "partner_IS", "path": "royalties",
+               "note": "Box 7: Royalties — $0"},
+    "K1_8":  {"source": "partner_IS", "path": "st_cap_gain",
+               "note": "Box 8: Net ST capital gain — $0 unless property sold"},
+    "K1_9a": {"source": "partner_IS", "path": "lt_cap_gain",
+               "note": "Box 9a: Net LT capital gain — $0 unless property sold"},
+    "K1_10": {"source": "partner_IS", "path": "sec1231_gain",
+               "note": "Box 10: §1231 gain — $0 unless property sold"},
+    # Box 12: §179 — passive limitation (IRC §469(j)(1)) applies
+    "K1_12": {"source": "partner_IS", "path": "sec179",
+               "note": "Box 12: §179 deduction × pct (if any; IRC §469(j)(1) limits)"},
+    # Box 14a: SE earnings — MUST be $0 (IRC §1402(a)(1)/(13))
     "K1_14a": {"source": "partner_IS", "path": "se_earnings",
-                "note": "Box 14a: SE earnings (ordinary income if positive)"},
-
-    # ── Box 19 — Distributions ───────────────────────────────────────────
+                "note": "Box 14a: SE earnings — MUST be $0 (IRC §1402(a)(1))"},
+    # Box 19a: Distributions
     "K1_19a": {"source": "partner_IS", "path": "distributions",
-                "note": "Box 19a: Cash distributions = max(0,NI) × partner %"},
-
-    # ── Box L — Capital account analysis ─────────────────────────────────
-    "K1_L1":  {"source": "partner_cap", "path": "beg_capital",
-                "note": "Capital account beginning of year (prior-year ending)"},
-    "K1_L2":  {"source": "partner_cap", "path": "contributions",
-                "note": "Capital contributed during year (cash)"},
-    "K1_L3":  {"source": "partner_cap", "path": "net_income",
-                "note": "Current year net income (loss) × partner %"},
-    "K1_L4":  {"source": "partner_cap", "path": "distributions",
-                "note": "Withdrawals and distributions"},
-    "K1_L5":  {"source": "partner_cap", "path": "end_capital",
-                "note": "Capital account end of year"},
+                "note": "Box 19a: Cash distributions = max(0,NI) × pct"},
 }
 
-# Fields requiring CPA / manual review
+# Fields requiring CPA / manual review (auto-mapped as CPA:unknown when not set)
 _CPA_NOTES_K1: Dict[str, str] = {
-    "K1_3":   "Box 3: Other net rental income — CPA review",
-    "K1_4":   "Box 4: Guaranteed payments — CPA review",
-    "K1_6a":  "Box 6a: Ordinary dividends — CPA review",
-    "K1_7":   "Box 7: Royalties — CPA review",
-    "K1_8":   "Box 8: Net short-term capital gain — CPA review",
-    "K1_9a":  "Box 9a: Net long-term capital gain — CPA review",
-    "K1_10":  "Box 10: Net §1231 gain — CPA review",
-    "K1_12":  "Box 12: §179 deduction — CPA review",
-    "K1_13a": "Box 13a: Charitable contributions — CPA review",
-    "K1_17a": "Box 17a: AMT — post-1986 depreciation — CPA review",
-    "K1_20":  "Box 20: Other info (QBI §199A, etc.) — CPA review",
-    "K1_L1":  "Capital beginning of year — requires prior-year data",
+    "K1_K_NonrecBeg": "Box K1: Nonrecourse liabilities beginning — prior-year data needed",
+    "K1_K_QNRBeg":    "Box K1: QNR financing beginning — prior-year data needed",
+    "K1_K_RecBeg":    "Box K1: Recourse liabilities beginning — prior-year data needed",
+    "K1_9b":          "Box 9b: Collectibles gain — CPA review",
+    "K1_9c":          "Box 9c: Unrecaptured §1250 gain — CPA review if property sold",
+    "K1_17a":         "Box 17a: AMT post-1986 depreciation — CPA review",
+    "K1_20":          "Box 20: QBI §199A — CPA review",
+    "K1_L1":          "Box L: Capital beginning of year — prior-year data needed",
 }
 
 
@@ -236,8 +328,23 @@ class Sch_K1(Form1065):
         dict   Complete fillDict — ALL fields, publish flags, per-partner values.
         """
         # ── Step A: base dict (all fields, publish=False) ──────────────────
-        # Call irsForm._buildFillDict directly (skip Form1065's FILL_MAP)
+        # Prefer the saved namespace file (which has our logicalKey assignments)
+        # over the PDF-derived nSpaceDict (which has no logicalKeys).
         from irs.irsForm import irsForm
+        saved_ns_path = self._nspaceFN()
+        if saved_ns_path.exists():
+            try:
+                with open(saved_ns_path, "r", encoding="utf-8") as _fh:
+                    _saved = json.load(_fh)
+                # Merge logicalKey/label from saved file into nSpaceDict fields
+                _saved_fields = _saved.get("fields", {})
+                _ns_fields = nSpaceDict.get("fields", {})
+                for _fid, _sfd in _saved_fields.items():
+                    if _fid in _ns_fields:
+                        _ns_fields[_fid]["logicalKey"] = _sfd.get("logicalKey", "")
+                        _ns_fields[_fid]["label"]      = _sfd.get("label", "")
+            except Exception:
+                pass  # fall through to original nSpaceDict
         fillDict = irsForm._buildFillDict(self, nSpaceDict)
 
         # ── Step B: reverse index logicalKey → fID ─────────────────────────
@@ -272,56 +379,116 @@ class Sch_K1(Form1065):
         name      = nm_list[0] if nm_list else ""
         address   = partner_raw.get("addr", "")
         mem_type  = partner_raw.get("memType", "Individual")
-        status    = partner_raw.get("status", "")
+        status    = str(partner_raw.get("status", "") or "")
         pct_str   = f"{pct * 100:.1f}%"
 
         ni          = float(is_data.get("net_income", 0))
-        rent        = float(is_data.get("rent_income", 0))
+        net_rental  = float(is_data.get("net_rental", 0))   # BUG FIX: was rent_income
         interest    = float(is_data.get("interest_income", 0))
         contribs    = float(owners_agg.get("cash_contributions", 0))
 
         partner_ni          = round(ni * pct, 2)
-        partner_rent        = round(rent * pct, 2)
+        partner_rent        = round(net_rental * pct, 2)
         partner_interest    = round(interest * pct, 2)
         partner_distrib     = round(max(0.0, ni) * pct, 2)
         partner_contrib     = round(contribs * pct, 2)
-        partner_se          = partner_ni if partner_ni > 0 else 0.0
-        # Capital end year = contributions + NI - distributions (simplified)
-        partner_cap_end     = round(partner_contrib + partner_ni - partner_distrib, 2)
+        # IRC §1402(a)(1): rental income is excluded from SE earnings — always $0
+        partner_cap_end     = round(partner_contrib + partner_rent - partner_distrib, 2)
 
+        # Partner type flags (Line G, H1, H2) — IRC §761(b)
+        is_manager = "manager" in status.lower()
+        # CHECK_SENTINEL: a truthy string that triggers checkBox publish
+        _CHECK = "1"
         partner_src: Dict = {
-            "name":     name,
-            "address":  address,
-            "ein":      partner_raw.get("ein", "") or partner_raw.get("SSN", ""),
-            "mem_type": mem_type,
-            "status":   status,
-            "pct_str":  pct_str,
+            "name":          name,
+            "address":       address,
+            "ein":           partner_raw.get("SSN", partner_raw.get("ssn",
+                             partner_raw.get("ein", ""))),
+            "mem_type":      mem_type,
+            "status":        status,
+            "pct_str":       pct_str,
+            "pct_str_beg":   "",            # first year: beginning % blank
+            "is_gp_manager": _CHECK if is_manager else "",
+            "is_lp_member":  "" if is_manager else _CHECK,
+            "is_domestic":   _CHECK,         # SSN present → US person (domestic)
+            "is_foreign":    "",
+            "is_de":         "",             # individual humans are never DREs
+            "is_ret_plan":   "",
+            "sec704c_beg":   "",             # $0 if cash-only contributions
+            "sec704c_end":   "",
         }
         partner_is_src: Dict = {
-            "ordinary_income":  self._fmt(partner_ni),
-            "rent_income":      self._fmt(partner_rent),
+            "ordinary_income":  "",          # Box 1 — MUST be $0 (IRC §469(c)(2))
+            "net_rental":       self._fmt(partner_rent),
             "interest_income":  self._fmt(partner_interest) if partner_interest else "",
             "distributions":    self._fmt(partner_distrib),
-            "se_earnings":      self._fmt(partner_se) if partner_se > 0 else "",
+            "se_earnings":      "",          # Box 14a — MUST be $0 (IRC §1402(a)(1))
             "net_income":       self._fmt(partner_ni),
+            # Part III all-zero boxes for pure rental LLC
+            "other_rental":    "",
+            "guaranteed_svcs": "",
+            "guaranteed_cap":  "",
+            "guaranteed_tot":  "",
+            "ord_dividends":   "",
+            "royalties":       "",
+            "st_cap_gain":     "",
+            "lt_cap_gain":     "",
+            "sec1231_gain":    "",
+            "sec179":          (self._fmt(round(
+                                float(is_data.get("depreciation_sec179", 0)) * pct, 2))
+                                if is_data.get("depreciation_sec179") else ""),
         }
         partner_cap_src: Dict = {
-            "beg_capital":   "",                             # prior-year data needed
+            "beg_capital":   "",            # prior-year data needed
             "contributions": self._fmt(partner_contrib),
-            "net_income":    self._fmt(partner_ni),
+            "net_income":    self._fmt(partner_rent),   # Box L line 3 = rental income
             "distributions": self._fmt(partner_distrib),
             "end_capital":   self._fmt(partner_cap_end),
         }
 
-        # ── Step E: load profile ────────────────────────────────────────────
+        # ── Box K1: partner's share of liabilities (IRC §752) ──────────────
+        # W&B: typical commercial RE mortgage = qualified nonrecourse (§465(b)(6))
+        mortgage_total = 0.0
+        try:
+            from stmt.stmtBS import stmtBalanceSheet
+            bs_agg = stmtBalanceSheet(self.llc).taxAggregates() if hasattr(
+                stmtBalanceSheet(self.llc), 'taxAggregates') else {}
+            mortgage_total = float(bs_agg.get("mortgage", 0))
+        except Exception:
+            pass
+        # Fall back to bs_data if available
+        if not mortgage_total and bs_data:
+            mortgage_total = float(bs_data.get("mortgage", 0))
+        partner_mortgage = round(mortgage_total * pct, 2)
+        partner_bs_src: Dict = {
+            "nonrecourse": "",
+            "qnr":         self._fmt(partner_mortgage) if partner_mortgage else "",
+            "recourse":    "",
+        }
+
+        # ── Step E: load profile; augment with derived date fields ──────────
         entity, f1065_data = self._loadProfile()
+        _bm, _bd = _parse_month_day(f1065_data.get("date_from", ""))
+        _em, _ed = _parse_month_day(f1065_data.get("date_to", ""))
+        _ty = str(f1065_data.get("tax_year") or self.tax_year or "")[- 2:] or "25"
+        f1065_data["date_from_month"]     = _bm
+        f1065_data["date_from_day"]       = _bd
+        f1065_data["date_to_month"]       = _em
+        f1065_data["date_to_day"]         = _ed
+        f1065_data["tax_year_2d"]         = _ty
+        f1065_data.setdefault("is_final_k1",       False)
+        f1065_data.setdefault("is_amended_k1",     False)
+        f1065_data.setdefault("is_ptp",            False)
+        f1065_data.setdefault("irs_center",        "")
+        f1065_data.setdefault("cap_tax_basis_flag", True)  # mandatory Rev. Proc. 2020-13
 
         src_map: Dict = {
-            "entity":     entity,
-            "F1065":      f1065_data,
-            "partner":    partner_src,
-            "partner_IS": partner_is_src,
+            "entity":      entity,
+            "F1065":       f1065_data,
+            "partner":     partner_src,
+            "partner_IS":  partner_is_src,
             "partner_cap": partner_cap_src,
+            "partner_BS":  partner_bs_src,
         }
 
         # ── Step F: apply K-1 FILL_MAP  (publish=True + value) ────────────
@@ -333,6 +500,10 @@ class Sch_K1(Form1065):
             ftype = fd["fType"]
 
             if ftype in ("checkBox", "checkText", "box"):
+                # Only check when source resolves to a truthy value (fix: was always checked)
+                resolved = self._resolve(spec["source"], spec["path"], src_map)
+                if not resolved:
+                    continue  # leave as unpublished (unchecked)
                 value = fd.get("checkedValue", "/1")
             else:
                 value = self._resolve(spec["source"], spec["path"], src_map) or ""
