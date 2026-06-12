@@ -290,6 +290,12 @@ class llcMgmt:
         def inject_globals():
             from ledger import setup_paths as _sp
             llc_nm = self.app.config.get('_llc_name', '')
+            # k1_owners: available on every page for the nav dropdown per-member links
+            try:
+                k1_mgr  = self.objects.get("llcFormK1")
+                k1_owners_nav = k1_mgr.owners() if k1_mgr else []
+            except Exception:
+                k1_owners_nav = []
             return {
                 "app_title":        self.title,
                 "available_views":  self.available_views(),
@@ -299,6 +305,7 @@ class llcMgmt:
                 "current_role":     session.get("role", ""),
                 "current_year":     session.get("year", getattr(self.eSession, 'year', '')),
                 "available_years":  _sp.available_years(llc_nm) if llc_nm else [],
+                "k1_owners":        k1_owners_nav,
             }
 
         self._bind_routes()
@@ -778,20 +785,10 @@ class llcMgmt:
                     "object_file":  ofn,
                 })
 
-            # K-1 owners list — injected so home.html can render per-member dropdown
-            k1_owners = []
-            try:
-                k1_mgr = self.objects.get("llcFormK1")
-                if k1_mgr:
-                    k1_owners = k1_mgr.owners()
-            except Exception:
-                pass
-
             return render_template(
                 "home.html",
                 title=self.title,
                 session_views=session_views,
-                k1_owners=k1_owners,
             )
 
         # ── Switch Year ───────────────────────────────────────────────────────

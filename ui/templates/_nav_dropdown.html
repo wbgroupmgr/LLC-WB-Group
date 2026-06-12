@@ -1,5 +1,5 @@
 {# _nav_dropdown.html — Grouped navigation dropdown (included by all view templates).
-   Requires context vars: view_groups, view_labels  (both injected by context_processor).
+   Requires context vars: view_groups, view_labels, k1_owners (all injected by context_processor).
    obj_type is optional; when present the current view is highlighted. #}
 <div class="dropdown nav-dropdown">
     <a href="{{ url_for('home') }}" class="nav-home">🏠 LLC Accounts</a>
@@ -10,9 +10,24 @@
     </div>
     {% for vname in group.views %}
     {% set _vlabel = view_labels.get(vname, vname) %}
+    {% if vname == 'llcFormK1' %}
+    {# Schedule K-1 expands to one sub-link per partner — no bare /view/llcFormK1 #}
+    {% set _cur_member = request.args.get('member', '') %}
+    {% for o in k1_owners %}
+    <a href="{{ url_for('view_object', obj_type='llcFormK1') }}?member={{ o.oID }}"
+       class="nav-view-link nav-view-link-sub{% if obj_type is defined and obj_type == 'llcFormK1' and _cur_member == o.oID %} nav-active{% endif %}"
+       title="Schedule K-1 — {{ o.name }}">
+        📋 K-1 · {{ o.name }}</a>
+    {% else %}
+    <a href="{{ url_for('view_object', obj_type='llcFormK1') }}"
+       class="nav-view-link nav-view-link-sub"
+       title="Schedule K-1 — no partners configured">📋 Schedule K-1</a>
+    {% endfor %}
+    {% else %}
     <a href="{{ url_for('view_object', obj_type=vname) }}"
        class="nav-view-link{% if obj_type is defined and obj_type == vname %} nav-active{% endif %}"
        title="{{ _vlabel }}">{{ _vlabel }}</a>
+    {% endif %}
     {% endfor %}
     {% endfor %}
     <div class="nav-group-header">
