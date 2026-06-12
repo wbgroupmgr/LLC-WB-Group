@@ -194,9 +194,18 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
     def _rule_tax_year(self, owner: Dict):
         """
         SK1A-R01: Tax year accounting period — IRC §441, §706.
-        §706(b)(1)(B): partnership must use calendar year unless majority partners
-        use a different year. Verify F1065.date_from parses to 01/01 and
-        date_to to 12/31. Also verify tax_year is not null.
+
+        K-1 header fields f1–f5:
+          f1 = beginning month (MM, e.g. '01' for Jan)
+          f2 = beginning day   (DD, e.g. '01' for 1st)
+          f3 = ending month    (MM, e.g. '12' for Dec)
+          f4 = ending day      (DD, e.g. '31' for 31st)
+          f5 = 2-digit tax year (e.g. '25' for 2025)
+
+        IRC §706(b)(1)(B): partnership must use the same tax year as its majority
+        partners unless it can establish a valid business purpose for a different year.
+        For W&B Group: majority partner (96%) uses a calendar year → LLC must use
+        calendar year. Expected values: f1=01, f2=01, f3=12, f4=31, f5=25.
         """
         pr    = self._get_profile()
         f1065 = pr.get('F1065', {})
@@ -209,22 +218,36 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
             return self.format_issue(
                 'SK1A-R01', self.ERROR,
                 f"Partner {oID}: F1065.tax_year is null/missing in llcProfile. "
-                f"The 2-digit tax year (e.g. '25') is required for K-1 header (f5). "
-                f"IRC §441: partnerships must file for the tax year defined in their books.",
-                'IRC §441; IRC §706; Form 1065 Instructions (K-1 header)',
-                "Set tax_year (e.g. '25') in llcProfile_WBGroupLLC.json → F1065 section.")
+                f"The 2-digit tax year (e.g. '25') is required for K-1 header field f5. "
+                f"IRC §441: taxable income is computed for the annual accounting period. "
+                f"Expected K-1 header: f1=01, f2=01, f3=12, f4=31, f5=25 (calendar year 2025).",
+                'IRC §441; IRC §706; Form 1065 Instructions (K-1 header fields f1–f5)',
+                "Set tax_year='25' (or '2025') in llcProfile_WBGroupLLC.json → F1065 section.")
 
-        # Warn if looks like non-calendar year (optional soft check)
         jan = dfrom.lower().startswith('jan') or dfrom.startswith('01')
         dec = dto.lower().startswith('dec') or dto.startswith('12')
         if dfrom and dto and (not jan or not dec):
             return self.format_issue(
                 'SK1A-R01', self.WARN,
-                f"Partner {oID}: Tax year appears non-calendar ({dfrom} – {dto}). "
-                f"IRC §706(b)(1)(B): W&B Group must use the calendar year unless "
-                f"majority partners have a different tax year. Confirm §706 applies.",
-                'IRC §441; IRC §706(b)(1)(B)',
-                "Verify the LLC's accounting period. If calendar year, correct date_from/'to.")
+                f"Partner {oID}: Tax year appears non-calendar (date_from='{dfrom}', "
+                f"date_to='{dto}'). "
+                f"IRC §706(b)(1)(B): W&B Group must use calendar year because the majority "
+                f"partner holds 96% and uses a calendar year. Non-calendar year requires "
+                f"IRS approval or a §444 election. "
+                f"Expected: f1=01, f2=01, f3=12, f4=31, f5=25.",
+                'IRC §441; IRC §706(b)(1)(B); IRC §444',
+                "Verify the LLC's accounting period. Calendar year → correct date_from to "
+                "'Jan. 01' and date_to to 'Dec. 31' in llcProfile_WBGroupLLC.json.")
+
+        # All good — show what's in the fields
+        return self.format_issue(
+            'SK1A-R01', self.INFO,
+            f"Partner {oID}: Tax year header OK. "
+            f"K-1 fields: f1=01 f2=01 (begin Jan 1) | f3=12 f4=31 (end Dec 31) | "
+            f"f5={str(ty)[-2:]} (tax year). "
+            f"IRC §441 calendar year confirmed for W&B Group LLC.",
+            'IRC §441; IRC §706(b)(1)(B)',
+            "No action needed — tax year header fields f1–f5 are correctly populated.")
 
     def _rule_ein(self, owner: Dict):
         """
@@ -264,10 +287,19 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
 
     def _rule_irs_center(self, owner: Dict):
         """
-        SK1A-R04: IRS Service Center — Form 1065 Instructions (K-1 Line C).
-        K-1 Line C shows where the partnership filed. For e-filed returns: 'E-File'.
-        For paper: typically 'Ogden, UT 84201' for most partnerships in 2025.
-        Blank is allowed but a WARN is appropriate.
+        SK1A-R04: IRS Service Center (K-1 field f13) — Form 1065 Instructions (Line C).
+
+        K-1 Line C tells each partner WHERE the partnership return was filed —
+        the partner may need this to respond to IRS notices. The value depends
+        entirely on HOW (not where) W&B Group filed Form 1065:
+
+          E-filed returns  → write 'E-File'  (most modern filers use this)
+          Paper returns    → filing center determined by state:
+            Texas partnerships → 'Ogden, UT 84201' (IRS Pub 15 2025 instructions)
+            (Same Ogden address applies for most states in 2025)
+
+        DO NOT try to auto-derive this from the LLC's street address — the IRS
+        service center is a function of the FILING METHOD, not the LLC's location.
         """
         pr     = self._get_profile()
         center = str(pr.get('F1065', {}).get('irs_center', '') or '').strip()
@@ -275,12 +307,23 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
         if not center:
             return self.format_issue(
                 'SK1A-R04', self.WARN,
-                f"Partner {oID}: F1065.irs_center is blank. "
-                f"K-1 Line C should show where Form 1065 was filed. "
-                f"For e-filed returns: write 'E-File'. For paper: 'Ogden, UT 84201'.",
-                'Form 1065 Instructions (K-1 Line C)',
+                f"Partner {oID}: F1065.irs_center is blank (K-1 field f13). "
+                f"K-1 Line C must show where Form 1065 was filed. "
+                f"E-filed Form 1065 → set to 'E-File'. "
+                f"Paper Form 1065 from Texas → set to 'Ogden, UT 84201'. "
+                f"This value is informational for partners — it helps them route "
+                f"any correspondence or notice responses to the correct IRS campus.",
+                'Form 1065 Instructions (K-1 Line C / field f13)',
                 "Set F1065.irs_center in llcProfile_WBGroupLLC.json. "
-                "E-filed returns: use 'E-File'.")
+                "For almost all 2025 partnerships: use 'E-File'.")
+        else:
+            return self.format_issue(
+                'SK1A-R04', self.INFO,
+                f"Partner {oID}: K-1 field f13 IRS center = '{center}'. "
+                f"Verify this matches how Form 1065 was actually filed "
+                f"(e-filed → 'E-File'; paper → 'Ogden, UT 84201' for Texas LLCs).",
+                'Form 1065 Instructions (K-1 Line C)',
+                "No action if filing method matches. Update llcProfile if wrong.")
 
     def _rule_ptp_flag(self, owner: Dict):
         """
@@ -391,24 +434,65 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
 
     def _rule_partner_type(self, owner: Dict):
         """
-        SK1B-R01: Partner type classification — IRC §761(b); Form 1065 Instructions Line G.
-        W&B is member-managed. 'Manager' status → Line G checkbox: GP/member-manager.
-        All others → LP/other LLC member. Blank status → WARN (can't determine type).
-        This affects SE tax analysis (§1402) — though ALL rental income is passive (§469).
+        SK1B-R01: Partner type classification — IRC §761(b); Form 1065 Instructions Line G/H.
+
+        K-1 checkboxes:
+          f14 = GP / LLC member-manager  (checked if partner participates in management)
+          f15 = LP / other LLC member    (checked if partner is passive member only)
+          f16 = Domestic partner         (checked if US person — SSN present)
+          f17 = Foreign partner          (checked if non-US person)
+          f18 = Disregarded entity       (checked if partner is a single-member LLC or
+                                          grantor trust that hasn't elected corp treatment)
+          f21 = Partner's entity type    (Individual | C-Corp | S-Corp | Partnership | Trust/Estate)
+
+        IRC §761(b): a "general partner" (or LLC member-manager) is actively involved in
+        management. An LP (or other LLC member) has no management rights and is passive.
+
+        CRITICAL for W&B Group — W&B is a MEMBER-MANAGED LLC:
+          • Francis (status='Manager'): participates in management → f14 (GP/manager) checked
+          • Other members (passive, status≠Manager): → f15 (LP/other member) checked
+          • ALL members are Domestic (US persons with SSNs) → f16 checked
+          • NO member is a disregarded entity (all are individuals) → f18 left blank
+
+        ENTITY TYPE (f21 advisory): The K-1 form has a field identifying what kind of entity
+        the partner is. For W&B Group: all partners are Individuals. This affects how each
+        partner reports K-1 income on their own return:
+          Individual  → Schedule E Part II (passive income from rental)
+          C-Corp      → Form 1120 (partnership income flows to corp income)
+          S-Corp      → Form 1120S Schedule K (separate rules for S-corps as partners)
+          Trust/Estate → Form 1041 Schedule K-1 (complex basis rules)
         """
-        status = str(owner.get('status', '') or '').strip()
-        oID    = owner.get('oID', '')
-        nm     = _owner_name(owner)
+        status   = str(owner.get('status', '') or '').strip()
+        mem_type = str(owner.get('memType', owner.get('entityType', '')) or '').strip()
+        oID      = owner.get('oID', '')
+        nm       = _owner_name(owner)
+        ssn      = str(owner.get('SSN', owner.get('ssn', ''))).replace('-', '').strip()
+        is_manager = 'manager' in status.lower()
+        has_ssn    = len(ssn) == 9 and ssn.isdigit()
+
         if not status:
             return self.format_issue(
                 'SK1B-R01', self.WARN,
-                f"Partner '{nm}' ({oID}): status field is blank — cannot determine "
-                f"whether this partner is a GP/member-manager or LP/other member. "
-                f"IRC §761(b): partner type affects SE tax analysis under §1402. "
-                f"For W&B rental LLC: all income is passive (§469(c)(2)) regardless of type.",
-                'IRC §761(b); IRC §1402; Form 1065 Instructions (K-1 Line G)',
-                f"Set status='Manager' for managing members, or leave blank/set 'Member' "
-                f"for passive members in llcOwners for partner '{oID}'.")
+                f"Partner '{nm}' ({oID}): status field is blank. "
+                f"Cannot determine whether to check f14 (GP/manager) or f15 (LP/member). "
+                f"IRC §761(b): member-managers check f14; passive members check f15. "
+                f"For W&B: Francis (management role) → f14. Alexandra, Nicola (passive) → f15. "
+                f"All members are Domestic Individuals → f16 checked, f18 blank.",
+                'IRC §761(b); IRC §1402; Form 1065 Instructions (K-1 Lines G, H1, H2)',
+                f"Set status='Manager' for managing members, or 'Member'/'non_active member' "
+                f"for passive members in llcOwners for '{oID}'.")
+
+        type_label = 'GP/member-manager (f14)' if is_manager else 'LP/other LLC member (f15)'
+        entity_label = 'Individual' if has_ssn else (mem_type or 'unknown')
+        return self.format_issue(
+            'SK1B-R01', self.INFO,
+            f"Partner '{nm}' ({oID}): {type_label} — status='{status}'. "
+            f"Entity type: {entity_label} (reports Box 2 on Schedule E Part II). "
+            f"f16 Domestic checked (SSN on file). f18 DE: blank (individual, not an LLC). "
+            f"IRC §761(b): member-managed LLC — managers check f14, passive members check f15.",
+            'IRC §761(b); IRC §1402(a)(13); Form 1065 Instructions (K-1 Lines G, H1, H2)',
+            "Verify checkboxes match partner role. Passive members who become managers "
+            "(or vice versa) must update K-1 in the year the role changes.")
 
     def _rule_domestic_foreign(self, owner: Dict):
         """
@@ -460,9 +544,24 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
 
     def _rule_ownership_pct(self, owner: Dict):
         """
-        SK1B-R04: Ownership percentage — IRC §704(b), §706.
-        All three (profit/loss/capital) must equal partner's pct (uniform allocation).
-        Sum of all partners' pct must = 1.000 (100%). Zero pct → all Box amounts = $0.
+        SK1B-R04: Ownership percentage — IRC §704(b), §706; Form 1065 Instructions Box J.
+
+        Box J fields (f23–f28):
+          f23 = Profit %  beginning of year    f24 = Profit %  end of year
+          f25 = Loss %    beginning of year    f26 = Loss %    end of year
+          f27 = Capital % beginning of year    f28 = Capital % end of year
+
+        IRS K-1 Instructions: "If there was no change in the partners' shares of profit,
+        loss, and capital during the year, enter the end-of-year percentages in both
+        beginning and ending columns (you may leave the beginning column blank)."
+
+        For W&B Group 2025:
+          • Ownership did NOT change during the year → beginning = ending (no change rule).
+          • All three allocations (profit/loss/capital) use the SAME pct for W&B:
+            Francis=96%, Alexandra=2%, Nicola=2%.
+          • IRS requires all three rows sum to 100% across all partners.
+          • IRC §704(b): allocations must have substantial economic effect (SEE).
+            Using the same pct for profit/loss/capital is the simplest SEE-compliant structure.
         """
         pct  = _owner_pct(owner)
         oID  = owner.get('oID', '')
@@ -471,22 +570,58 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
             return self.format_issue(
                 'SK1B-R04', self.ERROR,
                 f"Partner '{nm}' ({oID}): ownership percentage is {pct:.4f} (zero or missing). "
-                f"IRC §704(b): allocations must be based on partners' distributive shares. "
-                f"All K-1 Box amounts (Box 2, Box 5, Box L) = $0 if pct = 0, "
-                f"omitting this partner's rental income/loss from their tax return.",
-                'IRC §704(b); IRC §706; Form 1065 Instructions (K-1 Box J)',
+                f"IRC §704(b): all K-1 Box amounts (Box 2, Box 5, Box L) = $0 if pct = 0, "
+                f"omitting this partner's entire share of rental income/loss from their return. "
+                f"Box J (f23–f28) requires Profit/Loss/Capital % each summing to 100%.",
+                'IRC §704(b); IRC §706; Form 1065 Instructions (K-1 Box J f23–f28)',
                 f"Set pct for partner '{oID}' in llcOwners. "
                 f"Sum of all partners' pct must equal 1.0 (100%).")
+        return self.format_issue(
+            'SK1B-R04', self.INFO,
+            f"Partner '{nm}' ({oID}): Box J = {pct*100:.1f}% for all three rows "
+            f"(Profit/Loss/Capital). "
+            f"Beginning = Ending (no ownership change during 2025). "
+            f"IRC §704(b) SEE satisfied: uniform pct allocation matches Operating Agreement.",
+            'IRC §704(b); Form 1065 Instructions (K-1 Box J)',
+            "No action needed. If ownership % changes mid-year in a future year, "
+            "update beginning and ending percentages separately in llcOwners.")
 
     def _rule_box_k1_liabilities(self, owner: Dict):
         """
         SK1B-R05: Box K1 — partner's share of liabilities — IRC §752; Treas. Reg. §1.752-3.
-        W&B real estate mortgage → Qualified Nonrecourse Financing (§465(b)(6)):
-          commercial lender, no personal guarantees, lender's only recourse is the property.
-        Shared in same ratio as profits (Treas. Reg. §1.752-3(a)(3)).
-        Box K1 QNR = BS.mortgage × pct. This affects each partner's outside basis.
+
+        Box K1 fields (f31–f36):
+          f31 = Nonrecourse beginning     f32 = Nonrecourse end
+          f33 = QNR (Qualified Nonrecourse Financing) beginning    f34 = QNR end
+          f35 = Recourse beginning        f36 = Recourse end
+
+        THREE LIABILITY CATEGORIES (IRC §752; Treas. Reg. §1.752-2/3):
+
+        1. NONRECOURSE (f31/f32): lender's ONLY recourse is the property. No personal
+           guarantees by any partner. Partners share this based on profit % (Treas. Reg.
+           §1.752-3(a)(3)). HOWEVER: for real property with commercial mortgage, this is
+           usually classified as QNR (see below), not plain nonrecourse.
+
+        2. QUALIFIED NONRECOURSE FINANCING / QNR (f33/f34): [IRC §465(b)(6)]
+           Nonrecourse debt FROM A QUALIFIED PERSON (bank/savings institution/government
+           agency) secured by real property used in the activity. For W&B Group, any
+           commercial mortgage from a bank on the rental property qualifies as QNR.
+           QNR increases each partner's AT-RISK AMOUNT, allowing them to deduct their
+           allocated losses up to the amount of their at-risk basis.
+           Formula: QNR end-of-year = BS.mortgage × partner.pct
+
+        3. RECOURSE (f35/f36): partner personally guarantees repayment. Very unusual
+           for commercial RE. In W&B Group's situation: $0 (no personal guarantees).
+
+        BEGINNING-OF-YEAR VALUES (f31/f33/f35):
+           FIRST YEAR LLC (formed 2025): property was purchased DURING the year.
+           Therefore ALL beginning-of-year liabilities = $0.
+           The debt only arose at the property acquisition closing date.
+
+        WHY QNR MATTERS (partner outside basis):
+           Each partner's outside basis = capital contribution + QNR share + prior income − distributions.
+           Zero QNR = lower outside basis = possible loss limitation under §704(d).
         """
-        # Get mortgage from BS if available
         mortgage = 0.0
         try:
             from ledger.stmtBS import stmtBS_Tax
@@ -502,22 +637,30 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
         if mortgage > 0:
             return self.format_issue(
                 'SK1B-R05', self.INFO,
-                f"Partner '{nm}' ({oID}): Box K1 QNR financing = "
-                f"${mortgage:,.2f} × {pct*100:.2f}% = ${partner_qnr:,.2f}. "
-                f"IRC §752; §465(b)(6): W&B mortgage classified as Qualified Nonrecourse "
-                f"(commercial lender, no personal guarantees, RE collateral only). "
-                f"This increases each partner's outside basis by their QNR share.",
+                f"Partner '{nm}' ({oID}): Box K1 liabilities — "
+                f"BOY (f31/f33/f35) = $0/$0/$0 (first year, no debt at Jan 1). "
+                f"EOY QNR (f34) = BS.mortgage ${mortgage:,.2f} × {pct*100:.2f}% = ${partner_qnr:,.2f}. "
+                f"Classification: QNR (§465(b)(6)) — commercial mortgage, real-property "
+                f"collateral, no personal guarantees. "
+                f"This QNR share increases '{nm}'s at-risk amount by ${partner_qnr:,.2f}, "
+                f"enabling deduction of their proportionate share of rental losses.",
                 'IRC §752; §465(b)(6); Treas. Reg. §1.752-3(a)(3)',
-                f"Confirm mortgage type: commercial lender, no personal guarantees = QNRF. "
-                f"Box K1 f34 should show ${partner_qnr:,.2f} for '{nm}'.")
+                f"Confirm mortgage is from a commercial lender (bank/S&L/govt agency) and "
+                f"no partner personally guaranteed repayment. If so, classify as QNR. "
+                f"f34 = ${partner_qnr:,.2f}. f31/f33/f35 (BOY) = $0 (first year).")
         else:
             return self.format_issue(
                 'SK1B-R05', self.WARN,
                 f"Partner '{nm}' ({oID}): Box K1 QNR = $0 (no mortgage found in BS). "
-                f"If the LLC has a mortgage, verify the BS stmtBalanceSheet.taxAggregates() "
-                f"returns a 'mortgage' key. Partners' outside basis is understated without it.",
-                'IRC §752; Treas. Reg. §1.752-3',
-                "Verify mortgage balance in llcAssets and ensure BS.mortgage key is populated.")
+                f"BOY fields f31/f33/f35 = $0 (first year, correct). "
+                f"EOY fields f32/f34/f36 = $0. "
+                f"If the LLC has a mortgage, verify stmtBS_Tax.taxAggregates() returns "
+                f"a 'mortgage' key, and that the mortgage balance is recorded in llcAssets "
+                f"as a liability transaction. "
+                f"Partners' outside at-risk basis is understated without the QNR allocation.",
+                'IRC §752; §465(b)(6); Treas. Reg. §1.752-3',
+                "Check llcAssets for mortgage liability entries. "
+                "Ensure BS.taxAggregates()['mortgage'] returns the correct year-end balance.")
 
     def _rule_tax_basis_method(self, owner: Dict):
         """
@@ -544,45 +687,79 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
 
     def _rule_capital_account_summary(self, owner: Dict):
         """
-        SK1B-R07: Box L capital account computation — IRC §705; §722.
-        Tax basis capital = contributions + net income − losses − distributions.
-        Formula: $0 + contributions + Box2 − distributions = ending capital.
-        IRC §705: adjusted basis in partnership begins at money contributed,
-        increased by income, decreased by losses and distributions.
+        SK1B-R07: Box L capital account analysis — IRC §705; §722; Rev. Proc. 2020-13.
+
+        Box L fields (f39–f46):
+          f39 = L1: Beginning capital account (Jan 1)
+          f40 = L2: Capital contributed during year (cash + property at FMV)
+          f41 = L3: Current year net income (loss)  [= IS.net_rental × pct]
+          f42 = L4: Other increases (unusual — blank for W&B)
+          f43 = L5: Withdrawals and distributions   [actual cash out to partner]
+          f44 = L6: Ending capital account          [L1 + L2 + L3 + L4 − L5]
+          f45 = Tax basis method checkbox            [MUST be checked — mandatory 2020+]
+          f46 = Non-tax basis checkbox               [leave blank]
+
+        MANDATORY TAX BASIS METHOD (Rev. Proc. 2020-13; TD 9902):
+           All partnerships with 2020+ returns MUST use the tax basis method.
+           §704(b) book value, GAAP, and 'Other' methods are eliminated.
+           f45 (Tax basis checkbox) MUST be checked. IRS automated systems validate this.
+
+        IRC §705 FORMULA (tax basis capital account):
+           Ending Capital = Beginning Capital
+                           + Capital Contributed (cash + FMV of contributed property)
+                           + Allocated Net Income (IS.net_rental × pct for W&B)
+                           + Other Increases
+                           − Distributions (actual cash paid to partner)
+
+        W&B GROUP 2025 FIRST YEAR:
+           L1 (f39) = $0   — LLC formed in 2025, no prior-year capital
+           L2 (f40) = each partner's actual cash contribution at LLC formation
+                      (add 'contributions' key to llcOwners per partner)
+           L3 (f41) = IS.net_rental × pct  [auto-computed, Books-First IRC §446]
+           L4 (f42) = blank (no unusual increases)
+           L5 (f43) = actual cash distributions paid out during 2025
+                      (add 'distributions' key to llcOwners per partner, or record
+                       distribution transactions in llcExpRev)
+           L6 (f44) = $0 + L2 + L3 − L5
+
+        NOTE: L3 (current income) ≠ L5 (distributions). These are often different.
+           A partner may have $640 of income allocated but receive $0 in cash distributions
+           if the LLC retained the cash for reserves or capital improvements.
+           DO NOT set distributions = net_income × pct — that is a frequent bookkeeping error.
         """
         pct     = _owner_pct(owner)
         net     = self._get_is_agg('net_rental')
         box2    = round(net * pct, 2)
-        contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib', 0)))
+        contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib',
+                              owner.get('capital_contrib', 0))))
         distrib = _safe_float(owner.get('distributions', owner.get('distrib', 0)))
         ending  = round(contrib + box2 - distrib, 2)
         oID     = owner.get('oID', '')
         nm      = _owner_name(owner)
 
-        # Flag missing contribution data
         if contrib == 0:
             return self.format_issue(
                 'SK1B-R07', self.WARN,
-                f"Partner '{nm}' ({oID}): contributions = $0. "
-                f"Box L Line 2 (K1_L2) will be $0. "
-                f"If this partner contributed cash at LLC formation, "
-                f"add a 'contributions' key to their owner record or "
-                f"record a CapitalContrib transaction in llcAssets tagged to oID={oID}. "
-                f"IRC §722: partner's initial basis = money contributed.",
-                'IRC §705; §722; Form 1065 Instructions (K-1 Box L)',
-                f"Add contributions key for '{oID}' in llcOwners OR "
-                f"record ledger CapitalContrib entry. "
-                f"Box L: Beg=$0, Contrib=$0, Box2=${box2:,.2f}, "
-                f"Distrib=${distrib:,.2f}, Ending=${ending:,.2f}.")
+                f"Partner '{nm}' ({oID}): Box L L2 contributions = $0. "
+                f"If '{nm}' contributed cash when the LLC was formed in 2025, "
+                f"add key 'contributions': <amount> to their record in llcOwners. "
+                f"Without contributions, Box L ending capital = IS.net_rental×pct = ${box2:,.2f}. "
+                f"IRC §722: partner's initial outside basis = cash contributed. "
+                f"Box L: L1=$0 | L2=$0 (⚠ missing?) | L3=${box2:,.2f} | L5=${distrib:,.2f} | L6=${ending:,.2f}. "
+                f"Tax basis method checkbox (f45) will be checked (Rev. Proc. 2020-13 mandatory).",
+                'IRC §705; §722; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
+                f"Add 'contributions': <amount> for '{oID}' in llcOwners file. "
+                f"Also verify 'distributions' key reflects actual cash paid out in 2025 "
+                f"(NOT equal to net income — income and distributions are separate events).")
         else:
             return self.format_issue(
                 'SK1B-R07', self.INFO,
                 f"Partner '{nm}' ({oID}) Box L (tax basis, first year): "
-                f"Beginning=$0 + Contributions=${contrib:,.2f} + Box2=${box2:,.2f} "
-                f"− Distributions=${distrib:,.2f} = Ending=${ending:,.2f}. "
-                f"IRC §705: tax basis begins at contribution + allocated income − distributions.",
+                f"L1=$0 + L2=${contrib:,.2f} + L3=${box2:,.2f} − L5=${distrib:,.2f} = L6=${ending:,.2f}. "
+                f"IRC §705 formula confirmed. Tax basis checkbox f45 will be checked.",
                 'IRC §705; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Verify Box L for '{nm}': all five fields are correctly populated.")
+                f"Verify all five Box L values for '{nm}': "
+                f"L1=$0, L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}.")
 
     def _rule_sec704c(self, owner: Dict):
         """

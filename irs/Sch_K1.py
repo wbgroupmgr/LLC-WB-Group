@@ -142,13 +142,21 @@ _FILL_MAP_K1: Dict[str, Dict] = {
 
     # ── Box K1 — partner's share of liabilities ──────────────────────────────
     # IRC §752; Treas. Reg. §1.752-2/3
-    # W&B: typical commercial RE mortgage = qualified nonrecourse (§465(b)(6))
+    # Beginning-of-year (f31/f33/f35): $0 for a first-year LLC (no debt at BOY).
+    # W&B: typical commercial RE mortgage = qualified nonrecourse (§465(b)(6)).
+    # QNR: commercial lender, no personal guarantees, real property collateral only.
+    "K1_K_NonrecBeg": {"source": "partner_BS", "path": "nonrecourse_beg",
+                       "note": "Box K1: Nonrecourse liabilities beginning of year (first year = $0)"},
+    "K1_K_QNRBeg":    {"source": "partner_BS", "path": "qnr_beg",
+                       "note": "Box K1: QNR financing beginning of year (first year = $0)"},
+    "K1_K_RecBeg":    {"source": "partner_BS", "path": "recourse_beg",
+                       "note": "Box K1: Recourse liabilities beginning of year (first year = $0)"},
     "K1_K_Nonrec":   {"source": "partner_BS", "path": "nonrecourse",
-                      "note": "Box K1: Nonrecourse liabilities × pct (end)"},
+                      "note": "Box K1: Nonrecourse liabilities × pct (end of year)"},
     "K1_K_QNR":      {"source": "partner_BS", "path": "qnr",
-                      "note": "Box K1: Qualified nonrecourse financing × pct (end)"},
+                      "note": "Box K1: Qualified nonrecourse financing × pct (end of year)"},
     "K1_K_Rec":      {"source": "partner_BS", "path": "recourse",
-                      "note": "Box K1: Recourse liabilities × pct (end)"},
+                      "note": "Box K1: Recourse liabilities × pct (end of year)"},
 
     # ── Box L — capital account analysis (tax basis, Rev. Proc. 2020-13) ────
     "K1_L_TaxBasis": {"source": "F1065",      "path": "cap_tax_basis_flag",
@@ -214,14 +222,12 @@ _FILL_MAP_K1: Dict[str, Dict] = {
 
 # Fields requiring CPA / manual review (auto-mapped as CPA:unknown when not set)
 _CPA_NOTES_K1: Dict[str, str] = {
-    "K1_K_NonrecBeg": "Box K1: Nonrecourse liabilities beginning — prior-year data needed",
-    "K1_K_QNRBeg":    "Box K1: QNR financing beginning — prior-year data needed",
-    "K1_K_RecBeg":    "Box K1: Recourse liabilities beginning — prior-year data needed",
-    "K1_9b":          "Box 9b: Collectibles gain — CPA review",
-    "K1_9c":          "Box 9c: Unrecaptured §1250 gain — CPA review if property sold",
-    "K1_17a":         "Box 17a: AMT post-1986 depreciation — CPA review",
-    "K1_20":          "Box 20: QBI §199A — CPA review",
-    "K1_L1":          "Box L: Capital beginning of year — prior-year data needed",
+    # K1_K_NonrecBeg / K1_K_QNRBeg / K1_K_RecBeg are now in FILL_MAP (first year = $0)
+    # K1_L1 is now in FILL_MAP (first year = $0)
+    "K1_9b":  "Box 9b: Collectibles gain — CPA review",
+    "K1_9c":  "Box 9c: Unrecaptured §1250 gain — CPA review if property sold",
+    "K1_17a": "Box 17a: AMT post-1986 depreciation adjustment — CPA review",
+    "K1_20":  "Box 20: QBI deduction §199A — rental real estate safe harbor (Rev. Proc. 2019-38); CPA review",
 }
 
 
@@ -383,17 +389,29 @@ class Sch_K1(Form1065):
         pct_str   = f"{pct * 100:.1f}%"
 
         ni          = float(is_data.get("net_income", 0))
-        net_rental  = float(is_data.get("net_rental", 0))   # BUG FIX: was rent_income
+        net_rental  = float(is_data.get("net_rental", 0))
         interest    = float(is_data.get("interest_income", 0))
-        contribs    = float(owners_agg.get("cash_contributions", 0))
 
         partner_ni          = round(ni * pct, 2)
         partner_rent        = round(net_rental * pct, 2)
         partner_interest    = round(interest * pct, 2)
-        partner_distrib     = round(max(0.0, ni) * pct, 2)
-        partner_contrib     = round(contribs * pct, 2)
-        # IRC §1402(a)(1): rental income is excluded from SE earnings — always $0
-        partner_cap_end     = round(partner_contrib + partner_rent - partner_distrib, 2)
+
+        # Per-partner contributions: use per-owner record (NOT total × pct).
+        # Partners often contribute different amounts at LLC formation.
+        # Falls back to 0 if not recorded — section agent warns about this.
+        partner_contrib = round(float(
+            partner_raw.get("contributions",
+            partner_raw.get("capitalContrib",
+            partner_raw.get("capital_contrib", 0.0))) or 0), 2)
+
+        # Per-partner distributions: use per-owner record (NOT max(ni)×pct).
+        # max(ni)×pct was a wrong proxy — it assumed all income was distributed.
+        partner_distrib = round(float(
+            partner_raw.get("distributions",
+            partner_raw.get("distrib", 0.0)) or 0), 2)
+
+        # Tax basis ending capital = contributions + net rental − distributions (IRC §705)
+        partner_cap_end = round(partner_contrib + partner_rent - partner_distrib, 2)
 
         # Partner type flags (Line G, H1, H2) — IRC §761(b)
         is_manager = "manager" in status.lower()
@@ -407,14 +425,18 @@ class Sch_K1(Form1065):
             "mem_type":      mem_type,
             "status":        status,
             "pct_str":       pct_str,
-            "pct_str_beg":   "",            # first year: beginning % blank
+            # Box J: if no ownership change during the year, beginning = ending.
+            # IRS K-1 instructions: "If there was no change in the partners'
+            # shares of profit, loss, and capital during the tax year, enter
+            # the end-of-year percentages in both the beginning and ending columns."
+            "pct_str_beg":   pct_str,
             "is_gp_manager": _CHECK if is_manager else "",
             "is_lp_member":  "" if is_manager else _CHECK,
             "is_domestic":   _CHECK,         # SSN present → US person (domestic)
             "is_foreign":    "",
             "is_de":         "",             # individual humans are never DREs
             "is_ret_plan":   "",
-            "sec704c_beg":   "",             # $0 if cash-only contributions
+            "sec704c_beg":   "",             # $0 for cash-only contributions
             "sec704c_end":   "",
         }
         partner_is_src: Dict = {
@@ -439,11 +461,19 @@ class Sch_K1(Form1065):
                                 if is_data.get("depreciation_sec179") else ""),
         }
         partner_cap_src: Dict = {
-            "beg_capital":   "",            # prior-year data needed
-            "contributions": self._fmt(partner_contrib),
-            "net_income":    self._fmt(partner_rent),   # Box L line 3 = rental income
-            "distributions": self._fmt(partner_distrib),
-            "end_capital":   self._fmt(partner_cap_end),
+            # Box L — tax basis capital account (IRC §705; Rev. Proc. 2020-13)
+            # IRC §705: basis begins at contribution, increased by income, decreased by distrib.
+            # First-year LLC: beginning capital is always $0 — entity had no prior history.
+            "beg_capital":   "0",
+            # Contributions: per-partner actual cash contributed at formation.
+            # If $0, the section agent (SK1B-R07) warns that contributions may be missing.
+            "contributions": self._fmt(partner_contrib) or "",
+            # L3: current-year net income allocated = IS.net_rental × pct (IRC §702(a))
+            "net_income":    self._fmt(partner_rent),
+            # L4: withdrawals/distributions to partner during year
+            "distributions": self._fmt(partner_distrib) or "",
+            # L5: ending capital = L1 + L2 + L3 − L4
+            "end_capital":   self._fmt(partner_cap_end) if partner_cap_end else "",
         }
 
         # ── Box K1: partner's share of liabilities (IRC §752) ──────────────
@@ -459,6 +489,15 @@ class Sch_K1(Form1065):
             mortgage_total = float(bs_data.get("mortgage", 0))
         partner_mortgage = round(mortgage_total * pct, 2)
         partner_bs_src: Dict = {
+            # Beginning-of-year liabilities (f31/f33/f35):
+            # First-year LLC: property was purchased DURING the year, so no debt existed
+            # at January 1. All liabilities began at acquisition date mid-year → BOY = $0.
+            "nonrecourse_beg": "0",
+            "qnr_beg":         "0",
+            "recourse_beg":    "0",
+            # End-of-year liabilities (f32/f34/f36):
+            # W&B mortgage classified as QNR (§465(b)(6)): commercial lender, real-property
+            # collateral only, no personal guarantees. Shared by profit % (Treas. Reg. §1.752-3(a)(3)).
             "nonrecourse": "",
             "qnr":         self._fmt(partner_mortgage) if partner_mortgage else "",
             "recourse":    "",
