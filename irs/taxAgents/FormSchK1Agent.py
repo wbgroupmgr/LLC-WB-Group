@@ -1298,20 +1298,22 @@ class AgentSchK1_PassiveItems(_SectionAgent):
         nm     = _owner_name(owner)
         oID    = owner.get('oID', '')
         is_manager = 'manager' in status
+        manager_note = (
+            f"\n  • {nm} is listed as managing member — but managing an investment LLC does NOT"
+            f"\n    make {nm} a Real Estate Professional. That requires real estate as a primary"
+            f"\n    full-time career (>750 hrs/year in real estate trades). Most likely: {nm}'s"
+            f"\n    rental income stays PASSIVE, same as all other partners."
+        ) if is_manager else ""
         return self.format_issue(
             'SK1C-R00', self.INFO,
-            f"Partner '{nm}' ({oID}): rental income classification = PASSIVE (§469(c)(2)). "
-            f"{'Manager role noted — see REP advisory below.' if is_manager else 'Passive member.'} "
-            f"IRC §469(c)(2) makes ALL rental activity passive by statute. "
-            f"{'ADVISORY (active manager): Francis qualifies as REP under §469(c)(7) ONLY if ' if is_manager else ''}"
-            f"{'real estate services >50% of all personal services AND >750 hours/year. ' if is_manager else ''}"
-            f"{'W&B is a part-time investment LLC — REP test likely NOT met without a primary real estate profession. ' if is_manager else ''}"
-            f"ALL W&B partners: Box 2 is PASSIVE → Schedule E Part II. "
-            f"Box 20 Code Z (NIIT): rental income IS net investment income under §1411.",
-            'IRC §469(c)(2); §469(c)(7); §1411; Treas. Reg. §1.469-9',
-            f"CPA advisory: {'Verify Francis does not meet §469(c)(7) REP criteria. ' if is_manager else ''}"
-            f"All partners: report Box 2 on Schedule E Part II. "
-            f"Ensure Form 8960 (NIIT) reflects Box 2 as net investment income.")
+            f"W&B Group is a rental LLC — by tax law, ALL rental income is PASSIVE income.\n"
+            f"  • {nm} ({oID}): Box 2 income is classified PASSIVE.{manager_note}\n"
+            f"  • Each partner reports their K-1 Box 2 amount on Schedule E (page 2) of their personal Form 1040.\n"
+            f"  • Passive losses can only offset other passive income (not wages or business income).\n"
+            f"  • Rental income is subject to 3.8% Net Investment Income Tax (NIIT) → K-1 Box 20 Code Z.",
+            'IRC §469(c)(2); §469(c)(7); §1411',
+            f"{'Ask ' + nm + ' to confirm with their CPA whether they qualify as a full-time Real Estate Professional. ' if is_manager else ''}"
+            f"All partners: report Box 2 on Schedule E Part II of their personal Form 1040.")
 
     def _rule_box1_must_zero(self, owner: Dict):
         """
