@@ -431,6 +431,10 @@
         <button type="button" class="btn btn-sm"
                 style="background:#1d4ed8;color:white;border:none;margin-left:auto;font-size:12px"
                 onclick="event.stopPropagation();diagLoad()">⟳ Refresh</button>
+        <button type="button" id="diagShowAllBtn" class="btn btn-sm"
+                style="background:#6b7280;color:white;border:none;margin-left:6px;font-size:12px"
+                onclick="event.stopPropagation();diagToggleShowAll()"
+                title="Show ALL fields including blank/unmapped">👁 ShowAll</button>
         <button type="button" class="btn btn-sm"
                 style="background:#374151;color:white;border:none;margin-left:6px;font-size:12px"
                 onclick="event.stopPropagation();window.print()">🖨 Print</button>
@@ -463,8 +467,10 @@
 .diag-table td.fid  { font-family: monospace; color: #1e40af; }
 .diag-table td.sn   { font-family: monospace; color: #6b7280; }
 .diag-table td.uas  { color: #374151; }
-.diag-table td.val  { font-weight: 600; color: #111827; }
-.diag-table td.zero { font-weight: 600; color: #92400e; }
+.diag-table td.val   { font-weight: 600; color: #111827; }
+.diag-table td.zero  { font-weight: 600; color: #92400e; }
+.diag-table tr.blank-row td { color: #9ca3af; font-style: italic; }
+.diag-table td.blank-val { color: #9ca3af; font-style: italic; }
 .diag-cite { font-size: 11px; color: #374151; font-style: italic; margin-bottom: 3px; }
 .diag-reason {
     font-size: 11px; color: #6b7280; line-height: 1.5;
@@ -719,8 +725,13 @@ async function verifySection(sectionId, formKey, btn) {
 document.addEventListener('DOMContentLoaded', loadDiagState);
 
 // ── BookToIRS Diagnostic panel ───────────────────────────────────────────────
-const _DIAG_URL  = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}';
+const _DIAG_BASE = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}';
 let _diagLoaded  = false;
+let _diagShowAll = false;
+
+function _diagUrl() {
+    return _DIAG_BASE + (_diagShowAll ? '&showAll=1' : '');
+}
 
 function diagToggle() {
     const body = document.getElementById('diagBody');
@@ -731,13 +742,24 @@ function diagToggle() {
     if (!open && !_diagLoaded) diagLoad();
 }
 
+function diagToggleShowAll() {
+    _diagShowAll = !_diagShowAll;
+    const btn = document.getElementById('diagShowAllBtn');
+    if (btn) {
+        btn.style.background = _diagShowAll ? '#0891b2' : '#6b7280';
+        btn.title = _diagShowAll ? 'Showing ALL fields (click to hide blank)' : 'Show ALL fields including blank/unmapped';
+    }
+    _diagLoaded = false;
+    diagLoad();
+}
+
 function diagLoad() {
     const el = document.getElementById('diagContent');
     el.innerHTML = '<span style="color:#6b7280">Loading…</span>';
     document.getElementById('diagBody').style.display = 'block';
     document.getElementById('diagToggleIcon').textContent = '▲';
 
-    fetch(_DIAG_URL)
+    fetch(_diagUrl())
       .then(r => r.json())
       .then(data => {
           if (!data.ok) { el.innerHTML = `<span style="color:#991b1b">Error: ${data.error}</span>`; return; }
@@ -764,9 +786,11 @@ function _renderDiag(data) {
                 <th>fid</th><th>shortName</th><th>UAS path (books source)</th><th>Value</th>
             </tr></thead><tbody>`;
         for (const f of sec.fields) {
-            const valCls = f.is_zero ? 'zero' : 'val';
-            const valTxt = f.is_zero ? f.value_fmt + ' ← ZERO' : f.value_fmt;
-            html += `<tr>
+            const isBlank = f.is_blank || f.value_fmt === '(blank)';
+            const valCls  = isBlank ? 'blank-val' : f.is_zero ? 'zero' : 'val';
+            const valTxt  = isBlank ? '(blank / not mapped)' : f.is_zero ? f.value_fmt + ' ← ZERO' : f.value_fmt;
+            const rowCls  = isBlank ? ' class="blank-row"' : '';
+            html += `<tr${rowCls}>
                 <td class="fid">${f.fid}</td>
                 <td class="sn">${f.shortName}</td>
                 <td class="uas">${f.uas}</td>

@@ -146,9 +146,78 @@ class IRSDiagAgent:
 
     # ── public ───────────────────────────────────────────────────────────────
 
-    def diagnose(self) -> dict:
+    def _collect_fill_pdf(self, partner_idx: int = 0) -> Dict[str, dict]:
+        """Read field values directly from Sch_K1_FILL_{oID}.pdf for K-1 ShowAll mode.
+        Falls back to _buildFillDict if PDF not found."""
+        import json as _json
+        from ledger import setup_paths as sp
+        fid_meta = self._get_fid_meta()
+
+        # Load owners to get oID for the requested partner
+        try:
+            owners_path = Path(sp.ACCTS_DIR) / f"llcOwners_{sp.DATA_NAME}.json"
+            owners = _json.loads(owners_path.read_text(encoding='utf-8'))
+            owner  = owners[partner_idx] if partner_idx < len(owners) else {}
+        except Exception:
+            owner = {}
+        oID = owner.get('oID', f'p{partner_idx}')
+
+        result: Dict[str, dict] = {}
+
+        # Try to read FILL.pdf directly
+        irs_dir  = Path(sp.IRS_FORMS_DIR)
+        pdf_path = irs_dir / f"Sch_K1_{oID}_FILL.pdf"
+        if pdf_path.exists():
+            try:
+                from pypdf import PdfReader
+                rdr = PdfReader(str(pdf_path))
+                raw_fields = rdr.get_fields() or {}
+                # Build reverse map: pdfField → fid
+                rev_map: Dict[str, str] = {}
+                for pdf_fid, meta in fid_meta.items():
+                    pf = meta.get("pdfField", "")
+                    if pf:
+                        rev_map[pf] = pdf_fid
+
+                for pdfField, fobj in raw_fields.items():
+                    norm_fid = rev_map.get(pdfField)
+                    if not norm_fid:
+                        continue
+                    val = None
+                    if hasattr(fobj, 'get'):
+                        v = fobj.get('/V')
+                        if v is not None:
+                            sv = str(v).strip()
+                            val = sv if sv not in ('', '/Off', 'Off') else None
+                    meta = fid_meta.get(norm_fid, {})
+                    result[norm_fid] = {
+                        "fid":       norm_fid,
+                        "shortName": meta.get("shortName", ""),
+                        "src":       "FILL.pdf",
+                        "uas":       f"Sch_K1_{oID}_FILL.pdf → {meta.get('shortName','')}",
+                        "value":     val,
+                    }
+            except Exception:
+                pass
+
+        # Ensure ALL namespace fids have an entry (blank if not in PDF)
+        for norm_fid, meta in fid_meta.items():
+            if norm_fid not in result:
+                result[norm_fid] = {
+                    "fid":       norm_fid,
+                    "shortName": meta.get("shortName", ""),
+                    "src":       "unmapped",
+                    "uas":       "(not filled)",
+                    "value":     None,
+                }
+        return result
+
+    def diagnose(self, show_all: bool = False, partner_idx: int = 0) -> dict:
         """
         Return structured diagnostic data.
+
+        show_all=True: include ALL namespace fids in each section, even if blank/unmapped.
+        partner_idx: for Sch_K1 (per-partner form), which partner to show (0-based).
 
         Schema::
 
@@ -173,7 +242,14 @@ class IRSDiagAgent:
         """
         from ledger import setup_paths as sp
 
-        all_mapped = self._collect_all_mapped()
+        # For Sch_K1: no bookNS — read directly from FILL.pdf
+        is_k1 = (self.form_name == "Sch_K1")
+        if is_k1:
+            all_mapped = self._collect_fill_pdf(partner_idx=partner_idx)
+        else:
+            all_mapped = self._collect_all_mapped()
+
+        fid_meta   = self._get_fid_meta()
         sections   = get_sections(self.form_name)
         refs       = REFERENCES.get(self.form_name, {})
 
@@ -188,9 +264,22 @@ class IRSDiagAgent:
             for fid in sec_def["fids"]:
                 entry = all_mapped.get(fid)
                 if entry is None:
-                    continue   # not in bookNS → not mapped; skip silently
+                    if not show_all:
+                        continue   # not mapped; skip silently
+                    # show_all: synthesize a blank entry from namespace
+                    meta  = fid_meta.get(fid, {})
+                    entry = {
+                        "fid":       fid,
+                        "shortName": meta.get("shortName", ""),
+                        "src":       "unmapped",
+                        "uas":       "(not in bookNS / not filled)",
+                        "value":     None,
+                    }
                 placed.add(fid)
                 val = entry["value"]
+                is_blank_val = _is_blank(val)
+                if not show_all and is_blank_val:
+                    continue   # default view: skip blank entries
                 fields.append({
                     "fid":       fid,
                     "shortName": entry["shortName"],
@@ -199,6 +288,7 @@ class IRSDiagAgent:
                     "value":     val,
                     "value_fmt": _fmt(val),
                     "is_zero":   _is_zero(val),
+                    "is_blank":  is_blank_val,
                 })
 
             out_sections.append({
@@ -210,17 +300,19 @@ class IRSDiagAgent:
                 "fields": fields,
             })
 
-        # Anything in bookNS but not assigned to any section.
+        # Anything in bookNS but not assigned to any section (non-blank only unless show_all)
         unmapped = [
-            {**entry, "value_fmt": _fmt(entry["value"]), "is_zero": _is_zero(entry["value"])}
+            {**entry, "value_fmt": _fmt(entry["value"]), "is_zero": _is_zero(entry["value"]),
+             "is_blank": _is_blank(entry["value"])}
             for fid, entry in all_mapped.items()
-            if fid not in placed and not _is_blank(entry["value"])
+            if fid not in placed and (show_all or not _is_blank(entry["value"]))
         ]
 
         return {
             "form":      self.form_name,
             "llc":       getattr(sp, "DATA_NAME", "") or "",
             "year":      getattr(sp, "YEAR", None),
+            "show_all":  show_all,
             "sections":  out_sections,
             "unmapped":  unmapped,
         }

@@ -1777,7 +1777,14 @@ class llcMgmt:
                 if _llc is None:
                     return jsonify({"ok": False, "error": "no LLC session"}), 400
                 from irs.taxAgents.irsDiagAgent import IRSDiagAgent
-                data = IRSDiagAgent(_llc, form_nm).diagnose()
+                show_all    = request.args.get("showAll", "0") in ("1", "true", "True")
+                partner_raw = request.args.get("member", "0")
+                try:
+                    partner_idx = int(partner_raw)
+                except (ValueError, TypeError):
+                    partner_idx = 0
+                data = IRSDiagAgent(_llc, form_nm).diagnose(
+                    show_all=show_all, partner_idx=partner_idx)
                 return jsonify({"ok": True, **data})
             except HTTPException:
                 raise

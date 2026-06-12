@@ -514,7 +514,7 @@ _SCHK1_SECTIONS = [
     },
     {
         "id":   "PassiveItems",
-        "name": "Part III — Passive Income & Deductions (f49–f77)",
+        "name": "Part III — Partner's Share of Income, Deductions, Credits & Other Items (f49–f111)",
         "fids": _SCHK1_PASSIVEITEMS_FIDS,
         "ref":  "K1-PASSIVE",
     },
