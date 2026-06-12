@@ -185,9 +185,9 @@
 <script>const _SCRIPT_ROOT = {{ request.script_root | tojson }};</script>
 <div class="review-panel">
     <div class="review-header">
-        <h2>📋 {{ form_label }} — Guided Tax Review</h2>
+        <h2>📋 {{ view_title or (form_label ~ ' — Guided Tax Review') }}</h2>
         <a class="back-link"
-           href="{{ url_for('view_object', obj_type=back_obj) }}">← Back to {{ form_label }}</a>
+           href="{{ back_url or url_for('view_object', obj_type=back_obj) }}">← Back</a>
     </div>
 
     {% set sections = summary.sections if summary.sections is iterable and summary.sections is not mapping
@@ -491,7 +491,8 @@
 </style>
 
 <script>
-const _START_URL = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/start';
+const _MEMBER_PARAM = {{ (('?member=' ~ member) if member else '') | tojson }};
+const _START_URL   = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/start' + _MEMBER_PARAM;
 
 function runAgent(btn) {
     btn.disabled = true; btn.textContent = '⏳ Running…';
@@ -520,7 +521,7 @@ function runAgent(btn) {
 // server (.agent_work/<form>_resolutions.json) and reloads so section counts
 // and GO/NEEDS_FIXING badges reflect the change.  This is the operator-friendly
 // path that does NOT require the Aid dialog or accounting expertise.
-const _RESOLVE_URL = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/resolve';
+const _RESOLVE_URL = _SCRIPT_ROOT + '/api/agent/{{ form_key }}/resolve' + _MEMBER_PARAM;
 
 function resolveIssue(btn, section, ruleId, action) {
     let note = '';
@@ -604,7 +605,8 @@ function markResolved(btn, ruleId) {
 })();
 
 // ── Diagnose State — VERIFY / regression ────────────────────────────────────
-const _DIAG_STATE_URL  = _SCRIPT_ROOT + '/api/aid/diagnose_state?formNm={{ form_key | urlencode }}';
+const _DIAG_STATE_URL  = _SCRIPT_ROOT + '/api/aid/diagnose_state?formNm={{ form_key | urlencode }}'
+                       + (_MEMBER_PARAM ? '&member=' + encodeURIComponent({{ (member or '') | tojson }}) : '');
 const _VERIFY_URL      = _SCRIPT_ROOT + '/api/aid/verify_section';
 const _FORM_KEY        = '{{ form_key }}';
 
@@ -725,7 +727,8 @@ async function verifySection(sectionId, formKey, btn) {
 document.addEventListener('DOMContentLoaded', loadDiagState);
 
 // ── BookToIRS Diagnostic panel ───────────────────────────────────────────────
-const _DIAG_BASE = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}';
+const _DIAG_BASE = _SCRIPT_ROOT + '/api/aid/diagnose?formNm={{ form_key | urlencode }}'
+                 + (_MEMBER_PARAM ? '&member=' + encodeURIComponent({{ (member or '') | tojson }}) : '');
 let _diagLoaded  = false;
 let _diagShowAll = false;
 

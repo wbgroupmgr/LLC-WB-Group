@@ -1661,9 +1661,15 @@ class AgentSchK1_PassiveItems(_SectionAgent):
 class FormSchK1Agent(IRSFormsAgent):
     """
     Tier 1 orchestrator — runs section agents per partner.
-    Produces one K-1 set of audit results per partner in llcOwners.
-    Session state is keyed by partner oID.
-    Books-First: Box 2 = IS.net_rental × partner.pct. Box 14a = $0.
+
+    Per-member mode: FormSchK1Agent(llc, oID='FrancisRojas')
+      • _get_owners() returns only that partner
+      • session state stored as FormSchK1_{oID}_session_state.json
+      • getSummary() / run_phases_1_2() return flat 'sections' dict (no 'partners' nesting)
+
+    All-partners mode: FormSchK1Agent(llc)  — used by LLCTaxAgent phase1_prepare
+      • runs all partners, stores FormSchK1_session_state.json (aggregate)
+      • getSummary() returns {'partners': {...}} as before
     """
 
     _SECTION_ORDER = [
@@ -1672,10 +1678,11 @@ class FormSchK1Agent(IRSFormsAgent):
         AgentSchK1_PassiveItems,
     ]
 
-    def __init__(self, llc, tax_year: Optional[int] = None):
+    def __init__(self, llc, tax_year: Optional[int] = None, oID: Optional[str] = None):
         super().__init__(llc, tax_year)
         self._section_agents = [cls(llc, self.tax_year) for cls in self._SECTION_ORDER]
         self._owners: Optional[List[Dict]] = None
+        self._oID = oID  # None = all partners; str = single-partner mode
 
     # ── Owner loading ─────────────────────────────────────────────────────────
 
@@ -1684,9 +1691,15 @@ class FormSchK1Agent(IRSFormsAgent):
             return self._owners
         try:
             raw = self.llc.owners
-            self._owners = raw() if callable(raw) else list(raw or [])
+            all_owners = raw() if callable(raw) else list(raw or [])
         except Exception:
-            self._owners = []
+            all_owners = []
+        if self._oID:
+            self._owners = [o for o in all_owners if o.get('oID') == self._oID]
+            if not self._owners:
+                self._owners = all_owners[:1]   # fallback to first if oID not found
+        else:
+            self._owners = all_owners
         return self._owners
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -1773,38 +1786,75 @@ class FormSchK1Agent(IRSFormsAgent):
 
         overall_state = self.NEEDS_FIXING if overall_halt > 0 else self.GO
 
-        session = {
-            'tax_year':      self.tax_year,
-            'last_run':      _now_iso(),
-            'overall_state': overall_state,
-            'partner_count': len(owners_list),
-            'partners':      partner_state,
-            'summary':       (
-                f"{len(owners_list)} Schedule K-1s: {', '.join(names)}. "
-                f"Box 2 allocations ({pct_str}): IS.net_rental ${net_rental:,.2f}. "
-                f"Box 1=$0 (§469), Box 14a=$0 (§1402). Tax basis capital (Rev. Proc. 2020-13)."
-            ),
-        }
+        if self._oID and len(owners) == 1:
+            # Per-member mode: flatten sections to top-level (no 'partners' nesting)
+            owner      = owners[0]
+            oID        = owner.get('oID', self._oID)
+            pdata      = partner_state.get(oID, {})
+            nm         = pdata.get('name', oID)
+            pct        = pdata.get('pct', 0.0)
+            box2       = pdata.get('box2', 0.0)
+            cap_end    = pdata.get('capital_ending', 0.0)
+            session = {
+                'tax_year':      self.tax_year,
+                'last_run':      _now_iso(),
+                'overall_state': overall_state,
+                'partner_oID':   oID,
+                'partner_name':  nm,
+                'pct':           pct,
+                'box2':          box2,
+                'capital_ending': cap_end,
+                'sections':      pdata.get('sections', {}),
+                'summary':       (
+                    f"K-1 for {nm} ({pct*100:.2f}%): Box 2=${box2:,.2f}, "
+                    f"Ending Capital=${cap_end:,.2f}. "
+                    f"Box 1=$0 (§469), Box 14a=$0 (§1402). "
+                    f"Tax basis capital (Rev. Proc. 2020-13)."
+                ),
+            }
+        else:
+            # All-partners aggregate (LLCTaxAgent uses this)
+            session = {
+                'tax_year':      self.tax_year,
+                'last_run':      _now_iso(),
+                'overall_state': overall_state,
+                'partner_count': len(owners_list),
+                'partners':      partner_state,
+                'summary':       (
+                    f"{len(owners_list)} Schedule K-1s: {', '.join(names)}. "
+                    f"Box 2 allocations ({pct_str}): IS.net_rental ${net_rental:,.2f}. "
+                    f"Box 1=$0 (§469), Box 14a=$0 (§1402). Tax basis capital (Rev. Proc. 2020-13)."
+                ),
+            }
         self._save_session_state(session)
         return session
 
     def getSummary(self) -> Dict[str, Any]:
         state = self._load_session_state()
         if state is None:
-            return {
+            base = {
                 'tax_year':      self.tax_year,
                 'last_run':      None,
                 'overall_state': self.NOT_STARTED,
-                'partners':      {},
                 'summary':       'Not yet run',
             }
+            if self._oID:
+                base['sections'] = {}
+                base['partner_oID'] = self._oID
+            else:
+                base['partners'] = {}
+            return base
         return state
 
     # ── Session state persistence ─────────────────────────────────────────────
 
     def _session_state_path(self) -> Optional[Path]:
         d = self._agent_work_dir()
-        return (d / 'FormSchK1_session_state.json') if d else None
+        if d is None:
+            return None
+        # Per-member: separate file so LLCTaxAgent aggregate is never clobbered
+        fname = f'FormSchK1_{self._oID}_session_state.json' if self._oID else 'FormSchK1_session_state.json'
+        return d / fname
 
     def _load_session_state(self) -> Optional[Dict[str, Any]]:
         p = self._session_state_path()

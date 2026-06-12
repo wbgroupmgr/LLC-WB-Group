@@ -778,10 +778,20 @@ class llcMgmt:
                     "object_file":  ofn,
                 })
 
+            # K-1 owners list — injected so home.html can render per-member dropdown
+            k1_owners = []
+            try:
+                k1_mgr = self.objects.get("llcFormK1")
+                if k1_mgr:
+                    k1_owners = k1_mgr.owners()
+            except Exception:
+                pass
+
             return render_template(
                 "home.html",
                 title=self.title,
                 session_views=session_views,
+                k1_owners=k1_owners,
             )
 
         # ── Switch Year ───────────────────────────────────────────────────────
@@ -930,16 +940,30 @@ class llcMgmt:
                         ns_pdf_url = url_for("serve_irs_ns_pdf", form_id=form_nm)
                 except Exception:
                     pass
+                # K-1: ?member=oID auto-selects the member PDF on load
+                default_member = ""
+                if form_nm == "Sch_K1":
+                    default_member = request.args.get("member", "").strip()
+                    # Build view title with member name if known
+                    if default_member:
+                        owners = mgr_meta.get("owners", [])
+                        nm = next((o["name"] for o in owners if o["oID"] == default_member), default_member)
+                        view_title = f"Schedule K-1 — {nm}"
+                    else:
+                        view_title = self.VIEW_TITLES.get(obj_type, obj_type)
+                else:
+                    view_title = self.VIEW_TITLES.get(obj_type, obj_type)
                 return render_template(
                     "irs_pdf_view.html",
                     title=self.title,
                     obj_type=obj_type,
-                    view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                    view_title=view_title,
                     pdf_url=url_for("serve_irs_pdf", form_id=form_nm),
                     ns_pdf_url=ns_pdf_url,
                     stats=manager.stats(),
                     stats_labels=self._stats_labels(manager.stats()),
                     meta=mgr_meta,
+                    default_member=default_member,
                 )
 
             if obj_type in self.READ_ONLY_VIEWS and obj_type not in self.BANK_VIEWS:
@@ -1779,10 +1803,21 @@ class llcMgmt:
                 from irs.taxAgents.irsDiagAgent import IRSDiagAgent
                 show_all    = request.args.get("showAll", "0") in ("1", "true", "True")
                 partner_raw = request.args.get("member", "0")
+                # Resolve member: accept oID string or numeric index
                 try:
                     partner_idx = int(partner_raw)
                 except (ValueError, TypeError):
+                    # oID string — find index in llc.owners
                     partner_idx = 0
+                    try:
+                        raw_owners = _llc.owners
+                        owners = raw_owners() if callable(raw_owners) else list(raw_owners or [])
+                        for i, o in enumerate(owners):
+                            if o.get('oID') == partner_raw:
+                                partner_idx = i
+                                break
+                    except Exception:
+                        pass
                 data = IRSDiagAgent(_llc, form_nm).diagnose(
                     show_all=show_all, partner_idx=partner_idx)
                 return jsonify({"ok": True, **data})
@@ -1951,6 +1986,9 @@ class llcMgmt:
         # Route pattern: /view/agent/<form_key>  and  /api/agent/<form_key>/status|start
         # form_key values: 'form8825', 'form4562', 'schk1'
         # Form1065 keeps its own named routes (backward compat); these handle the rest.
+        #
+        # SchK1 per-member: all routes accept ?member=oID.
+        # Without ?member the agent falls back to all-partners aggregate (for LLCTaxAgent).
 
         _AGENT_REGISTRY = {}
         try:
@@ -1966,6 +2004,16 @@ class llcMgmt:
         except Exception as _ae:
             app.logger.error("Generic form agent import failed: %s", _ae)
 
+        def _make_agent(AgentCls, form_key: str, member: str = ""):
+            """Instantiate agent; for schk1 pass oID when a member is selected."""
+            if form_key == 'schk1' and member:
+                return AgentCls(self.eSession.llc, oID=member)
+            return AgentCls(self.eSession.llc)
+
+        def _res_key(form_key: str, member: str = "") -> str:
+            """Resolution file key — per-member for schk1."""
+            return f"{form_key}_{member}" if (form_key == 'schk1' and member) else form_key
+
         @app.route("/view/agent/<form_key>")
         def agent_generic_view(form_key):
             """Guided Tax Review page for Form8825, Form4562, or SchK1."""
@@ -1975,32 +2023,37 @@ class llcMgmt:
                                        obj_type=f"{form_key} Agent",
                                        meta={"error": f"Unknown form key: {form_key}"})
             AgentCls, form_label, back_obj = entry
+
+            # SchK1: ?member=oID required — redirect to home if missing
+            member = request.args.get("member", "").strip()
+            if form_key == 'schk1' and not member:
+                return redirect(url_for("home"))
+
             try:
-                agent   = AgentCls(self.eSession.llc)
+                agent   = _make_agent(AgentCls, form_key, member)
                 summary = agent.getSummary()
-                # Normalize sections to a list (FormSchK1Agent uses 'partners' key)
-                if 'partners' in summary and 'sections' not in summary:
-                    # Flatten partner data into sections list for the generic template
-                    sections = []
-                    for pid, pdata in summary.get('partners', {}).items():
-                        for sec_key, sec in pdata.get('sections', {}).items():
-                            sec_copy = dict(sec)
-                            sec_copy['agent'] = f"{pid}:{sec_key}"
-                            sec_copy['label'] = f"{pid} — {sec.get('label', sec_key)}"
-                            sections.append(sec_copy)
-                    summary = dict(summary)
-                    summary['sections'] = sections
-                # Overlay bookkeeper resolutions (acknowledge/override) onto the
-                # rendered page; injects each section's `agent` key for resolve calls.
-                summary = _apply_resolutions(agent, form_key, summary)
+                rkey    = _res_key(form_key, member)
+                summary = _apply_resolutions(agent, rkey, summary)
+
+                # Build member-aware label and back URL
+                if form_key == 'schk1' and member:
+                    nm         = summary.get('partner_name', member)
+                    view_title = f"Schedule K-1 — {nm} — Guided Tax Review"
+                    back_url   = url_for("view_object", obj_type=back_obj) + f"?member={member}"
+                else:
+                    view_title = f"{form_label} — Guided Tax Review"
+                    back_url   = url_for("view_object", obj_type=back_obj)
+
                 return render_template(
                     "agent_generic_review.html",
                     summary=summary,
                     form_key=form_key,
                     form_label=form_label,
                     back_obj=back_obj,
+                    back_url=back_url,
+                    member=member,
                     app_title=self.app.config.get("_llc_name", "LLC Editor"),
-                    view_title=f"{form_label} — Guided Tax Review",
+                    view_title=view_title,
                 )
             except Exception as err:
                 app.logger.exception("agent_generic_view(%s) failed", form_key)
@@ -2009,21 +2062,10 @@ class llcMgmt:
                                        meta={"error": str(err)})
 
         def _normalize_agent_sections(d: dict) -> dict:
-            """Flatten sections or partners dict into a list for the UI strip."""
+            """Flatten sections dict into list for the UI status strip."""
             if isinstance(d.get('sections'), list):
                 return d
-            d = dict(d)
-            # SchK1: top-level 'partners' key → flatten per-partner section dicts
-            if 'partners' in d and 'sections' not in d:
-                secs = []
-                for pid, pdata in (d.get('partners') or {}).items():
-                    for sec_key, sec in (pdata.get('sections') or {}).items():
-                        sc = dict(sec)
-                        sc['label'] = f"{pid} — {sec.get('label', sec_key)}"
-                        secs.append(sc)
-                d['sections'] = secs
-                return d
-            # Generic: sections is a plain dict
+            d   = dict(d)
             raw = d.get('sections') or {}
             if isinstance(raw, dict):
                 d['sections'] = [
@@ -2040,18 +2082,19 @@ class llcMgmt:
         # ── Issue resolution overlay ────────────────────────────────────────────
         # Bookkeepers close issues directly from the Guided Review WITHOUT the Aid
         # dialog (acknowledge / override / reopen).  Resolutions persist in
-        # .agent_work/<form_key>_resolutions.json and overlay onto the agent's
+        # .agent_work/<res_key>_resolutions.json and overlay onto the agent's
         # session state on every read — so they survive agent re-runs.
+        # SchK1 uses res_key = schk1_{oID} to keep per-member resolutions separate.
 
-        def _resolutions_file(agent, form_key):
+        def _resolutions_file(agent, res_key):
             try:
                 d = agent._agent_work_dir()
             except Exception:
                 d = None
-            return (Path(d) / f"{form_key}_resolutions.json") if d else None
+            return (Path(d) / f"{res_key}_resolutions.json") if d else None
 
-        def _load_resolutions(agent, form_key):
-            p = _resolutions_file(agent, form_key)
+        def _load_resolutions(agent, res_key):
+            p = _resolutions_file(agent, res_key)
             if not p or not p.exists():
                 return {}
             try:
@@ -2060,8 +2103,8 @@ class llcMgmt:
             except Exception:
                 return {}
 
-        def _save_resolutions(agent, form_key, data):
-            p = _resolutions_file(agent, form_key)
+        def _save_resolutions(agent, res_key, data):
+            p = _resolutions_file(agent, res_key)
             if not p:
                 return
             try:
@@ -2069,13 +2112,13 @@ class llcMgmt:
                 with open(p, 'w') as f:
                     json.dump(data, f, indent=2)
             except Exception:
-                app.logger.exception("save resolutions failed (%s)", form_key)
+                app.logger.exception("save resolutions failed (%s)", res_key)
 
-        def _apply_resolutions(agent, form_key, summary):
+        def _apply_resolutions(agent, res_key, summary):
             """Overlay resolutions onto a summary; recompute counts + states."""
             if not isinstance(summary, dict):
                 return summary
-            res  = _load_resolutions(agent, form_key)
+            res  = _load_resolutions(agent, res_key)
             secs = summary.get('sections')
             overall_halt = 0
 
@@ -2121,10 +2164,12 @@ class llcMgmt:
             if not entry:
                 return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
             AgentCls, _, _ = entry
+            member = request.args.get("member", "").strip()
             try:
-                agent   = AgentCls(self.eSession.llc)
+                agent   = _make_agent(AgentCls, form_key, member)
+                rkey    = _res_key(form_key, member)
                 summary = _normalize_agent_sections(
-                    _apply_resolutions(agent, form_key, agent.getSummary()))
+                    _apply_resolutions(agent, rkey, agent.getSummary()))
                 return jsonify({'ok': True, 'summary': summary})
             except Exception as err:
                 app.logger.exception("agent_generic_status(%s) failed", form_key)
@@ -2137,10 +2182,12 @@ class llcMgmt:
             if not entry:
                 return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
             AgentCls, _, _ = entry
+            member = request.args.get("member", "").strip()
             try:
-                agent  = AgentCls(self.eSession.llc)
+                agent  = _make_agent(AgentCls, form_key, member)
+                rkey   = _res_key(form_key, member)
                 result = _normalize_agent_sections(
-                    _apply_resolutions(agent, form_key, agent.run_phases_1_2()))
+                    _apply_resolutions(agent, rkey, agent.run_phases_1_2()))
                 return jsonify({'ok': True, 'summary': result})
             except Exception as err:
                 app.logger.exception("agent_generic_start(%s) failed", form_key)
@@ -2153,6 +2200,7 @@ class llcMgmt:
             if not entry:
                 return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
             AgentCls, _, _ = entry
+            member  = request.args.get("member", "").strip()
             body    = request.get_json(silent=True) or {}
             section = str(body.get('section', '') or '')
             rule_id = str(body.get('rule_id', '') or '')
@@ -2162,8 +2210,9 @@ class llcMgmt:
                 return jsonify({'ok': False, 'error': 'rule_id required'}), 400
             try:
                 from datetime import datetime, timezone
-                agent = AgentCls(self.eSession.llc)
-                res   = _load_resolutions(agent, form_key)
+                agent = _make_agent(AgentCls, form_key, member)
+                rkey  = _res_key(form_key, member)
+                res   = _load_resolutions(agent, rkey)
                 key   = f"{section}::{rule_id}"
                 if action == 'reopen':
                     res.pop(key, None)
@@ -2173,9 +2222,9 @@ class llcMgmt:
                         'note':   note,
                         'ts':     datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
                     }
-                _save_resolutions(agent, form_key, res)
+                _save_resolutions(agent, rkey, res)
                 summary = _normalize_agent_sections(
-                    _apply_resolutions(agent, form_key, agent.getSummary()))
+                    _apply_resolutions(agent, rkey, agent.getSummary()))
                 return jsonify({'ok': True, 'summary': summary})
             except Exception as err:
                 app.logger.exception("agent_generic_resolve(%s) failed", form_key)

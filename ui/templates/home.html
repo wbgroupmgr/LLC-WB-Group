@@ -197,6 +197,31 @@
     .group-irs-tax-forms   .view-card:hover { background: #fefce8; border-color: #fde047; box-shadow: 0 4px 10px rgba(234,179,8,.12); }
     .group-reports---analysis .view-card:hover { background: #fdf4ff; border-color: #d8b4fe; box-shadow: 0 4px 10px rgba(168,85,247,.12); }
 
+    /* ── K-1 per-member dropdown card ── */
+    .k1-dropdown-card {
+        position: relative; cursor: pointer; user-select: none;
+        overflow: visible !important;
+    }
+    .k1-member-list {
+        display: none; position: absolute; top: calc(100% + 4px); left: 0;
+        min-width: 240px; background: white; border: 1px solid #e5e7eb;
+        border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12);
+        z-index: 200; padding: 4px 0;
+    }
+    .k1-dropdown-card.k1-open .k1-member-list { display: block; }
+    .k1-member-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 14px; text-decoration: none; color: #111827;
+        font-size: 13px; border-bottom: 1px solid #f3f4f6; cursor: pointer;
+    }
+    .k1-member-item:last-child { border-bottom: 0; }
+    .k1-member-item:hover { background: #f9fafb; }
+    .k1-empty { color: #9ca3af; font-style: italic; cursor: default; }
+    .k1-dot-ready   { color: #22c55e; font-size: 10px; }
+    .k1-dot-missing { color: #f59e0b; font-size: 10px; }
+    .k1-member-name { font-weight: 600; flex: 1; }
+    .k1-member-id   { font-size: 11px; color: #6b7280; font-family: monospace; }
+
     /* ── Session table ── */
     .session-panel { margin-top: 8px; }
     .session-panel table { width: 100%; }
@@ -323,24 +348,56 @@
             {% for vname in group.views %}
                 {% set vlabel = view_labels.get(vname, vname) %}
                 {% set vicon_sub = icons.get(vname, ("📋", "")) %}
-                {% if vname == 'yeFinancialReport' %}
-                    {% set vhref = url_for('view_ye_financial_report') %}
-                {% else %}
-                    {% set vhref = url_for('view_object', obj_type=vname) %}
-                {% endif %}
-                <a href="{{ vhref }}"
-                   class="view-card"
-                   title="{{ vlabel }}">
+
+                {# ── Schedule K-1: per-member dropdown card ── #}
+                {% if vname == 'llcFormK1' %}
+                <div class="view-card k1-dropdown-card" tabindex="0"
+                     onclick="this.classList.toggle('k1-open')"
+                     title="Schedule K-1 — select a partner">
+                    <span class="vc-icon">📋</span>
+                    <div class="vc-text">
+                        <span class="vc-label">Schedule K-1 ▾</span>
+                        <span class="vc-sub">{{ k1_owners | length }} partner K-1{% if k1_owners | length != 1 %}s{% endif %}</span>
+                    </div>
+                    <div class="k1-member-list" onclick="event.stopPropagation()">
+                        {% for o in k1_owners %}
+                        <a href="{{ url_for('view_object', obj_type='llcFormK1') }}?member={{ o.oID }}"
+                           class="k1-member-item {% if o.fill_exists %}k1-ready{% endif %}">
+                            <span class="k1-member-dot {% if o.fill_exists %}k1-dot-ready{% else %}k1-dot-missing{% endif %}">●</span>
+                            <span class="k1-member-name">{{ o.name }}</span>
+                            <span class="k1-member-id">{{ o.oID }}</span>
+                        </a>
+                        {% else %}
+                        <span class="k1-member-item k1-empty">No partners found</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {% elif vname == 'yeFinancialReport' %}
+                <a href="{{ url_for('view_ye_financial_report') }}"
+                   class="view-card" title="{{ vlabel }}">
                     <span class="vc-icon">{{ vicon_sub[0] }}</span>
                     <div class="vc-text">
                         {% for line in vlabel.split('\n') %}
                         <span class="vc-label" style="{% if not loop.first %}font-weight:400;font-size:11px;color:#6b7280;{% endif %}">{{ line }}</span>
                         {% endfor %}
-                        {% if vicon_sub[1] %}
-                        <span class="vc-sub">{{ vicon_sub[1] }}</span>
-                        {% endif %}
+                        {% if vicon_sub[1] %}<span class="vc-sub">{{ vicon_sub[1] }}</span>{% endif %}
                     </div>
                 </a>
+
+                {% else %}
+                <a href="{{ url_for('view_object', obj_type=vname) }}"
+                   class="view-card" title="{{ vlabel }}">
+                    <span class="vc-icon">{{ vicon_sub[0] }}</span>
+                    <div class="vc-text">
+                        {% for line in vlabel.split('\n') %}
+                        <span class="vc-label" style="{% if not loop.first %}font-weight:400;font-size:11px;color:#6b7280;{% endif %}">{{ line }}</span>
+                        {% endfor %}
+                        {% if vicon_sub[1] %}<span class="vc-sub">{{ vicon_sub[1] }}</span>{% endif %}
+                    </div>
+                </a>
+                {% endif %}
+
             {% endfor %}
         </div>
     </div>

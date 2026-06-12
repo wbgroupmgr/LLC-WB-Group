@@ -507,7 +507,8 @@ function cpaReviewOpen() {
 {% if meta.owners %}
 <script>
 (function () {
-    const BASE_URL  = "{{ pdf_url }}";  // /forms/Sch_K1.pdf
+    const BASE_URL      = "{{ pdf_url }}";  // /forms/Sch_K1.pdf
+    const DEFAULT_MEMBER = {{ (default_member or '') | tojson }};
     const frame     = document.getElementById("pdfFrame");
     const badge     = document.getElementById("memberBadge");
     const openBtn   = document.getElementById("pdfOpenBtn");
@@ -539,7 +540,19 @@ function cpaReviewOpen() {
             ? (sel.options[sel.selectedIndex].text.split("·")[0].trim())
             : "Partnership Total";
         if (badge) badge.textContent = nm;
+
+        // Sync the select dropdown to match oID
+        if (sel && oID && sel.value !== oID) {
+            sel.value = oID;
+        }
     };
+
+    // Auto-select DEFAULT_MEMBER on page load (set by ?member= URL param)
+    if (DEFAULT_MEMBER) {
+        document.addEventListener("DOMContentLoaded", function () {
+            window.k1MemberChanged(DEFAULT_MEMBER);
+        });
+    }
 
     // aidRegenerate refreshes iframe — preserve the current member selection.
     const _origRegenerate = window.aidRegenerate;
@@ -569,9 +582,11 @@ function cpaReviewOpen() {
     const _AGENT_REVIEW_URL = {{ url_for('agent_form1065_view') | tojson }};
     {% else %}
     const _ak = {{ _ak | tojson }};
-    const _AGENT_STATUS_URL = _SCRIPT_ROOT + '/api/agent/' + _ak + '/status';
-    const _AGENT_START_URL  = _SCRIPT_ROOT + '/api/agent/' + _ak + '/start';
-    const _AGENT_REVIEW_URL = _SCRIPT_ROOT + '/view/agent/' + _ak;
+    {# SchK1: append ?member=oID so the strip reads per-member session state #}
+    const _memberSuffix = {{ (('?member=' ~ default_member) if (default_member and meta.formId == 'Sch_K1') else '') | tojson }};
+    const _AGENT_STATUS_URL = _SCRIPT_ROOT + '/api/agent/' + _ak + '/status' + _memberSuffix;
+    const _AGENT_START_URL  = _SCRIPT_ROOT + '/api/agent/' + _ak + '/start'  + _memberSuffix;
+    const _AGENT_REVIEW_URL = _SCRIPT_ROOT + '/view/agent/' + _ak            + _memberSuffix;
     {% endif %}
     const _STRIP_KEY = 'agent_strip_{{ _ak }}_collapsed';
 
