@@ -317,10 +317,10 @@ class IRSDiagAgent:
             "unmapped":  unmapped,
         }
 
-    def diagnose_text(self) -> str:
+    def diagnose_text(self, show_all: bool = False, partner_idx: int = 0) -> str:
         """Return a formatted multi-line string — same output as testForm.py."""
         from ledger import setup_paths as sp
-        data = self.diagnose()
+        data = self.diagnose(show_all=show_all, partner_idx=partner_idx)
 
         W_FID = 6
         W_SN  = 10

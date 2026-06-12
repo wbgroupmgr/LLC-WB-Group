@@ -2,17 +2,21 @@
 """
 testForm.py — BookToIRS diagnostic CLI.
 
-Delegates entirely to IRSDiagAgent. Output is organized by Section,
-blank values are omitted, no location column.
-
 Usage:
     python3 testForm.py --form Form4562
     python3 testForm.py --form Form8825
     python3 testForm.py --form Form1065
-    python3 testForm.py --form Sch_K1
+    python3 testForm.py --form Sch_K1 --m 1
+    python3 testForm.py --form Sch_K1 --all --m 1
+    python3 testForm.py --form Form4562 --all
     python3 testForm.py --form Form4562 --llcName WBGroupLLC --year 2025
-    python3 testForm.py --all
-    python3 testForm.py --all --llcName WBGroupLLC --year 2025
+
+Flags:
+    --form     Form name: Form4562 | Form8825 | Form1065 | Sch_K1 (or bare 4562)
+    --all      Show ALL fields including blank/unmapped (default: skip blank)
+    --m N      Member number (1-based) for Sch_K1; default=1 (first partner)
+    --llcName  LLC identifier; defaults to bootstrap config
+    --year     Tax year integer; defaults to bootstrap config
 """
 import argparse
 import sys
@@ -20,8 +24,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
-
-_ALL_FORMS = ["Form1065", "Form8825", "Form4562", "Sch_K1"]
 
 
 def _norm_form(name: str) -> str:
@@ -31,20 +33,17 @@ def _norm_form(name: str) -> str:
     return "Form" + name
 
 
-def _run_form(llc, form_nm: str) -> None:
-    from irs.taxAgents.irsDiagAgent import IRSDiagAgent
-    print(IRSDiagAgent(llc, form_nm).diagnose_text())
-
-
 def main():
     ap = argparse.ArgumentParser(
-        description="BookToIRS pipeline diagnostic — calls IRSDiagAgent"
+        description="BookToIRS pipeline diagnostic — calls IRSDiagAgent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    grp = ap.add_mutually_exclusive_group(required=True)
-    grp.add_argument("--form",
-                     help="Form name: Form4562 | Form8825 | Form1065 | Sch_K1 (or just 4562)")
-    grp.add_argument("--all", action="store_true",
-                     help=f"Run all forms: {', '.join(_ALL_FORMS)}")
+    ap.add_argument("--form", required=True,
+                    help="Form4562 | Form8825 | Form1065 | Sch_K1 (or bare number)")
+    ap.add_argument("--all", dest="show_all", action="store_true",
+                    help="Show ALL fields including blank/unmapped")
+    ap.add_argument("--m", dest="member", type=int, default=1, metavar="N",
+                    help="Member number (1-based) for Sch_K1; default=1")
     ap.add_argument("--llcName", default=None, metavar="NAME")
     ap.add_argument("--year",    default=None, type=int, metavar="YEAR")
     args = ap.parse_args()
@@ -58,14 +57,12 @@ def main():
     from ledger.LLC import LLC
     llc = LLC(sp.DATA_NAME)
 
-    if args.all:
-        for form_nm in _ALL_FORMS:
-            print(f"\n{'═'*96}")
-            print(f"  ── {form_nm} {'─'*(90 - len(form_nm))}")
-            print(f"{'═'*96}")
-            _run_form(llc, form_nm)
-    else:
-        _run_form(llc, _norm_form(args.form))
+    form_nm     = _norm_form(args.form)
+    partner_idx = max(0, args.member - 1)   # convert 1-based CLI → 0-based index
+
+    from irs.taxAgents.irsDiagAgent import IRSDiagAgent
+    print(IRSDiagAgent(llc, form_nm).diagnose_text(
+        show_all=args.show_all, partner_idx=partner_idx))
 
 
 if __name__ == "__main__":
