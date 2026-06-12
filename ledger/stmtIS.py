@@ -406,8 +406,16 @@ class stmtIS(stmtDB):
                     continue
 
         # ── 2. Local computation (Balance = Debit − Credit; correct for all cases) ──
+        # Also used to SUPPLEMENT the legacy path: rptFinancialReport.taxData()
+        # omits keys such as net_rental, subtotal_rental_income, etc. that the
+        # IRS form pipelines need.  Always run local and fill in missing keys.
+        local = self._taxAggregates_local()
         if not agg:
-            agg = self._taxAggregates_local()
+            agg = local
+        else:
+            for k, v in local.items():
+                if k not in agg:
+                    agg[k] = v
 
         try:
             object.__setattr__(self, '_taxAggregates_cache', agg)
