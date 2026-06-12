@@ -991,11 +991,10 @@ class BookToIRS:
         """Generate one Sch_K1_FILL_{oID}.pdf per partner.
 
         Returns ``{ partners: [{oID, fill_path, filled, blank}], paths, ts }``.
-        Uses ``stmtIS_TaxMember`` for direct fid-keyed fill values,
-        bypassing Sch_K1_namespace.json's blank logicalKey index.
+        Delegates to Sch_K1._buildFillDict() — the canonical per-partner K-1
+        fill builder — which is GL-sourced (Books-First, IRC §446/703).
         """
         import pandas as pd
-        from ledger.stmtIS import stmtIS_TaxMember
         import importlib
 
         owners = self._loadOwnersForK1()
@@ -1006,18 +1005,33 @@ class BookToIRS:
         formClass = getattr(mod, "Sch_K1")
         form      = formClass(llc=self.llc)
         df_fields = form.loadFieldsDF()
+        ns        = form._buildNSpace()
 
         results: List[Dict] = []
         paths:   List[str]  = []
 
+        _CHECK_TYPES = {"checkBox", "checkText", "box"}
+
         for i, owner in enumerate(owners):
             oID = owner.get("oID", f"p{i}")
 
-            stmt     = stmtIS_TaxMember(self.llc, partner_idx=i)
-            fid_vals = stmt.loadFillDict("Sch_K1")
+            # Sch_K1._buildFillDict is the canonical K-1 fill builder:
+            # GL-sourced contributions/distributions/ending-capital, correct fids,
+            # full Box J/K/L logic, checkboxes (Rev. Proc. 2020-13 tax-basis flag).
+            fill_dict = form._buildFillDict(ns, partner_idx=i)
 
-            rows = [{"fid": fid, "fval": fval, "source": "IS"}
-                    for fid, fval in fid_vals.items()]
+            rows = []
+            for fid, fd in fill_dict.items():
+                if not fd.get("publish"):
+                    continue
+                val   = fd.get("value", "") or ""
+                ftype = fd.get("fType", "text")
+                # saveFILL_FromDF only toggles /Btn fields when value == CHECK_SENTINEL
+                if ftype in _CHECK_TYPES and val:
+                    val = "CHECK"
+                norm_fid = form.normalizeFid(fid)
+                rows.append({"fid": norm_fid, "fval": val, "source": "K1"})
+
             df_book = pd.DataFrame(rows, columns=["fid", "fval", "source"]) \
                       if rows else pd.DataFrame(columns=["fid", "fval", "source"])
 
