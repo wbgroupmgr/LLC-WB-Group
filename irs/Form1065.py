@@ -535,6 +535,16 @@ class Form1065(irsForm):
                 if m_idx and int(m_idx.group(1)) >= 1:
                     is_schb_no = True
 
+            # Path C — checkText on Schedule B pages 2–3 (AcroForm c{pg}_{seq} pattern).
+            # c2_1 = Q1 entity-type multiselect (6 options, not Yes/No) → excluded.
+            # c2_2 through c2_N and all c3_N are Yes/No pairs; index [1] = No checkbox.
+            if not is_schb_no and ftype == "checkText":
+                _m = re.match(r'^c([23])_(\d+)$', sn)
+                if _m:
+                    _pg, _seq = int(_m.group(1)), int(_m.group(2))
+                    if _pg == 3 or (_pg == 2 and _seq >= 2):
+                        is_schb_no = True
+
             if is_schb_no:
                 fillDict[fid].update({
                     "publish": True,

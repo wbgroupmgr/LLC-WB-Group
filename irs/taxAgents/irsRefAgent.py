@@ -311,7 +311,16 @@ _F1065_INCSTMT_FIDS = [
     "F049", "F050", "F051", "F052", "F053", "F054", "F055", "F072",
     "F074", "F075", "F076", "F077", "F078",
 ]
-_F1065_SCHEDB_FIDS = ["F161", "F162", "F164", "F165"]
+_F1065_SCHEDB_FIDS = [
+    # Page 2: Q1 entity type (c2_1[0-5]), Q2a/Q2b (c2_2/c2_3), Q3a/Q3b (c2_4/c2_5)
+    "F079", "F080", "F081", "F082", "F083", "F084",   # Q1 entity type (6 options)
+    "F086", "F087",   # Q2a: entity owns 50%+ (Yes/No)
+    "F088", "F089",   # Q2b: individual owns 50%+ (Yes/No)
+    "F090", "F091",   # Q3a: partnership owns 20%+ of corp (Yes/No)
+    "F112", "F113",   # Q3b: partnership owns 50%+ of another partnership (Yes/No)
+    # Page 3: first two Yes/No pairs (exact IRS Q# depends on PDF layout)
+    "F161", "F162", "F164", "F165",
+]
 _F1065_SCHEDK_FIDS = [
     "F215", "F216", "F218", "F219", "F220", "F221", "F228", "F230",
     "F238", "F242", "F243", "F247", "F248", "F249", "F250", "F276",
