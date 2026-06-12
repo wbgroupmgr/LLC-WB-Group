@@ -35,6 +35,158 @@ from irs.taxAgents.IRSFormsAgent import IRSFormsAgent
 
 
 # ────────────────────────────────────────────────────────────────────────────
+#  Module-level GL capital helpers (importable by Sch_K1.py and any other
+#  IRS form builder that needs per-partner capital account values).
+#
+#  These implement the COA Standard Mapping Practice (Golden Rule §1):
+#    f40 (L2) — Credits to Acct.Equity.Owner.Capital.Funds per owner
+#    f43 (L5) — Credits to Acct.Equity.Owner.Capital.Dist per owner
+#    f44 (L6) — L2 + IS.net_rental×pct − L5  (IRC §705 formula)
+# ────────────────────────────────────────────────────────────────────────────
+
+# COA accounts for GL capital computation
+_GL_CONTRIB_ACCTS = frozenset({
+    'Acct.Equity.Owner.Capital.Funds',
+    'Acct.Equity.Owner.Capital.Reinvestment',
+})
+_GL_DISTRIB_ACCTS = frozenset({
+    'Acct.Equity.Owner.Capital.Dist',
+})
+
+
+def _parse_prop_owners_gl(raw) -> Dict[str, float]:
+    """
+    Parse propOwners into {oID: pct_decimal}.  Handles:
+      dict          : {"o20250801_1": 100}      → {o20250801_1: 1.0}
+      JSON string   : '{"020250801_1": 100}'    → {o20250801_1: 1.0}
+      colon string  : "o20250801_1:100%"        → {o20250801_1: 1.0}
+      null/empty    : None / ''                 → {}
+    Integer percent > 1 divided by 100.
+    Leading '0' instead of 'o' normalised (common oID typo).
+    """
+    if not raw:
+        return {}
+    import re as _re, json as _json
+
+    def _norm(oid_str: str, pct_str: str):
+        oid = str(oid_str).strip()
+        if oid and not oid.startswith('o') and oid[0] == '0':
+            oid = 'o' + oid[1:]   # "020250801_1" → "o20250801_1"
+        elif oid and not oid.startswith('o') and oid[0].isdigit():
+            oid = 'o' + oid
+        try:
+            v = float(str(pct_str).replace('%', '').strip())
+            return oid, (v / 100.0 if v > 1.5 else v)
+        except (TypeError, ValueError):
+            return None
+
+    result: Dict[str, float] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            pair = _norm(k, v)
+            if pair:
+                result[pair[0]] = pair[1]
+    elif isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith('{'):
+            try:
+                d = _json.loads(s)
+                for k, v in d.items():
+                    pair = _norm(k, v)
+                    if pair:
+                        result[pair[0]] = pair[1]
+                return result
+            except Exception:
+                pass
+        for part in s.split(','):
+            part = part.strip()
+            m = _re.match(r'^([^:]+):([0-9.]+)', part)
+            if m:
+                pair = _norm(m.group(1), m.group(2))
+                if pair:
+                    result[pair[0]] = pair[1]
+    return result
+
+
+def gl_contributions(llc, oID: str) -> float:
+    """
+    Box L L2 (f40) — capital contributed during the year, GL-sourced.
+    Credits to Acct.Equity.Owner.Capital.Funds / Reinvestment, per propOwners.
+    IRC §722: partner's initial outside basis = cash contributed.
+    """
+    try:
+        from ledger.llcAssets import llcAssets
+        yr   = str(getattr(llc, 'yr', '') or '')
+        data = llcAssets(llc).load()
+        if yr:
+            data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+    except Exception:
+        return 0.0
+    total = 0.0
+    for r in data:
+        if str(r.get('acct', '')).strip() not in _GL_CONTRIB_ACCTS:
+            continue
+        if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+            continue
+        po  = _parse_prop_owners_gl(r.get('propOwners'))
+        pct = po.get(oID, 0.0)
+        if pct > 0:
+            try:
+                total += float(r.get('amt', 0) or 0) * pct
+            except (TypeError, ValueError):
+                pass
+    return round(total, 2)
+
+
+def gl_distributions(llc, oID: str) -> float:
+    """
+    Box L L5 (f43) — withdrawals and distributions, GL-sourced.
+    Credits to Acct.Equity.Owner.Capital.Dist, per propOwners.
+    NOT equal to allocated income — these are actual cash payments.
+    """
+    try:
+        from ledger.llcAssets import llcAssets
+        yr   = str(getattr(llc, 'yr', '') or '')
+        data = llcAssets(llc).load()
+        if yr:
+            data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+    except Exception:
+        return 0.0
+    total = 0.0
+    for r in data:
+        if str(r.get('acct', '')).strip() not in _GL_DISTRIB_ACCTS:
+            continue
+        if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+            continue
+        po  = _parse_prop_owners_gl(r.get('propOwners'))
+        pct = po.get(oID, 0.0)
+        if pct > 0:
+            try:
+                total += float(r.get('amt', 0) or 0) * pct
+            except (TypeError, ValueError):
+                pass
+    return round(total, 2)
+
+
+def gl_ending_capital(llc, oID: str, owner_pct: float,
+                      net_rental: float = None) -> float:
+    """
+    Box L L6 (f44) — ending capital account, GL-sourced (IRC §705).
+    Formula: L2(contributions) + L3(IS.net_rental × pct) − L5(distributions).
+    """
+    if net_rental is None:
+        try:
+            from ledger.stmtIS import stmtIS
+            net_rental = float(stmtIS(llc).taxAggregates().get('net_rental', 0))
+        except Exception:
+            net_rental = 0.0
+    contrib = gl_contributions(llc, oID)
+    distrib = gl_distributions(llc, oID)
+    income  = round(net_rental * owner_pct, 2)
+    return round(contrib + income - distrib, 2)
+
+
+# ────────────────────────────────────────────────────────────────────────────
 #  Helpers
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -149,168 +301,20 @@ class _SectionAgent(IRSFormsAgent):
 
     # ── GL-sourced capital helpers (Books-First, IRC §446/703) ───────────────
 
-    def _get_raw_assets(self) -> List[Dict]:
-        """Raw llcAssets records for the LLC's tax year (propOwners as dicts)."""
-        if self._raw_assets is not None:
-            return self._raw_assets
-        try:
-            from ledger.llcAssets import llcAssets
-            data = llcAssets(self.llc).load()
-            yr = str(getattr(self.llc, 'yr', '') or '')
-            if yr:
-                data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
-            self._raw_assets = data if isinstance(data, list) else []
-        except Exception:
-            self._raw_assets = []
-        return self._raw_assets
-
-    @staticmethod
-    def _parse_prop_owners(raw) -> Dict[str, float]:
-        """
-        Parse propOwners into {oID: pct_decimal}.  Handles these formats:
-          dict          : {"o20250801_1": 100}      → {o20250801_1: 1.0}
-          JSON string   : '{"020250801_1": 100}'    → {o20250801_1: 1.0}
-          colon string  : "o20250801_1:100%"        → {o20250801_1: 1.0}
-          null/empty    : None / ''                 → {}
-        Integer percent > 1 is divided by 100.  oID missing leading 'o' is
-        normalised (data-entry convention: "020250801_1" → "o20250801_1").
-        """
-        if not raw:
-            return {}
-        import re as _re, json as _json
-
-        def _normalise(oid_str: str, pct_str: str) -> Optional[tuple]:
-            oid = str(oid_str).strip()
-            # Common typo: leading '0' instead of 'o' (e.g. "020250801_1" → "o20250801_1")
-            if oid and not oid.startswith('o') and oid[0] == '0':
-                oid = 'o' + oid[1:]   # replace leading '0' with 'o'
-            elif oid and not oid.startswith('o') and oid[0].isdigit():
-                oid = 'o' + oid       # genuine digit prefix — prepend 'o'
-            try:
-                pct_val = float(str(pct_str).replace('%', '').strip())
-                return oid, (pct_val / 100.0 if pct_val > 1.5 else pct_val)
-            except (TypeError, ValueError):
-                return None
-
-        result: Dict[str, float] = {}
-
-        if isinstance(raw, dict):
-            for oid, pct in raw.items():
-                pair = _normalise(oid, pct)
-                if pair:
-                    result[pair[0]] = pair[1]
-
-        elif isinstance(raw, str):
-            raw_s = raw.strip()
-            # Try JSON-encoded dict first: '{"020250801_1": 100}'
-            if raw_s.startswith('{'):
-                try:
-                    d = _json.loads(raw_s)
-                    for oid, pct in d.items():
-                        pair = _normalise(oid, pct)
-                        if pair:
-                            result[pair[0]] = pair[1]
-                    return result
-                except Exception:
-                    pass
-            # Colon-separated pairs: "oID1:pct1%, oID2:pct2%"
-            for part in raw_s.split(','):
-                part = part.strip()
-                m = _re.match(r'^([^:]+):([0-9.]+)', part)
-                if m:
-                    pair = _normalise(m.group(1), m.group(2))
-                    if pair:
-                        result[pair[0]] = pair[1]
-
-        return result
+    # ── GL capital helpers — delegate to module-level functions ─────────────
 
     def _gl_contributions(self, oID: str) -> float:
-        """
-        Box L L2 — capital contributed during the year (f40).
-
-        COA Standard Mapping (Books-First, IRC §446/703):
-          Source: Acct.Equity.Owner.Capital.Funds  (acctID 3010) — Credit entries
-                  Acct.Equity.Owner.Capital.Reinvestment (acctID 3025) — Credit entries
-          Double-entry: DR Cash/Escrow → CR Equity.Owner.Capital.Funds
-            Credit to the equity account = owner contributing funds into the LLC.
-          Per-partner: weighted by propOwners dict in each GL record.
-          Tax year filter: records with dt starting with self.llc.yr.
-
-        IRC §722: partner's initial outside basis equals cash + FMV of property
-        contributed.  Box L L2 is the direct source for the partner's §722 basis.
-        """
-        total = 0.0
-        for r in self._get_raw_assets():
-            if str(r.get('acct', '')).strip() not in self._CONTRIB_ACCTS:
-                continue
-            if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
-                continue
-            po = self._parse_prop_owners(r.get('propOwners'))
-            pct = po.get(oID, 0.0)
-            if pct > 0:
-                try:
-                    total += float(r.get('amt', 0) or 0) * pct
-                except (TypeError, ValueError):
-                    pass
-        return round(total, 2)
+        """Box L L2 (f40) — GL-sourced. See module-level gl_contributions()."""
+        return gl_contributions(self.llc, oID)
 
     def _gl_distributions(self, oID: str) -> float:
-        """
-        Box L L5 — withdrawals and distributions (f43).
-
-        COA Standard Mapping:
-          Source: Acct.Equity.Owner.Capital.Dist (acctID 3020) — Credit entries
-            Credit to the distribution account = cash paid out to partner.
-          Per-partner: weighted by propOwners.
-
-        NOTE: Distributions are NOT equal to allocated income (Box 2).  They
-        are actual cash payments.  Do not derive from IS.net_rental × pct.
-        """
-        total = 0.0
-        for r in self._get_raw_assets():
-            if str(r.get('acct', '')).strip() not in self._DISTRIB_ACCTS:
-                continue
-            if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
-                continue
-            po = self._parse_prop_owners(r.get('propOwners'))
-            pct = po.get(oID, 0.0)
-            if pct > 0:
-                try:
-                    total += float(r.get('amt', 0) or 0) * pct
-                except (TypeError, ValueError):
-                    pass
-        return round(total, 2)
+        """Box L L5 (f43) — GL-sourced. See module-level gl_distributions()."""
+        return gl_distributions(self.llc, oID)
 
     def _gl_ending_capital(self, oID: str, owner_pct: float) -> float:
-        """
-        Box L L6 — ending capital account (f44).
-
-        COA Standard Mapping (Books-First):
-          Source: YE balance of all Acct.Equity.Owner.* accounts minus Fiscal
-          Start balance (= $0 for first-year LLC).
-
-          Balance convention (BS: Balance = Debit − Credit):
-            Normal equity balance is Credit → Balance is negative in the BS
-            convention.  Ending capital for Box L = −(BS balance) per owner.
-
-          Per-partner computation:
-            Credits to equity owner accounts (positive for ending capital):
-              Acct.Equity.Owner.Capital.Funds — contributions
-              Acct.Equity.Owner.Capital.Reinvestment — reinvestment
-            Debits to equity owner accounts (negative for ending capital):
-              Acct.Equity.Owner.Capital.Dist — distributions
-            Income allocation entries (Debit to Capital.Funds from PnL close):
-              Increase ending capital (add to contributions).
-
-          Fallback formula when GL data is sparse:
-            L6 = L2 (contributions) + L3 (IS.net_rental × pct) − L5 (distributions)
-            This satisfies IRC §705 and matches the Books-First requirement.
-        """
-        contrib = self._gl_contributions(oID)
-        distrib = self._gl_distributions(oID)
+        """Box L L6 (f44) — GL-sourced. See module-level gl_ending_capital()."""
         net_rental = self._get_is_agg('net_rental')
-        income_alloc = round(net_rental * owner_pct, 2)
-        return round(contrib + income_alloc - distrib, 2)
+        return gl_ending_capital(self.llc, oID, owner_pct, net_rental=net_rental)
 
     # ── Pass interface ───────────────────────────────────────────────────────
 

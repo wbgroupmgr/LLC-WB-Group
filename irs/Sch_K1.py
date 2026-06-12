@@ -46,6 +46,14 @@ try:
 except ImportError:
     from Form1065 import Form1065
 
+try:
+    from irs.taxAgents.FormSchK1Agent import gl_contributions, gl_distributions, gl_ending_capital
+except ImportError:
+    # Fallback stubs — should never be reached in production
+    def gl_contributions(llc, oID): return 0.0     # noqa: E704
+    def gl_distributions(llc, oID): return 0.0     # noqa: E704
+    def gl_ending_capital(llc, oID, pct, net_rental=None): return 0.0  # noqa: E704
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  DATE PARSING  — "Jan. 01" or "01/01" → (month_str, day_str)
@@ -396,22 +404,20 @@ class Sch_K1(Form1065):
         partner_rent        = round(net_rental * pct, 2)
         partner_interest    = round(interest * pct, 2)
 
-        # Per-partner contributions: use per-owner record (NOT total × pct).
-        # Partners often contribute different amounts at LLC formation.
-        # Falls back to 0 if not recorded — section agent warns about this.
-        partner_contrib = round(float(
-            partner_raw.get("contributions",
-            partner_raw.get("capitalContrib",
-            partner_raw.get("capital_contrib", 0.0))) or 0), 2)
+        # Per-partner contributions (f40 / Box L L2) — GL-sourced, Books-First.
+        # Source: Credits to Acct.Equity.Owner.Capital.Funds in llcAssets,
+        # weighted by propOwners per partner (IRC §722; COA Standard Mapping).
+        oID = partner_raw.get("oID", partner_raw.get("ownerID", ""))
+        partner_contrib = gl_contributions(self.llc, oID)
 
-        # Per-partner distributions: use per-owner record (NOT max(ni)×pct).
-        # max(ni)×pct was a wrong proxy — it assumed all income was distributed.
-        partner_distrib = round(float(
-            partner_raw.get("distributions",
-            partner_raw.get("distrib", 0.0)) or 0), 2)
+        # Per-partner distributions (f43 / Box L L5) — GL-sourced.
+        # Source: Credits to Acct.Equity.Owner.Capital.Dist, weighted by propOwners.
+        # NOT equal to allocated income — these are actual cash payments.
+        partner_distrib = gl_distributions(self.llc, oID)
 
-        # Tax basis ending capital = contributions + net rental − distributions (IRC §705)
-        partner_cap_end = round(partner_contrib + partner_rent - partner_distrib, 2)
+        # Tax basis ending capital (f44 / Box L L6) = L2 + L3 − L5 (IRC §705).
+        partner_cap_end = gl_ending_capital(
+            self.llc, oID, pct, net_rental=net_rental)
 
         # Partner type flags (Line G, H1, H2) — IRC §761(b)
         is_manager = "manager" in status.lower()
