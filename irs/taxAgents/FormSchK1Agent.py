@@ -64,16 +64,61 @@ def _owner_name(owner: Dict) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 
 class _SectionAgent(IRSFormsAgent):
-    """Common base for all Schedule K-1 section agents (per-partner)."""
+    """
+    Common base for all Schedule K-1 section agents (per-partner).
+
+    ──────────────────────────────────────────────────────────────────────────
+    GOLDEN RULE — BROADER KNOWLEDGE INJECTION (applies to every field in
+    every section agent, in every IRS form agent in this codebase):
+    ──────────────────────────────────────────────────────────────────────────
+
+    1. COA STANDARD MAPPING PRACTICE (Books-First, IRC §446/703):
+       For every IRS form field, the section agent MUST resolve the mapping
+       from COA accounts → IRS field value. Never leave a field unresolved
+       ("Cplx" / "TODO" / $0 default) without explicit IRS reasoning.
+       Standard practice:
+         a. Identify which COA account(s) are the source for this field.
+         b. State the double-entry direction (Debit/Credit normal balance).
+         c. Apply the pct allocation (partner.pct) when the field is per-partner.
+         d. Cross-reference the IRS instruction for the line item.
+       All financial values must originate from the BOOKS (GL/IS/BS), never
+       from another IRS form (Books-First rule, IRC §446/703; CLAUDE.md §1.1).
+
+    2. CHECKBOX FIELDS — BINARY KNOWLEDGE DECISION:
+       Every checkbox field is a binary Check / NoCheck decision.
+       a. Research the CONDITION that makes "Check" correct (IRS instruction,
+          IRC section, or operational fact about W&B Group).
+       b. If the condition is NOT met → NoCheck (default). Never leave
+          a checkbox as "unknown" — absence of the condition = NoCheck.
+       c. For YES/NO checkbox pairs: exactly one is Check, the other is NoCheck.
+          Never check both; never leave both blank.
+       d. Document the condition explicitly in the rule docstring so future
+          reviewers can verify without re-reading the IRS instructions.
+
+    These two rules are the standard for ALL section agents.  Violations
+    (punting, leaving fields unresolved, skipping checkboxes) are bugs.
+    ──────────────────────────────────────────────────────────────────────────
+    """
 
     LABEL        = ''
     AGENT_KEY    = ''
     LOGICAL_PREFIXES: List[str] = []
 
+    # COA accounts that represent owner capital contributions (Box L L2)
+    _CONTRIB_ACCTS = frozenset({
+        'Acct.Equity.Owner.Capital.Funds',
+        'Acct.Equity.Owner.Capital.Reinvestment',
+    })
+    # COA accounts that represent owner distributions/withdrawals (Box L L5)
+    _DISTRIB_ACCTS = frozenset({
+        'Acct.Equity.Owner.Capital.Dist',
+    })
+
     def __init__(self, llc, tax_year: int):
         super().__init__(llc, tax_year)
-        self._is_data  = None
-        self._profile  = None
+        self._is_data      = None
+        self._profile      = None
+        self._raw_assets   = None   # lazy-loaded raw llcAssets records
 
     # ── Data loaders (lazy) ──────────────────────────────────────────────────
 
@@ -101,6 +146,171 @@ class _SectionAgent(IRSFormsAgent):
         except Exception:
             self._profile = {'entity': {}, 'F1065': {}}
         return self._profile
+
+    # ── GL-sourced capital helpers (Books-First, IRC §446/703) ───────────────
+
+    def _get_raw_assets(self) -> List[Dict]:
+        """Raw llcAssets records for the LLC's tax year (propOwners as dicts)."""
+        if self._raw_assets is not None:
+            return self._raw_assets
+        try:
+            from ledger.llcAssets import llcAssets
+            data = llcAssets(self.llc).load()
+            yr = str(getattr(self.llc, 'yr', '') or '')
+            if yr:
+                data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+            self._raw_assets = data if isinstance(data, list) else []
+        except Exception:
+            self._raw_assets = []
+        return self._raw_assets
+
+    @staticmethod
+    def _parse_prop_owners(raw) -> Dict[str, float]:
+        """
+        Parse propOwners into {oID: pct_decimal}.  Handles these formats:
+          dict          : {"o20250801_1": 100}      → {o20250801_1: 1.0}
+          JSON string   : '{"020250801_1": 100}'    → {o20250801_1: 1.0}
+          colon string  : "o20250801_1:100%"        → {o20250801_1: 1.0}
+          null/empty    : None / ''                 → {}
+        Integer percent > 1 is divided by 100.  oID missing leading 'o' is
+        normalised (data-entry convention: "020250801_1" → "o20250801_1").
+        """
+        if not raw:
+            return {}
+        import re as _re, json as _json
+
+        def _normalise(oid_str: str, pct_str: str) -> Optional[tuple]:
+            oid = str(oid_str).strip()
+            # Common typo: leading '0' instead of 'o' (e.g. "020250801_1" → "o20250801_1")
+            if oid and not oid.startswith('o') and oid[0] == '0':
+                oid = 'o' + oid[1:]   # replace leading '0' with 'o'
+            elif oid and not oid.startswith('o') and oid[0].isdigit():
+                oid = 'o' + oid       # genuine digit prefix — prepend 'o'
+            try:
+                pct_val = float(str(pct_str).replace('%', '').strip())
+                return oid, (pct_val / 100.0 if pct_val > 1.5 else pct_val)
+            except (TypeError, ValueError):
+                return None
+
+        result: Dict[str, float] = {}
+
+        if isinstance(raw, dict):
+            for oid, pct in raw.items():
+                pair = _normalise(oid, pct)
+                if pair:
+                    result[pair[0]] = pair[1]
+
+        elif isinstance(raw, str):
+            raw_s = raw.strip()
+            # Try JSON-encoded dict first: '{"020250801_1": 100}'
+            if raw_s.startswith('{'):
+                try:
+                    d = _json.loads(raw_s)
+                    for oid, pct in d.items():
+                        pair = _normalise(oid, pct)
+                        if pair:
+                            result[pair[0]] = pair[1]
+                    return result
+                except Exception:
+                    pass
+            # Colon-separated pairs: "oID1:pct1%, oID2:pct2%"
+            for part in raw_s.split(','):
+                part = part.strip()
+                m = _re.match(r'^([^:]+):([0-9.]+)', part)
+                if m:
+                    pair = _normalise(m.group(1), m.group(2))
+                    if pair:
+                        result[pair[0]] = pair[1]
+
+        return result
+
+    def _gl_contributions(self, oID: str) -> float:
+        """
+        Box L L2 — capital contributed during the year (f40).
+
+        COA Standard Mapping (Books-First, IRC §446/703):
+          Source: Acct.Equity.Owner.Capital.Funds  (acctID 3010) — Credit entries
+                  Acct.Equity.Owner.Capital.Reinvestment (acctID 3025) — Credit entries
+          Double-entry: DR Cash/Escrow → CR Equity.Owner.Capital.Funds
+            Credit to the equity account = owner contributing funds into the LLC.
+          Per-partner: weighted by propOwners dict in each GL record.
+          Tax year filter: records with dt starting with self.llc.yr.
+
+        IRC §722: partner's initial outside basis equals cash + FMV of property
+        contributed.  Box L L2 is the direct source for the partner's §722 basis.
+        """
+        total = 0.0
+        for r in self._get_raw_assets():
+            if str(r.get('acct', '')).strip() not in self._CONTRIB_ACCTS:
+                continue
+            if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+                continue
+            po = self._parse_prop_owners(r.get('propOwners'))
+            pct = po.get(oID, 0.0)
+            if pct > 0:
+                try:
+                    total += float(r.get('amt', 0) or 0) * pct
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    def _gl_distributions(self, oID: str) -> float:
+        """
+        Box L L5 — withdrawals and distributions (f43).
+
+        COA Standard Mapping:
+          Source: Acct.Equity.Owner.Capital.Dist (acctID 3020) — Credit entries
+            Credit to the distribution account = cash paid out to partner.
+          Per-partner: weighted by propOwners.
+
+        NOTE: Distributions are NOT equal to allocated income (Box 2).  They
+        are actual cash payments.  Do not derive from IS.net_rental × pct.
+        """
+        total = 0.0
+        for r in self._get_raw_assets():
+            if str(r.get('acct', '')).strip() not in self._DISTRIB_ACCTS:
+                continue
+            if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+                continue
+            po = self._parse_prop_owners(r.get('propOwners'))
+            pct = po.get(oID, 0.0)
+            if pct > 0:
+                try:
+                    total += float(r.get('amt', 0) or 0) * pct
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    def _gl_ending_capital(self, oID: str, owner_pct: float) -> float:
+        """
+        Box L L6 — ending capital account (f44).
+
+        COA Standard Mapping (Books-First):
+          Source: YE balance of all Acct.Equity.Owner.* accounts minus Fiscal
+          Start balance (= $0 for first-year LLC).
+
+          Balance convention (BS: Balance = Debit − Credit):
+            Normal equity balance is Credit → Balance is negative in the BS
+            convention.  Ending capital for Box L = −(BS balance) per owner.
+
+          Per-partner computation:
+            Credits to equity owner accounts (positive for ending capital):
+              Acct.Equity.Owner.Capital.Funds — contributions
+              Acct.Equity.Owner.Capital.Reinvestment — reinvestment
+            Debits to equity owner accounts (negative for ending capital):
+              Acct.Equity.Owner.Capital.Dist — distributions
+            Income allocation entries (Debit to Capital.Funds from PnL close):
+              Increase ending capital (add to contributions).
+
+          Fallback formula when GL data is sparse:
+            L6 = L2 (contributions) + L3 (IS.net_rental × pct) − L5 (distributions)
+            This satisfies IRC §705 and matches the Books-First requirement.
+        """
+        contrib = self._gl_contributions(oID)
+        distrib = self._gl_distributions(oID)
+        net_rental = self._get_is_agg('net_rental')
+        income_alloc = round(net_rental * owner_pct, 2)
+        return round(contrib + income_alloc - distrib, 2)
 
     # ── Pass interface ───────────────────────────────────────────────────────
 
@@ -422,13 +632,14 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
         pct     = _owner_pct(owner)
         net     = self._get_is_agg('net_rental')
         box2    = round(net * pct, 2)
-        contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib', 0)))
-        distrib = _safe_float(owner.get('distributions', owner.get('distrib', 0)))
-        ending  = round(contrib + box2 - distrib, 2)
+        oID     = owner.get('oID', '')
+        contrib = self._gl_contributions(oID)
+        distrib = self._gl_distributions(oID)
+        ending  = self._gl_ending_capital(oID, pct)
         nm      = _owner_name(owner)
         return (f"Capital (Box L): {nm} — "
-                f"Beg=$0 + Contrib=${contrib:,.2f} + Box2=${box2:,.2f} "
-                f"− Distrib=${distrib:,.2f} = Ending=${ending:,.2f} (tax basis).")
+                f"Beg=$0 + Contrib(GL)=${contrib:,.2f} + Box2=${box2:,.2f} "
+                f"− Distrib(GL)=${distrib:,.2f} = Ending=${ending:,.2f} (tax basis).")
 
     # ── Rules ────────────────────────────────────────────────────────────────
 
@@ -699,89 +910,111 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
           f45 = Tax basis method checkbox            [MUST be checked — mandatory 2020+]
           f46 = Non-tax basis checkbox               [leave blank]
 
+        COA STANDARD MAPPING (Broader Knowledge Injection / Books-First):
+
+          f40 (L2 — contributions):
+            Source: GL Credits to Acct.Equity.Owner.Capital.Funds (acctID 3010)
+                    + GL Credits to Acct.Equity.Owner.Capital.Reinvestment (acctID 3025)
+            Pattern: DR Acct.Cash.Bank / Acct.Cash.Escrow → CR Acct.Equity.Owner.Capital.Funds
+            Per-partner: propOwners dict in each GL record, weighted by oID.
+            IRC §722: partner's outside basis = cash contributed.
+
+          f44 (L6 — ending capital):
+            Formula: L1($0) + L2(GL contributions) + L3(IS.net_rental × pct)
+                     + L4($0) − L5(GL distributions)
+            Per-partner: _gl_ending_capital(oID, pct).
+            IRC §705: partner's basis adjusted for contributions, income, distributions.
+
+        CHECKBOXES (Binary Knowledge Decisions per Golden Rule):
+          f45 (Tax basis — Check):   Rev. Proc. 2020-13 / TD 9902 mandate tax basis
+                                     for ALL partnerships 2020+. ALWAYS Check.
+          f46 (Non-tax basis — NoCheck): All other methods eliminated for 2020+. ALWAYS NoCheck.
+
         MANDATORY TAX BASIS METHOD (Rev. Proc. 2020-13; TD 9902):
-           All partnerships with 2020+ returns MUST use the tax basis method.
-           §704(b) book value, GAAP, and 'Other' methods are eliminated.
-           f45 (Tax basis checkbox) MUST be checked. IRS automated systems validate this.
+           f45 MUST be checked. IRS automated systems validate this.
 
         IRC §705 FORMULA (tax basis capital account):
-           Ending Capital = Beginning Capital
-                           + Capital Contributed (cash + FMV of contributed property)
-                           + Allocated Net Income (IS.net_rental × pct for W&B)
-                           + Other Increases
-                           − Distributions (actual cash paid to partner)
+           Ending = Beginning + Contributions + Allocated Net Income + Other − Distributions
 
-        W&B GROUP 2025 FIRST YEAR:
-           L1 (f39) = $0   — LLC formed in 2025, no prior-year capital
-           L2 (f40) = each partner's actual cash contribution at LLC formation
-                      (add 'contributions' key to llcOwners per partner)
-           L3 (f41) = IS.net_rental × pct  [auto-computed, Books-First IRC §446]
-           L4 (f42) = blank (no unusual increases)
-           L5 (f43) = actual cash distributions paid out during 2025
-                      (add 'distributions' key to llcOwners per partner, or record
-                       distribution transactions in llcExpRev)
-           L6 (f44) = $0 + L2 + L3 − L5
-
-        NOTE: L3 (current income) ≠ L5 (distributions). These are often different.
-           A partner may have $640 of income allocated but receive $0 in cash distributions
-           if the LLC retained the cash for reserves or capital improvements.
-           DO NOT set distributions = net_income × pct — that is a frequent bookkeeping error.
+        NOTE: L3 (current income) ≠ L5 (distributions). Do NOT set distributions =
+           net_income × pct. Distributions are actual cash paid out; income is allocated
+           on paper. A common bookkeeping error to watch for.
         """
         pct     = _owner_pct(owner)
         net     = self._get_is_agg('net_rental')
         box2    = round(net * pct, 2)
-        contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib',
-                              owner.get('capital_contrib', 0))))
-        distrib = _safe_float(owner.get('distributions', owner.get('distrib', 0)))
-        ending  = round(contrib + box2 - distrib, 2)
         oID     = owner.get('oID', '')
         nm      = _owner_name(owner)
+
+        # GL-sourced values (Books-First, IRC §446/703)
+        contrib = self._gl_contributions(oID)
+        distrib = self._gl_distributions(oID)
+        ending  = self._gl_ending_capital(oID, pct)
 
         if contrib == 0:
             return self.format_issue(
                 'SK1B-R07', self.WARN,
-                f"Partner '{nm}' ({oID}): Box L L2 contributions = $0. "
-                f"If '{nm}' contributed cash when the LLC was formed in 2025, "
-                f"add key 'contributions': <amount> to their record in llcOwners. "
-                f"Without contributions, Box L ending capital = IS.net_rental×pct = ${box2:,.2f}. "
-                f"IRC §722: partner's initial outside basis = cash contributed. "
-                f"Box L: L1=$0 | L2=$0 (⚠ missing?) | L3=${box2:,.2f} | L5=${distrib:,.2f} | L6=${ending:,.2f}. "
-                f"Tax basis method checkbox (f45) will be checked (Rev. Proc. 2020-13 mandatory).",
+                f"Partner '{nm}' ({oID}): Box L f40 (L2) contributions = $0 from GL. "
+                f"GL source: Credits to Acct.Equity.Owner.Capital.Funds in llcAssets "
+                f"(DR Cash → CR Equity.Capital.Funds pattern, weighted by propOwners). "
+                f"If '{nm}' contributed cash at LLC formation (2025), record the transaction "
+                f"in llcAssets with acct=Acct.Equity.Owner.Capital.Funds, aType=Credit, "
+                f"propOwners={{'{oID}': pct×100}}. "
+                f"IRC §722: missing contributions = understated outside basis for '{nm}'. "
+                f"Box L: L1=$0 | L2(f40)=$0 ⚠ | L3(f41)=${box2:,.2f} | L5(f43)=${distrib:,.2f} | "
+                f"L6(f44)=${ending:,.2f}. "
+                f"f45 Tax basis checkbox: Check (Rev. Proc. 2020-13 mandatory). "
+                f"f46 Non-tax basis checkbox: NoCheck.",
                 'IRC §705; §722; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Add 'contributions': <amount> for '{oID}' in llcOwners file. "
-                f"Also verify 'distributions' key reflects actual cash paid out in 2025 "
-                f"(NOT equal to net income — income and distributions are separate events).")
+                f"Record contribution transaction in llcAssets for '{oID}'. "
+                f"Verify distributions reflect actual cash paid out (not income allocation).")
         else:
             return self.format_issue(
                 'SK1B-R07', self.INFO,
-                f"Partner '{nm}' ({oID}) Box L (tax basis, first year): "
-                f"L1=$0 + L2=${contrib:,.2f} + L3=${box2:,.2f} − L5=${distrib:,.2f} = L6=${ending:,.2f}. "
-                f"IRC §705 formula confirmed. Tax basis checkbox f45 will be checked.",
+                f"Partner '{nm}' ({oID}) Box L (tax basis, first year, GL-sourced): "
+                f"L1(f39)=$0 + L2(f40)=${contrib:,.2f} + L3(f41)=${box2:,.2f} "
+                f"− L5(f43)=${distrib:,.2f} = L6(f44)=${ending:,.2f}. "
+                f"IRC §705 formula confirmed. "
+                f"f40 sourced from GL Credits to Acct.Equity.Owner.Capital.Funds. "
+                f"f44 = L2+L3−L5 (Books-First, IRC §446). "
+                f"f45 Tax basis checkbox: Check (Rev. Proc. 2020-13). "
+                f"f46 Non-tax basis checkbox: NoCheck.",
                 'IRC §705; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Verify all five Box L values for '{nm}': "
-                f"L1=$0, L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}.")
+                f"Verify all Box L values for '{nm}': "
+                f"L1=$0, L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}. "
+                f"Source: GL Credits to Acct.Equity.Owner.Capital.Funds weighted by propOwners.")
 
     def _rule_sec704c(self, owner: Dict):
         """
         SK1B-R08: §704(c) allocated gain — IRC §704(c); Treas. Reg. §1.704-3.
-        §704(c) applies when a partner contributes property with built-in gain/loss
+
+        §704(c) applies when a partner contributes PROPERTY with built-in gain/loss
         (property FMV ≠ tax basis at contribution). Line N discloses this amount.
         For cash-only contributions → §704(c) = $0 → Line N = blank.
+
+        COA STANDARD MAPPING:
+          f40 (contributions) sourced from GL Credits to Acct.Equity.Owner.Capital.Funds.
+          Cash contributions: counterpart is Acct.Cash.Bank or Acct.Cash.Escrow → §704(c) = $0.
+          Property contributions: counterpart is Acct.Asset.* → §704(c) may apply.
+
+        CHECKBOX (Line N): This is an amount field, not a checkbox.  §704(c) = $0 for
+        W&B Group (all contributions are cash from bank/escrow, no property contributed).
         """
-        contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib', 0)))
-        oID     = owner.get('oID', '')
-        nm      = _owner_name(owner)
-        # If all contributions are cash (no property contributed), §704(c) = $0
+        oID    = owner.get('oID', '')
+        nm     = _owner_name(owner)
+        contrib = self._gl_contributions(oID)
         if contrib > 0:
             return self.format_issue(
                 'SK1B-R08', self.INFO,
-                f"Partner '{nm}' ({oID}): contributions = ${contrib:,.2f}. "
-                f"IRC §704(c): if all contributions were cash, Line N (§704(c) gain) = $0 "
-                f"(K1_N_Beg and K1_N_End both blank). "
-                f"If property was contributed (not cash), a CPA must calculate the "
-                f"built-in gain/loss under Treas. Reg. §1.704-3 and disclose it on Line N.",
+                f"Partner '{nm}' ({oID}): GL contributions = ${contrib:,.2f} "
+                f"(Acct.Equity.Owner.Capital.Funds Credits, propOwners-weighted). "
+                f"IRC §704(c): if all contributions were cash (counterpart = Acct.Cash.*), "
+                f"Line N (§704(c) gain/loss) = $0. "
+                f"If property was contributed (not cash), CPA must compute built-in "
+                f"gain/loss under Treas. Reg. §1.704-3 and disclose it on Line N.",
                 'IRC §704(c); Treas. Reg. §1.704-3; Form 1065 Instructions (K-1 Line N)',
-                f"Confirm: were all contributions cash? If yes, Line N is blank (correct). "
+                f"Confirm: were all contributions cash (Ledger = Acct.Cash.*)? "
+                f"If yes, Line N is blank (§704(c) = $0). "
                 f"If property was contributed, engage CPA to compute §704(c) amounts.")
 
 
@@ -1132,18 +1365,27 @@ class FormSchK1Agent(IRSFormsAgent):
                 partner_issues.extend(issues)
                 partner_halt += p2.get('halt_count', 0)
 
-            # Per-partner K-1 computed values
+            # Per-partner K-1 computed values (GL-sourced for capital fields)
             try:
                 from ledger.stmtIS import stmtIS
                 agg = stmtIS(self.llc).taxAggregates()
             except Exception:
                 agg = {}
-            net    = _safe_float(agg.get('net_rental', 0))
-            pct    = _owner_pct(owner)
-            box2   = round(net * pct, 2)
-            contrib = _safe_float(owner.get('contributions', owner.get('capitalContrib', 0)))
-            distrib = _safe_float(owner.get('distributions', owner.get('distrib', 0)))
-            cap_end = round(contrib + box2 - distrib, 2)
+            net     = _safe_float(agg.get('net_rental', 0))
+            pct     = _owner_pct(owner)
+            box2    = round(net * pct, 2)
+            # Use a capital section agent instance for GL-sourced values
+            _cap_agent = next(
+                (a for a in self._section_agents
+                 if isinstance(a, AgentSchK1_PartnerCapital)), None
+            )
+            if _cap_agent:
+                contrib  = _cap_agent._gl_contributions(oID)
+                distrib  = _cap_agent._gl_distributions(oID)
+                cap_end  = _cap_agent._gl_ending_capital(oID, pct)
+            else:
+                contrib = distrib = 0.0
+                cap_end = round(box2, 2)
 
             partner_state[oID] = {
                 'name':           nm,

@@ -6,6 +6,31 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [BACKLOG — Pending Work Items]
+
+### TODO-1: Form 1065 Schedule B — Checkbox Review (tackle after SchK1 complete)
+**Priority:** High — most Schedule B checkbox answers are incorrect per Broader
+Knowledge Injection standard.
+**Scope:** Review every checkbox field in `Form1065Agent.py` Schedule B section.
+Apply the Golden Rule: for each checkbox field, explicitly research the IRS
+condition that makes "Check" correct; document it; default to NoCheck if the
+condition cannot be confirmed from W&B Group's books/profile.
+**File:** `irs/taxAgents/Form1065Agent.py` — Schedule B section agents.
+**Reference:** IRS Form 1065 Instructions Part II (Schedule B), Questions 1–28.
+All boolean/checkbox fields must follow the two-rule binary check standard
+defined in `FormSchK1Agent._SectionAgent` Golden Rule §2.
+
+### TODO-2: Home Page Financial Statements — Fill FS Data (tackle after TODO-1)
+**Priority:** Medium — home page FS section displays placeholder/empty values.
+**Scope:** Wire all Financial Statement sections on the home page (`/`) to live
+data from `stmtBS`, `stmtIS`, and `stmtGL`.  Ensure every line item in the FS
+display (Balance Sheet, Income Statement, GL summary) reflects current book data,
+not hardcoded zeros or stale cache values.
+**File:** `ui/templates/` (home page template) + relevant Flask routes in
+`ui/llcMgmt.py`.
+
+---
+
 ## [1.2.0] — 2026-06-11  **IRS Submission Package + Accountant Letter (Phase 3+4)**
 
 ### Added
