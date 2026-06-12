@@ -151,13 +151,8 @@
     .fs-header h2 { margin: 0; font-size: 16px; font-weight: 700; color: #111827; }
     .fs-header .fs-year { font-size: 13px; color: #9ca3af; margin-left: auto; }
 
-    /* Chart-left + metrics-right layout */
-    .fs-body {
-        display: grid;
-        grid-template-columns: 1fr 220px;
-        gap: 14px;
-        align-items: start;
-    }
+    /* Chart full-width, metrics table below */
+    .fs-body { display: flex; flex-direction: column; gap: 12px; }
     .fs-chart-box {
         background: #f9fafb; border: 1px solid #e5e7eb;
         border-radius: 10px; padding: 10px 14px;
@@ -168,25 +163,21 @@
     .fs-chart-canvas-wrap { min-height: 160px; position: relative; }
     #fsBarChart { width: 100% !important; height: 160px !important; }
 
-    /* Right column: stacked metric cards */
-    .fs-right { display: flex; flex-direction: column; gap: 8px; }
-    .fs-metric {
-        background: #f9fafb; border: 1px solid #e5e7eb;
-        border-radius: 8px; padding: 9px 13px;
+    /* Metrics table below chart */
+    .fs-metrics-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .fs-metrics-table td { padding: 6px 12px; border: 1px solid #e5e7eb; }
+    .fs-metrics-table td:first-child {
+        font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+        font-size: 11px; color: #6b7280; background: #f9fafb; width: 40%;
     }
-    .fs-metric-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
-                       letter-spacing: 0.06em; color: #6b7280; margin-bottom: 3px; }
-    .fs-metric-value { font-size: 18px; font-weight: 700; color: #111827;
-                       font-variant-numeric: tabular-nums; }
+    .fs-metrics-table td:last-child {
+        font-weight: 700; font-size: 15px; color: #111827;
+        font-variant-numeric: tabular-nums; text-align: right;
+    }
+    .fs-metrics-table tr.fs-divider td { border-top: 2px solid #d1d5db; }
     .fs-metric-value.fs-empty    { color: #d1d5db; }
     .fs-metric-value.fs-positive { color: #16a34a; }
     .fs-metric-value.fs-negative { color: #dc2626; }
-    /* divider between YTD group and equity group */
-    .fs-right-divider { border: none; border-top: 1px solid #e5e7eb; margin: 2px 0; }
-
-    @media (max-width: 700px) {
-        .fs-body { grid-template-columns: 1fr; }
-    }
 
     /* ── Financial Report section ── */
     .report-section { margin-bottom: 28px; }
@@ -344,7 +335,7 @@
         </a>
     </div>
 
-    <!-- Chart left · YTD + Equity metrics right -->
+    <!-- Chart full-width · metrics table below -->
     <div class="fs-body">
         <div class="fs-chart-box">
             <div class="fs-chart-label">Per Month: Revenue-Expense</div>
@@ -353,29 +344,30 @@
             </div>
         </div>
 
-        <div class="fs-right">
-            <div class="fs-metric">
-                <div class="fs-metric-label">YTD Revenue</div>
-                <div class="fs-metric-value fs-empty" id="fsRevenue">—</div>
-            </div>
-            <div class="fs-metric">
-                <div class="fs-metric-label">YTD Expenses</div>
-                <div class="fs-metric-value fs-empty" id="fsExpenses">—</div>
-            </div>
-            <div class="fs-metric">
-                <div class="fs-metric-label">Net Income / Loss</div>
-                <div class="fs-metric-value fs-empty" id="fsNetIncome">—</div>
-            </div>
-            <hr class="fs-right-divider">
-            <div class="fs-metric">
-                <div class="fs-metric-label">Total Equity</div>
-                <div class="fs-metric-value fs-empty" id="fsTotalEquity">—</div>
-            </div>
-            <div class="fs-metric">
-                <div class="fs-metric-label">Earned P&amp;L</div>
-                <div class="fs-metric-value fs-empty" id="fsEarnedPnl">—</div>
-            </div>
-        </div>
+        <table class="fs-metrics-table">
+            <tbody>
+                <tr>
+                    <td>YTD Revenue</td>
+                    <td class="fs-metric-value fs-empty" id="fsRevenue">—</td>
+                </tr>
+                <tr>
+                    <td>YTD Expenses</td>
+                    <td class="fs-metric-value fs-empty" id="fsExpenses">—</td>
+                </tr>
+                <tr>
+                    <td>Net Income / Loss</td>
+                    <td class="fs-metric-value fs-empty" id="fsNetIncome">—</td>
+                </tr>
+                <tr class="fs-divider">
+                    <td>Total Equity</td>
+                    <td class="fs-metric-value fs-empty" id="fsTotalEquity">—</td>
+                </tr>
+                <tr>
+                    <td>Earned P&amp;L</td>
+                    <td class="fs-metric-value fs-empty" id="fsEarnedPnl">—</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 
