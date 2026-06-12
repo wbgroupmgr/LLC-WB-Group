@@ -465,103 +465,129 @@ _F1065_REFERENCES = {
 # Distributions (Box 19): actual cash distributed during the year per llcOwners.
 # IRC §704(d) basis limitation: partners can only deduct loss up to their basis.
 
-# Sch_K1 identity fids are named (F_K1_*) from bookNS_Profile; income-box fids
-# (F035 Box 1, F036 Box 2, F041 Box 5) and capital fids (F028 Box 19, F029)
-# come from bookNS_IS.  Runtime values are per-partner via _build_k1_filldict().
-_SCHK1_IDENTITY_FIDS = [
-    "F_K1_PartName", "F_K1_PartEIN", "F_K1_PartAddr", "F_K1_PartCity",
-    "F_K1_PartState", "F_K1_PartZip", "F_K1_TaxYearFrom", "F_K1_TaxYearTo",
-    "F_K1_TaxYear", "F_K1_IRSCenter",
+# Sch K-1 fid ranges mirror sequential namespace (Sch_K1_namespace.json):
+#   f1-f13  → F001-F013  Part I   Partnership Identification
+#   f14-f48 → F014-F048  Part II  Partner Identity, Box J/K/L
+#   f49-f77 → F049-F077  Part III Income/Deduction boxes 1-14
+#   f98     → F098        Part III Box 19 (distributions)
+_SCHK1_PARTNERSHIPINFO_FIDS = [
+    "F001", "F002", "F003", "F004", "F005",   # tax year begin/end month+day + 2-digit year
+    "F006", "F007",                            # Final/Amended K-1 checkboxes
+    "F008",                                    # Partnership EIN
+    "F009", "F010", "F011", "F012", "F013",   # name / addr / PTP / CSZ / IRSCtr
 ]
-_SCHK1_PASSIVE_FIDS = ["F035", "F036", "F041"]
-_SCHK1_CAPITAL_FIDS = ["F028", "F029"]
+_SCHK1_PARTNERCAPITAL_FIDS = [
+    "F014", "F015",                            # Box H partner type GP/LP checkboxes
+    "F016", "F017", "F018",                    # Domestic/Foreign/DE checkboxes
+    "F019", "F020", "F021", "F022",            # partner SSN/EIN, name, addr, ret plan
+    "F023", "F024", "F025", "F026", "F027", "F028",  # Box J profit/loss/cap % beg+end
+    "F029", "F030",                            # Box K1 method checkboxes (GP/LP)
+    "F031", "F032", "F033", "F034", "F035", "F036",  # Box K1 liabilities beg+end (nonrec/QNR/rec)
+    "F037", "F038",                            # Lower tier / K2 checkboxes
+    "F039", "F040", "F041", "F042", "F043", "F044",  # Box L capital L1-L5 + other increase
+    "F045", "F046",                            # Box L method checkboxes (Tax Basis / NonTax)
+    "F047", "F048",                            # Line N §704(c) beg/end
+]
+_SCHK1_PASSIVEITEMS_FIDS = [
+    "F049", "F050", "F051",                   # Box 1 ordinary / Box 2 net rental / Box 3 other rental
+    "F052", "F053", "F054",                   # Box 4a/4b/4c guaranteed payments
+    "F055", "F056", "F057", "F058",           # Box 5 interest / Box 6a/6b/6c dividends
+    "F059", "F060",                            # Box 7 royalties / Box 8 ST cap gain
+    "F061", "F062", "F063", "F064",           # Box 9a/9b/9c LT cap gains / Box 10 §1231
+    "F065", "F066", "F067", "F068",           # Box 11 code+amt / Box 12 §179 code+amt
+    "F076", "F077",                            # Box 14 SE code + amount
+    "F098",                                    # Box 19a cash distributions
+]
 
 _SCHK1_SECTIONS = [
     {
-        "id":   "Identity",
-        "name": "Parts I & II — Partnership and Partner Identity",
-        "fids": _SCHK1_IDENTITY_FIDS,
-        "ref":  "K1-ID",
+        "id":   "PartnershipInfo",
+        "name": "Part I — Partnership Identification (f1–f13)",
+        "fids": _SCHK1_PARTNERSHIPINFO_FIDS,
+        "ref":  "K1-INFO",
+    },
+    {
+        "id":   "PartnerCapital",
+        "name": "Part II — Partner Capital & Liabilities (f14–f48)",
+        "fids": _SCHK1_PARTNERCAPITAL_FIDS,
+        "ref":  "K1-CAP",
     },
     {
         "id":   "PassiveItems",
-        "name": "Part III — Passive Income Items (Boxes 1–3, 14)",
-        "fids": _SCHK1_PASSIVE_FIDS,
+        "name": "Part III — Passive Income & Deductions (f49–f77)",
+        "fids": _SCHK1_PASSIVEITEMS_FIDS,
         "ref":  "K1-PASSIVE",
-    },
-    {
-        "id":   "Capital",
-        "name": "Part II — Capital Account (Box L) + Box 19 Distributions",
-        "fids": _SCHK1_CAPITAL_FIDS,
-        "ref":  "K1-CAP",
     },
 ]
 
 _SCHK1_REFERENCES = {
-    "K1-ID": {
-        "fields": _SCHK1_IDENTITY_FIDS,
-        "cite":   "Form 1065 Schedule K-1 Instructions, Parts I–II; IRC §6109; IRC §704(b)",
+    "K1-INFO": {
+        "fields": _SCHK1_PARTNERSHIPINFO_FIDS,
+        "cite":   "Form 1065 Schedule K-1 Instructions, Parts I–II; IRC §6031; IRC §6109",
         "reason": [
-            "Part I — Partnership EIN, name, and address from llcProfile. "
-            "Required on each K-1 so partners can cross-reference to Form 1065 (IRC §6031).",
-            "Part II — Partner TIN, name, and address from llcProfile propOwners. "
-            "Partner TIN is required (IRC §6109). Wrong TIN = IRS cannot match K-1 to partner's return.",
-            "Profit/loss/capital sharing percentages: must reflect the LLC operating agreement "
-            "and sum to exactly 100% across all partners (IRC §704(b)).",
-            "Partner type (General/Limited/LLC member): for a rental LLC with member-managers, "
-            "members are typically 'LLC member' — not General Partner. "
-            "Designation affects SE tax treatment (IRC §1402(a)(13)).",
-            "Item G (Partner is a disregarded entity): check if any partner is a single-member LLC "
-            "or trust that is disregarded — affects how the K-1 is reported on the partner's return.",
-        ],
-    },
-    "K1-PASSIVE": {
-        "fields": _SCHK1_PASSIVE_FIDS,
-        "cite":   "IRC §469(c)(2); IRC §702(a); IRC §1402(a)(1); IRC §1402(a)(13); "
-                  "Form 1065 Schedule K-1 Instructions, Part III",
-        "reason": [
-            "Box 1 (Ordinary Business Income/Loss): MUST be $0 for rental LLC. "
-            "IRC §469(c)(2): rental activity is passive by statute — it is NEVER ordinary income. "
-            "Filing a non-zero Box 1 misclassifies rental income as ordinary and triggers "
-            "incorrect self-employment tax analysis on the partner's return.",
-            "Box 2 (Net Rental Real Estate Income/Loss): the ONLY income box for a rental LLC. "
-            "IRS Instructions: 'Each partner's share of net rental real estate income or loss.' "
-            "Books-First (IRC §446/703): Box 2 = IS.net_rental × partner.pct. "
-            "CRITICAL: Box 2 is NET (income minus expenses), not gross rent. "
-            "Gross rent (IS.rent_income × pct) ≠ Box 2 — that error omits all expense deductions. "
-            "Partners report Box 2 on Schedule E, Part II as passive income/loss.",
-            "IRC §704(d) Basis Limitation: if Box 2 is a loss, the partner can only deduct "
-            "up to their adjusted basis in the partnership. "
-            "Basis check is performed on the partner's individual return (Schedule E, Form 6198). "
-            "The K-1 reports the full allocated amount regardless of the partner's basis.",
-            "Box 14 (Self-Employment Income): MUST be $0 for rental LLC. "
-            "IRC §1402(a)(1): rental income from real estate is explicitly excluded from "
-            "'net earnings from self-employment' (unless taxpayer renders substantial personal services). "
-            "IRC §1402(a)(13): limited partners' distributive share is excluded from SE earnings. "
-            "A non-zero Box 14 incorrectly triggers 15.3% SE tax (~$X,XXX) on the partner's return.",
-            "Box 3 (Other Net Rental Income): blank for W&B Group — only rental real estate "
-            "(Box 2) and no personal property rentals.",
+            "Part I — Partnership EIN (F008), name (F009), address (F010/F012), and IRS Center (F013) "
+            "from llcProfile. Required so partners can cross-reference this K-1 to Form 1065 (IRC §6031).",
+            "Tax year header (F001-F005): begin/end month+day plus 2-digit year. "
+            "Must match the Form 1065 tax year exactly.",
+            "Final K-1 checkbox (F006): check only in the year the partner exits or LLC dissolves. "
+            "Amended K-1 (F007): check if this supersedes a previously filed K-1 for this partner/year.",
+            "PTP checkbox (F011): W&B Group LLC is NOT a publicly traded partnership — leave unchecked.",
         ],
     },
     "K1-CAP": {
-        "fields": _SCHK1_CAPITAL_FIDS,
-        "cite":   "IRC §705; Rev. Proc. 2020-13; TD 9902; Form 1065 Schedule K-1 Instructions, Item L",
+        "fields": _SCHK1_PARTNERCAPITAL_FIDS,
+        "cite":   "IRC §705; Rev. Proc. 2020-13; TD 9902; IRC §704(b); IRC §1402(a)(13); "
+                  "Form 1065 Schedule K-1 Instructions, Items H–N",
         "reason": [
+            "Partner type (F014/F015): for a rental LLC with member-managers, members are "
+            "typically 'LLC member-manager' (GP checkbox F014). Designation affects SE tax treatment "
+            "(IRC §1402(a)(13)). Check with CPA — wrong type mis-classifies SE exposure.",
+            "Partner SSN/EIN (F019): required (IRC §6109). Wrong TIN = IRS cannot match K-1 to "
+            "partner's return. SSN formatted as XXX-XX-XXXX from llcOwners.ssn.",
+            "Box J ownership percentages (F023-F028): profit/loss/capital %, beginning and end of year. "
+            "Must sum to exactly 100% across all partners (IRC §704(b)). "
+            "Use figures from the LLC Operating Agreement.",
+            "Box K1 liabilities (F031-F036): partner's share of nonrecourse, QNR, and recourse debt "
+            "at beginning and end of year. "
+            "QNR (Qualified Nonrecourse Financing, F033/F034) = mortgage balance × partner pct — "
+            "mortgages on rental real estate are QNR under IRC §465(b)(6). "
+            "Partners need correct QNR to establish at-risk basis for loss deductions.",
             "Box L MUST use the TAX BASIS METHOD of capital reporting (mandatory for tax years 2020+). "
             "Rev. Proc. 2020-13 and TD 9902 eliminated §704(b) book value, GAAP, and 'Other' methods. "
             "Filing with a non-tax-basis method is an IRS compliance failure.",
             "Tax basis capital account formula (IRC §705): "
-            "BOY Capital + Contributions + Allocated Income − Allocated Losses − Distributions = EOY Capital.",
-            "For W&B Group 2025 (first year of operation): "
-            "BOY Capital = $0 (new entity, no prior years). "
-            "Contributions = each partner's actual cash contributed (from llcOwners.contributions). "
-            "Allocated Income/Loss = Box 2 per partner (net rental × ownership %). "
-            "Distributions = actual cash distributed (from llcOwners.distributions). "
-            "EOY Capital = contributions + Box 2 − distributions.",
-            "Box L method checkbox: 'Tax basis' must be checked. "
+            "BOY Capital (F039) + Contributions (F040) + Allocated Income (F041) "
+            "− Distributions (F043) = EOY Capital (F044). "
+            "For first year of operation: BOY Capital (F039) = $0.",
+            "Box L method checkbox (F045): 'Tax basis' must be checked. "
             "This checkbox is explicitly validated by IRS automated systems.",
-            "IRS uses Box L to verify partners track their basis for IRC §704(d) loss limitations "
-            "and to detect §704(c) remedial allocation situations on transfers at above/below book value.",
+        ],
+    },
+    "K1-PASSIVE": {
+        "fields": _SCHK1_PASSIVEITEMS_FIDS,
+        "cite":   "IRC §469(c)(2); IRC §702(a); IRC §1402(a)(1); IRC §1402(a)(13); "
+                  "Form 1065 Schedule K-1 Instructions, Part III",
+        "reason": [
+            "Box 1 (Ordinary Business Income/Loss, F049): MUST be $0 for rental LLC. "
+            "IRC §469(c)(2): rental activity is passive by statute — it is NEVER ordinary income. "
+            "Filing a non-zero Box 1 misclassifies rental income as ordinary and triggers "
+            "incorrect self-employment tax analysis on the partner's return.",
+            "Box 2 (Net Rental Real Estate Income/Loss, F050): the ONLY income box for a rental LLC. "
+            "IRS Instructions: 'Each partner's share of net rental real estate income or loss.' "
+            "Books-First (IRC §446/703): Box 2 = IS.net_rental × partner.pct. "
+            "CRITICAL: Box 2 is NET (income minus expenses), not gross rent. "
+            "Partners report Box 2 on Schedule E, Part II as passive income/loss.",
+            "IRC §704(d) Basis Limitation: if Box 2 is a loss, the partner can only deduct "
+            "up to their adjusted basis in the partnership. "
+            "Basis check performed on partner's individual return (Schedule E, Form 6198).",
+            "Box 5 (Interest Income, F055): each partner's share = IS.interest_income × partner.pct. "
+            "Partners report on Schedule B.",
+            "Box 14 (Self-Employment Income, F077): MUST be $0 for rental LLC. "
+            "IRC §1402(a)(1): rental income from real estate is explicitly excluded from "
+            "'net earnings from self-employment'. "
+            "A non-zero Box 14 incorrectly triggers 15.3% SE tax on the partner's return.",
+            "Box 19a (Cash Distributions, F098): actual cash distributed to each partner. "
+            "NOT multiplied by pct — use actual per-partner amounts from llcOwners.",
         ],
     },
 }
