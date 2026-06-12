@@ -303,8 +303,8 @@ class AgentF1065_Info(_SectionAgent):
         if not ein or len(ein) != 9 or not ein.isdigit():
             return self.format_issue(
                 'IF-R01', self.ERROR,
-                f"EIN missing or malformed (found: '{self._ev('ein')}'). "
-                f"Form field: P1_B (EIN box, Page 1 Item B)",
+                f"⚠ Form 1065: the LLC's EIN (tax ID number) is missing or invalid (found: '{self._ev('ein')}').\n"
+                f"  • A valid 9-digit EIN is required on every Form 1065 — without it, the IRS will reject the filing.",
                 'Every Form 1065 requires a valid 9-digit EIN',
                 "Set entity.ein in llcProfile",
                 fids=['P1_B'],
@@ -316,7 +316,8 @@ class AgentF1065_Info(_SectionAgent):
         if not name:
             return self.format_issue(
                 'IF-R02', self.ERROR,
-                "Entity name is blank — Form field P1_Hdr_4 (Page 1 Name line)",
+                "⚠ Form 1065: the LLC's legal name is blank on Page 1.\n"
+                "  • The exact legal name is required — the IRS uses name + EIN together to match tax filings.",
                 'Form 1065 Page 1 header requires the legal partnership name',
                 "Set entity.entity_name in llcProfile",
                 fids=['P1_Hdr_4'],
@@ -331,8 +332,8 @@ class AgentF1065_Info(_SectionAgent):
         if not p1h and not method:
             return self.format_issue(
                 'IF-R03', self.WARN,
-                "Line H (Accounting Method) checkbox is blank — Cash or Accrual must be checked. "
-                "For W&B Group (tracks depreciation/assets on accrual basis): Accrual is appropriate.",
+                "Form 1065 Line H (Accounting Method) is blank — either 'Cash' or 'Accrual' must be checked.\n"
+                "  • For W&B Group: Accrual is appropriate (the LLC tracks depreciation and assets over time).",
                 'Form 1065 Page 1 Item H requires one checkbox',
                 "In llcProfile set F1065.acctg_method = 'Accrual'; "
                 "then map Profile.F1065.acctg_method → P1_H via the Aid dialog",
@@ -349,9 +350,8 @@ class AgentF1065_Info(_SectionAgent):
         if live_count > 0 and fd_count != live_count:
             return self.format_issue(
                 'IF-R07', self.WARN,
-                f"Line I (Number of Schedules K-1): fill dict shows {int(fd_count) if fd_count else 'blank'} "
-                f"but llcOwners has {live_count} partner(s). "
-                f"These must match (one K-1 per partner).",
+                f"Form 1065 Line I (Number of K-1s) shows {int(fd_count) if fd_count else 'blank'}, but the LLC has {live_count} partner(s).\n"
+                f"  • Line I must match the actual number of partners — one K-1 is required for each.",
                 'Form 1065 Instructions, Page 1 Item I',
                 "Re-run the BookToIRS pipeline so P1_I auto-fills from live owner count; "
                 "or map Profile.owners.count → P1_I via Aid",
@@ -365,9 +365,8 @@ class AgentF1065_Info(_SectionAgent):
         # Always raise as INFO requiring explicit confirmation.
         return self.format_issue(
             'IF-R08', self.INFO,
-            "Line K (§465 At-Risk): For rental LLCs, partners are generally considered "
-            "'at risk' for their capital contributions. Bookkeeper must explicitly confirm "
-            "whether to check this box. Default for a cash-invested rental LLC: Yes (at risk).",
+            "Form 1065 Line K (At-Risk): For a rental LLC funded by partner cash contributions, all partners are generally 'at risk'.\n"
+            "  • This checkbox needs to be confirmed and checked — the default is usually 'Yes' for a small LLC without unusual financing.",
             'IRC §465; Form 1065 Instructions, Page 1 Item K',
             "Confirm with CPA: are all partners at-risk under §465 for this LLC? "
             "If yes, set the P1_K checkbox via Aid. "
@@ -390,8 +389,9 @@ class AgentF1065_Info(_SectionAgent):
             )
             return self.format_issue(
                 'IF-R04', self.ERROR,
-                "Partnership Representative (PR) first/last name is blank "
-                "(Form 1065 Schedule B, Partnership Representative section)",
+                "⚠ Form 1065: the Partnership Representative (the person who acts on behalf of the LLC in any IRS audit) is not named.\n"
+                "  • Every LLC filing Form 1065 must designate a Partnership Representative on Schedule B.\n"
+                "  • For W&B Group, this is typically the managing member (Francis).",
                 'IRC §6223; Treas. Reg. §301.6223-1',
                 action_msg,
                 fids=['B_PR_1', 'B_PR_2'],
@@ -426,7 +426,8 @@ class AgentF1065_Info(_SectionAgent):
         if not any(chks):
             return self.format_issue(
                 'IF-R05', self.WARN,
-                "No filing type checkbox set (Initial / Final / Amended)",
+                "Form 1065: no filing type is checked (Initial Return / Final Return / Amended Return).\n"
+                "  • For W&B Group's first tax year, 'Initial Return' should be checked.",
                 'At least one filing indicator should be checked',
                 "Set the appropriate checkbox in F1065.chk in llcProfile")
 
@@ -530,12 +531,9 @@ class AgentF1065_IncStmt(_SectionAgent):
             lst = ', '.join(f"{f}→{u}" for f, u in offenders)
             return self.format_issue(
                 'IS-R09', self.ERROR,
-                f"bookNS_IS maps rental Income-Statement values onto Form 1065 Page 1 "
-                f"(Lines 1–23) — IRS violation. Offending mappings: {lst}. "
-                f"For a pure rental LLC, Page 1 must be entirely $0: rental income and "
-                f"expenses are passive (IRC §469(c)(2)) and are reported on Form 8825, "
-                f"flowing to Schedule K Line 2. bookNS_IS is a Form 8825 model — it must "
-                f"NOT feed Form 1065 Page 1.",
+                f"⚠ The field mapping file (bookNS_IS) is sending rental income/expense data to Form 1065 Page 1 (Lines 1–23) — this is incorrect.\n"
+                f"  • Rental LLC income belongs on Form 8825, not Form 1065 Page 1. Page 1 must show $0 for all income/deduction lines.\n"
+                f"  • Affected mappings: {lst}.",
                 'IRC §469(c)(2); Form 1065 Instructions Lines 1–23; bookNS_IS.json',
                 "Remove the listed fid→IS.* entries from the bookNS_IS.json \"Form1065\" "
                 "section (these belong to Form 8825). Re-run the FILL.pdf pipeline. "
@@ -547,10 +545,8 @@ class AgentF1065_IncStmt(_SectionAgent):
         sign = 'income' if net >= 0 else 'loss'
         return self.format_issue(
             'IS-R10', self.INFO,
-            f"Verified: Form 1065 Page 1 Lines 1–23 carry no bookNS_IS mappings — "
-            f"all ordinary income/deduction lines are correctly $0 for this rental LLC "
-            f"(IRC §469(c)(2)). Net rental {sign} of ${abs(net):,.2f} flows via Form 8825 "
-            f"→ Schedule K Line 2 → K-1 Box 2, not through Page 1.",
+            f"✓ Form 1065 Page 1 (Lines 1–23) is correctly blank — no rental income or expenses appear here.\n"
+            f"  • Net rental {sign} of ${abs(net):,.2f} flows through Form 8825 → Schedule K Line 2 → each partner's K-1 Box 2.",
             'IRC §469(c)(2); Form 1065 Instructions Lines 1–23',
             "No action — Page 1 ordinary section is correctly empty. Confirm the same "
             "net rental amount appears on Form 8825 Line 23 and Schedule K Line 2.")
@@ -570,10 +566,9 @@ class AgentF1065_IncStmt(_SectionAgent):
             lines = ', '.join(f"{k}=${v:,.2f}" for k, v in bad.items())
             return self.format_issue(
                 'IS-R01', self.ERROR,
-                f"Income appears on Form 1065 Page 1 — IRS violation. "
-                f"Rental income must NOT be on Page 1 Lines 1–8. Affected: {lines}. "
-                f"IRC §469(c)(2): rental activity is passive; it flows "
-                f"Books → Form 8825 → Schedule K Line 2, never to Page 1.",
+                f"⚠ Rental income is appearing on Form 1065 Page 1 Lines 1–8 — this is wrong for a rental LLC.\n"
+                f"  • Rental income belongs on Form 8825 (per-property) → Schedule K Line 2, NOT on Page 1.\n"
+                f"  • Affected lines: {lines}.",
                 'IRC §469(c)(2); Form 1065 Instructions Lines 1–8; Pub 925 §1',
                 "Remove all mappings from Acct.Rev.* to P1_1a/P1_3/P1_7/P1_8 "
                 "in BookToIRS Aid; re-run pipeline",
@@ -595,10 +590,9 @@ class AgentF1065_IncStmt(_SectionAgent):
             lines = ', '.join(f"{k}=${v:,.2f}" for k, v in bad.items())
             return self.format_issue(
                 'IS-R02', self.ERROR,
-                f"Deductions appear on Form 1065 Page 1 — IRS violation. "
-                f"Rental expenses must NOT be on Page 1 Lines 9–22. Affected: {lines}. "
-                f"All rental expenses (including depreciation on Line 16a) belong on "
-                f"Form 8825 Lines 5–17; rental depr specifically on Form 8825 Line 14.",
+                f"⚠ Rental expenses are appearing on Form 1065 Page 1 Lines 9–22 — this is wrong for a rental LLC.\n"
+                f"  • All rental expenses (including depreciation) belong on Form 8825, not Form 1065 Page 1.\n"
+                f"  • Affected lines: {lines}.",
                 'Form 1065 Instructions Lines 9–22 and Line 16a; IRC §469',
                 "Remove all rental expense mappings from P1_9/11/14/15/16a/21/22 "
                 "in BookToIRS Aid. Re-run pipeline.",
@@ -620,11 +614,9 @@ class AgentF1065_IncStmt(_SectionAgent):
         if p1_16a > 0.01:
             return self.format_issue(
                 'IS-R03', self.ERROR,
-                f"Depreciation ${p1_16a:,.2f} appears on Page 1 Line 16a — IRS violation. "
-                f"Rental property depreciation is NEVER on Form 1065 Page 1. "
-                f"IRS Instructions Line 16a: 'Do not include rental real estate activities.' "
-                f"Books show ${book_depr:,.2f} depreciation → correct path: "
-                f"Form 4562 Part III Line 19h → Form 8825 Line 14 → Schedule K Line 2.",
+                f"⚠ Depreciation of ${p1_16a:,.2f} is showing on Form 1065 Page 1 Line 16a — this is wrong for a rental property.\n"
+                f"  • Rental property depreciation goes on Form 8825 Line 14, not Form 1065 Page 1.\n"
+                f"  • The IRS instructions for Line 16a explicitly say: 'Do not include rental real estate activities.'",
                 'Form 1065 Instructions Line 16a; IRC §168; Form 8825 Instructions Line 14',
                 "Remove P1_16a mapping from BookToIRS Aid. "
                 "Verify Form 8825 Line 14 mapping uses IS.depreciation from books.",
@@ -632,9 +624,8 @@ class AgentF1065_IncStmt(_SectionAgent):
         if book_depr > 0.01 and p1_16a < 0.01:
             return self.format_issue(
                 'IS-R04', self.INFO,
-                f"Page 1 Line 16a = $0 (correct for rental LLC). "
-                f"Books show ${book_depr:,.2f} depreciation → verify it appears on "
-                f"Form 8825 Line 14 and Form 4562 Part III Line 19h.",
+                f"✓ Form 1065 Page 1 Line 16a = $0 (correct — rental depreciation doesn't go here).\n"
+                f"  • The books show ${book_depr:,.2f} of depreciation — verify it appears on Form 8825 Line 14.",
                 'Form 1065 Instructions Line 16a; Form 8825 Line 14',
                 "Confirm Form 8825 and Form 4562 are generated with the correct "
                 f"IS.depreciation value (${book_depr:,.2f}) from books.")
@@ -654,20 +645,18 @@ class AgentF1065_IncStmt(_SectionAgent):
         if rent < 0.01 and expenses < 0.01:
             return self.format_issue(
                 'IS-R05', self.WARN,
-                "Books show $0 rental income and $0 expenses. "
-                "If the property was active during the year, ledger entries may be "
-                "missing from llcExpRev (Acct.Rev.Rent.*) or llcAssets. "
-                "An empty IS will produce a blank Form 8825 and Schedule K.",
+                "The books show $0 rental income and $0 expenses for the year.\n"
+                "  • If the property was rented during 2025, income and expense transactions may be missing from the books.\n"
+                "  • A blank Income Statement will produce a blank Form 8825 and empty Schedule K-1s.",
                 'IRC §6031 — partnership must report all income/loss',
                 "Verify Acct.Rev.Rent.* entries exist in llcExpRev for the tax year. "
                 "Check llcAssets for the property's placed-in-service date.")
         if rent > 0.01 and depr < 0.01:
             return self.format_issue(
                 'IS-R06', self.WARN,
-                f"Books show rental income ${rent:,.2f} but $0 depreciation. "
-                f"A residential rental property (27.5-yr MACRS) should have a "
-                f"depreciation entry (Acct.Exp.Depreciation) for each tax year "
-                f"the property is in service.",
+                f"The books show rental income of ${rent:,.2f} but $0 depreciation.\n"
+                f"  • A residential rental property should have a depreciation entry each year it is in service (27.5-year schedule).\n"
+                f"  • Missing depreciation means partners are paying more taxes than required.",
                 'IRC §168; Form 4562 Instructions Part III; Pub 946',
                 "Verify YE depreciation entry exists in llcAssets "
                 "(Acct.Exp.Depreciation with YE:Acct.Exp.Depreciation acctSub). "
@@ -689,10 +678,9 @@ class AgentF1065_IncStmt(_SectionAgent):
         if abs(l23) > 0.01:
             return self.format_issue(
                 'IS-R07', self.ERROR,
-                f"Line 23 (Ordinary Business Income) = ${l23:,.2f} — must be $0 "
-                f"for a pure rental LLC. Rental income/loss flows to Schedule K "
-                f"Line 2 (net rental), not to Page 1 Line 23 (ordinary income). "
-                f"IRS: IRC §469(c)(2) — rental = passive, never ordinary.",
+                f"⚠ Form 1065 Line 23 (Ordinary Business Income) = ${l23:,.2f} — must be $0 for a rental LLC.\n"
+                f"  • Rental income is PASSIVE — it flows to Schedule K Line 2, not to Page 1 Line 23.\n"
+                f"  • A non-zero Line 23 means Page 1 income or expense lines were filled incorrectly.",
                 'IRC §469(c)(2); Form 1065 Instructions Line 23',
                 "Remove P1_23 mapping from BookToIRS Aid. Line 23 auto-derives "
                 "from Line 8 − Line 22; both must be $0.",
@@ -701,9 +689,8 @@ class AgentF1065_IncStmt(_SectionAgent):
         if l8 != 0 or l22 != 0:
             return self.format_issue(
                 'IS-R08', self.WARN,
-                f"Line 23 arithmetic inconsistency: Line 8 (${l8:,.2f}) − "
-                f"Line 22 (${l22:,.2f}) ≠ Line 23 (${l23:,.2f}). "
-                f"For rental LLC, all three should be $0.",
+                f"Form 1065 Page 1 arithmetic doesn't add up: Line 8 (${l8:,.2f}) − Line 22 (${l22:,.2f}) ≠ Line 23 (${l23:,.2f}).\n"
+                f"  • For a rental LLC, all three lines should be $0.",
                 'Form 1065 Instructions Line 23',
                 "Re-run pipeline; verify no expense or income mappings exist for "
                 "Page 1 lines.",
@@ -820,9 +807,9 @@ class AgentF1065_Other(_SectionAgent):
         if not required:
             return self.format_issue(
                 'OT-R01', self.INFO,
-                f"Schedules L/M-1/M-2 NOT required "
-                f"(IS total income: ${gross:,.0f} < $250K and/or BS assets: ${assets:,.0f} < $1M). "
-                f"Schedule B Q4c should answer 'Yes' (skip schedules).",
+                f"✓ Schedules L, M-1, and M-2 are NOT required for W&B Group.\n"
+                f"  • The LLC is below both IRS thresholds: income ${gross:,.0f} (under $250K) and/or assets ${assets:,.0f} (under $1M).\n"
+                f"  • Schedule B Question 4c should be answered 'Yes' to skip these schedules.",
                 'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)',
                 "Q4c defaults to No — use BookToIRS Aid to set Q4c = Yes (add chk entry "
                 "for the Q4c Yes checkbox fid once identified from Form1065_namespace.pdf).",
@@ -834,8 +821,9 @@ class AgentF1065_Other(_SectionAgent):
         if not first and not last:
             return self.format_issue(
                 'OT-R02', self.ERROR,
-                "Partnership Representative not named on Schedule B "
-                "(B_PR_1=First Name, B_PR_2=Last Name are blank in the fill dict)",
+                "⚠ Form 1065 Schedule B: the Partnership Representative is not named.\n"
+                "  • The Partnership Representative is the person who deals with the IRS on behalf of the LLC (usually the managing member).\n"
+                "  • This is required on every Form 1065 since the BBA audit rules took effect.",
                 'IRC §6223; Treas. Reg. §301.6223-1',
                 "Set F1065.B_PRDI_FirstNm and B_PRDI_Last in llcProfile, "
                 "then use Aid to map Profile.F1065.B_PRDI_FirstNm → B_PR_1",
@@ -859,24 +847,21 @@ class AgentF1065_Other(_SectionAgent):
             wrong = 'limited partnership (f80)' if has_lp else 'general partnership (f79)'
             return self.format_issue(
                 'OT-R10', self.ERROR,
-                f"Q1 entity type is set to '{wrong}' in the chk list — "
-                f"W&B Group is a domestic LLC (IRC §7701(a)(2)), not a {wrong.split(' (')[0]}. "
-                f"chk must have 81 (c2_1[2] = 'c. Domestic limited liability company'), "
-                f"not {80 if has_lp else 79}.",
+                f"⚠ Form 1065 Question 1: entity type is marked as '{wrong.split(' (')[0]}' — this is incorrect.\n"
+                f"  • W&B Group is a domestic LLC, not a {wrong.split(' (')[0]}.\n"
+                f"  • The correct option is 'c. Domestic limited liability company'.",
                 'IRC §7701(a)(2); Form 1065 Instructions Q1',
                 "Remove 79/80 from F1065.chk in llcProfile; add 81 for the LLC option.")
         if not has_llc:
             return self.format_issue(
                 'OT-R10', self.WARN,
-                "Q1 entity type not confirmed as LLC in chk list. "
-                "W&B Group = domestic limited liability company (IRC §7701(a)(2)). "
-                "Add 81 (c2_1[2]) to F1065.chk in llcProfile to check the LLC option.",
+                "Form 1065 Question 1: entity type (domestic LLC) is not confirmed in the form.\n"
+                "  • W&B Group is a domestic limited liability company — this option needs to be checked.",
                 'IRC §7701(a)(2); Form 1065 Instructions Q1',
                 "Add 81 to F1065.chk to mark 'c. Domestic limited liability company'.")
         return self.format_issue(
             'OT-R10', self.INFO,
-            "Q1 entity type: chk has f81 (domestic LLC). "
-            "W&B Group = domestic limited liability company. Correct.",
+            "✓ Form 1065 Question 1: entity type = domestic LLC — correct for W&B Group.",
             'IRC §7701(a)(2); Form 1065 Instructions Q1', '')
 
     def _rule_sched_b_q2a_no_entity_owners(self):
@@ -896,15 +881,14 @@ class AgentF1065_Other(_SectionAgent):
             names = ', '.join(str(o.get('nm','?')) for o in entity_owners)
             return self.format_issue(
                 'OT-R11', self.ERROR,
-                f"Q2a: Entity owner(s) hold ≥50%: {names}. "
-                f"Q2a must be answered YES. Verify entity classification and ownership %.",
+                f"⚠ Form 1065 Schedule B Question 2a: an entity (not an individual) holds 50%+ of the LLC: {names}.\n"
+                f"  • Question 2a must be answered YES — this triggers additional ownership disclosure requirements.",
                 'Form 1065 Instructions, Schedule B Q2a; IRC §267(b)',
                 "Add the Q2a Yes checkbox fid to chk in llcProfile. "
                 "File additional ownership disclosure if required.")
         return self.format_issue(
             'OT-R11', self.INFO,
-            "Q2a (entity owns 50%+): all llcOwners are individuals — "
-            "answer is NO. Step H default No applies. Correct for W&B Group.",
+            "✓ Form 1065 Question 2a: all W&B Group owners are individuals — answer is NO (no company or trust owns 50%+).",
             'Form 1065 Instructions, Schedule B Q2a', '')
 
     def _rule_sched_b_q2b_individual_majority(self):
@@ -920,14 +904,13 @@ class AgentF1065_Other(_SectionAgent):
             pcts = ', '.join(f"{self._owner_pct(o)*100:.1f}%" for o in majority)
             return self.format_issue(
                 'OT-R12', self.WARN,
-                f"Q2b: Individual(s) with >50% ownership detected: {nm} ({pcts}). "
-                f"Q2b must be answered YES. Verify this is correct and mark accordingly.",
+                f"Form 1065 Schedule B Question 2b: {nm} owns {pcts} — more than 50% of the LLC.\n"
+                f"  • Question 2b must be answered YES. This is factually correct for W&B Group (Francis owns 96%).",
                 'Form 1065 Instructions, Schedule B Q2b; IRC §267(b)',
                 "Add the Q2b Yes checkbox fid to chk in llcProfile to mark Q2b = Yes.")
         return self.format_issue(
             'OT-R12', self.INFO,
-            "Q2b (individual owns 50%+): no individual holds >50% per llcOwners — "
-            "answer is NO. Step H default No applies.",
+            "✓ Form 1065 Question 2b: no single individual owns more than 50% — answer is NO.",
             'Form 1065 Instructions, Schedule B Q2b', '')
 
     def _rule_sched_b_q3a_no_corp_ownership(self):
@@ -940,9 +923,7 @@ class AgentF1065_Other(_SectionAgent):
         """
         return self.format_issue(
             'OT-R13', self.INFO,
-            "Q3a (partnership owns 20%+ of a corporation): W&B Group holds only real "
-            "property — no corporate interest. Answer is NO. Step H default No applies. "
-            "IRS condition: check YES only if partnership owns ≥20% of any corp.",
+            "✓ Form 1065 Question 3a: W&B Group owns only real property, not shares in any company — answer is NO.",
             'Form 1065 Instructions, Schedule B Q3a; IRC §267(b)', '')
 
     def _rule_sched_b_q3b_no_partnership_ownership(self):
@@ -954,9 +935,7 @@ class AgentF1065_Other(_SectionAgent):
         """
         return self.format_issue(
             'OT-R14', self.INFO,
-            "Q3b (partnership owns 50%+ of another partnership): W&B Group holds only "
-            "real property — no interest in another partnership. Answer is NO. "
-            "Step H default No applies.",
+            "✓ Form 1065 Question 3b: W&B Group owns only real property, not an interest in another partnership — answer is NO.",
             'Form 1065 Instructions, Schedule B Q3b; IRC §267(c)', '')
 
     def _rule_sched_b_q4c_schedules_not_required(self):
@@ -972,18 +951,16 @@ class AgentF1065_Other(_SectionAgent):
         if gross < 250_000 and assets < 1_000_000:
             return self.format_issue(
                 'OT-R15', self.WARN,
-                f"Q4c (schedules not required): W&B Group IS below both thresholds "
-                f"(gross income ${gross:,.0f} < $250K, assets ${assets:,.0f} < $1M) — "
-                f"Q4c must be answered YES. Currently defaults to No. "
-                f"Identify the Q4c Yes checkbox fid from Form1065_namespace.pdf and add to chk.",
+                f"Form 1065 Question 4c: W&B Group is below both thresholds (income ${gross:,.0f} < $250K, assets ${assets:,.0f} < $1M).\n"
+                f"  • Question 4c must be answered YES — the LLC does NOT need to file Schedules L, M-1, or M-2.\n"
+                f"  • This checkbox is currently not set — it needs to be added.",
                 'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)',
                 "Open Form1065_namespace.pdf, find 'Q4c not required' checkbox, note the "
                 "fid number, and add it to F1065.chk in llcProfile.",
                 auto_fix=True)
         return self.format_issue(
             'OT-R15', self.INFO,
-            f"Q4c: above threshold (gross ${gross:,.0f}, assets ${assets:,.0f}) — "
-            f"Schedules L/M-1/M-2 ARE required. Q4c = No is correct.",
+            f"Form 1065 Question 4c: W&B Group is above threshold (income ${gross:,.0f}, assets ${assets:,.0f}) — Schedules L/M-1/M-2 ARE required.",
             'Form 1065 Instructions, Schedule B Q4c', '')
 
     def _rule_sched_b_q4d_distributions(self):
@@ -998,15 +975,14 @@ class AgentF1065_Other(_SectionAgent):
         if has_distrib:
             return self.format_issue(
                 'OT-R16', self.WARN,
-                "Q4d: Distributions detected in llcOwners — "
-                "Q4d 'Did the partnership distribute money or property?' must be answered Yes.",
+                "Form 1065 Question 4d: cash distributions to partners are recorded in the books.\n"
+                "  • Question 4d ('Did the partnership distribute money or property?') must be answered YES.",
                 'Form 1065 Instructions, Schedule B Q4d; K-1 Box 19',
                 "Confirm Q4d = Yes in form. Add Q4d Yes checkbox fid to chk via Aid.",
                 fids=['B_4d'])
         return self.format_issue(
             'OT-R16', self.INFO,
-            "Q4d: No distributions found in llcOwners — Q4d = No. "
-            "Step H default No applies. Verify against actual distributions for the year.",
+            "✓ Form 1065 Question 4d: no distributions found in the books — answer is NO.",
             'Form 1065 Instructions, Schedule B Q4d', '')
 
     def _rule_sched_b_no_foreign_activity(self):
@@ -1021,11 +997,9 @@ class AgentF1065_Other(_SectionAgent):
         """
         return self.format_issue(
             'OT-R17', self.INFO,
-            "Q5–Q7, Q9–Q20, Q22–Q28 (foreign activity, material-advisor, IRS audit, "
-            "foreign partners, PFIC, Form 8886, §721(c), oil/gas, §267A, CFC, "
-            "royalties, Form 7208): all NO for W&B Group. "
-            "Step H default No pipeline applies to all these questions. "
-            "Confirm no foreign nexus or complex transactions occurred in 2025.",
+            "✓ Form 1065 Questions 5–28 (foreign activity, foreign partners, complex transactions): all NO for W&B Group.\n"
+            "  • W&B is a domestic LLC with U.S. partners investing in U.S. real property — none of these foreign/complex questions apply.\n"
+            "  • Confirm no unusual transactions occurred in 2025.",
             'Form 1065 Instructions, Schedule B Q5–Q28',
             "If any of these conditions applied in 2025, contact CPA before filing.")
 
@@ -1038,9 +1012,7 @@ class AgentF1065_Other(_SectionAgent):
         """
         return self.format_issue(
             'OT-R18', self.INFO,
-            "Q8 (publicly traded partnership): W&B Group is a private LLC — "
-            "interests are NOT traded on any securities market. Answer is NO. "
-            "Step H default No applies. IRC §7704 PTP rules do not apply.",
+            "✓ Form 1065 Question 8 (publicly traded partnership): W&B Group is a private LLC — not publicly traded. Answer is NO.",
             'IRC §7704; Form 1065 Instructions, Schedule B Q8', '')
 
 
@@ -1124,11 +1096,9 @@ class AgentF1065_Distr(_SectionAgent):
         if abs(k1) > 0.01:
             return self.format_issue(
                 'KD-R01', self.ERROR,
-                f"Schedule K Line 1 (Ordinary Business Income) = ${k1:,.2f}. "
-                f"Must be $0 for a pure rental LLC. "
-                f"IRC §469(c)(2): all rental income is passive — it belongs on "
-                f"Schedule K Line 2, not Line 1. "
-                f"A non-zero K_1 indicates Page 1 Lines 1–23 were filled incorrectly.",
+                f"⚠ Schedule K Line 1 (Ordinary Business Income) = ${k1:,.2f} — must be $0 for a rental LLC.\n"
+                f"  • Rental income is passive — it belongs on Schedule K Line 2, not Line 1.\n"
+                f"  • A non-zero Line 1 means Form 1065 Page 1 was filled incorrectly.",
                 'IRC §469(c)(2); Form 1065 Instructions Schedule K Line 1',
                 "Verify Page 1 Lines 1–23 are all $0; remove K_1 mapping from BookToIRS Aid.",
                 fids=['K_1'])
@@ -1152,10 +1122,9 @@ class AgentF1065_Distr(_SectionAgent):
         if k2_filed == 0 and abs(net_rental) > 0.01:
             return self.format_issue(
                 'KD-R02', self.ERROR,
-                f"Schedule K Line 2 is blank but books show net rental "
-                f"{'income' if net_rental >= 0 else 'loss'} ${net_rental:,.2f}. "
-                f"K_2 must equal IS.net_rental (Books-First: IRC §446/703). "
-                f"A blank K_2 means rental activity is NOT flowing to partners.",
+                f"⚠ Schedule K Line 2 (Net Rental Income) is blank, but the books show net rental {'income' if net_rental >= 0 else 'loss'} of ${net_rental:,.2f}.\n"
+                f"  • A blank Line 2 means the rental income/loss is NOT flowing to the partners' K-1s.\n"
+                f"  • This is the most important line on Schedule K for a rental LLC.",
                 'Form 1065 Instructions Schedule K Line 2; IRC §702(a)',
                 "Map IS.net_rental → K_2 in bookNS_IS.json; re-run BookToIRS pipeline.",
                 fids=['K_2'])
@@ -1163,10 +1132,8 @@ class AgentF1065_Distr(_SectionAgent):
         if abs(k2_filed - net_rental) > 1.00:
             return self.format_issue(
                 'KD-R03', self.WARN,
-                f"Schedule K Line 2 = ${k2_filed:,.2f} but books (IS.net_rental) "
-                f"= ${net_rental:,.2f}. Discrepancy: ${abs(k2_filed - net_rental):,.2f}. "
-                f"Books-First (IRC §446): K_2 must derive from IS.net_rental, "
-                f"not from any other form's value.",
+                f"Schedule K Line 2 = ${k2_filed:,.2f} but the books show net rental income/loss = ${net_rental:,.2f}.\n"
+                f"  • These must match — the form value must come directly from the books (discrepancy: ${abs(k2_filed - net_rental):,.2f}).",
                 'IRC §446; Form 1065 Instructions Schedule K Line 2',
                 "Re-run BookToIRS pipeline. Verify bookNS_IS.json maps "
                 "K_2 → IS.net_rental (not IS.rent_income or any form-sourced value).",
@@ -1190,12 +1157,9 @@ class AgentF1065_Distr(_SectionAgent):
         if abs(k2_filed - gross_rent) < 0.01 and abs(gross_rent - net_rental) > 0.01:
             return self.format_issue(
                 'KD-R04', self.ERROR,
-                f"Schedule K Line 2 = ${k2_filed:,.2f} appears to be GROSS rent "
-                f"(IS.rent_income = ${gross_rent:,.2f}), not NET rental income "
-                f"(IS.net_rental = ${net_rental:,.2f}). "
-                f"IRS Instructions: Line 2 = net income AFTER all rental expenses. "
-                f"Filing gross rent on K_2 omits ${abs(gross_rent - net_rental):,.2f} "
-                f"of deductions from partners' returns.",
+                f"⚠ Schedule K Line 2 = ${k2_filed:,.2f} — this looks like GROSS rent, not NET rental income.\n"
+                f"  • Gross rent (before expenses): ${gross_rent:,.2f}. Net rental income (after expenses): ${net_rental:,.2f}.\n"
+                f"  • The IRS requires the NET amount on Line 2. Using gross rent overstates income by ${abs(gross_rent - net_rental):,.2f} and omits partner deductions.",
                 'Form 1065 Instructions Schedule K Line 2; IRC §702(a)',
                 "Change bookNS_IS.json K_2 mapping from IS.rent_income → IS.net_rental. "
                 "Re-run BookToIRS pipeline.",
@@ -1217,9 +1181,8 @@ class AgentF1065_Distr(_SectionAgent):
             pct_str = f"{total*100:.2f}%" if expected == 1.0 else f"{total:.2f}%"
             return self.format_issue(
                 'KD-R05', self.ERROR,
-                f"Partner ownership percentages sum to {pct_str} (must be exactly 100%). "
-                f"IRC §704(b): all partnership items must be allocated in full. "
-                f"K-1 amounts will be under/over-allocated until this is corrected.",
+                f"⚠ Partner ownership percentages add up to {pct_str} — they must total exactly 100%.\n"
+                f"  • Until this is fixed, the K-1 income/loss allocations will be wrong for every partner.",
                 'IRC §704(b); Form 1065 Instructions Schedule K-1',
                 "Correct pct values in llcOwners DB so they sum to exactly 1.0 (or 100).")
 
@@ -1238,11 +1201,9 @@ class AgentF1065_Distr(_SectionAgent):
         if abs(k14) > 0.01:
             return self.format_issue(
                 'KD-R06', self.ERROR,
-                f"Schedule K Line 14 (SE income) = ${k14:,.2f}. "
-                f"Must be $0 for rental LLC. "
-                f"IRC §1402(a)(1): rental income is not 'net earnings from self-employment.' "
-                f"IRC §1402(a)(13): limited partners are exempt from SE tax. "
-                f"Filing non-zero K_14 will incorrectly trigger 15.3% SE tax on partners.",
+                f"⚠ Schedule K Line 14 (Self-Employment Income) = ${k14:,.2f} — must be $0 for a rental LLC.\n"
+                f"  • Rental income is not subject to self-employment tax for any partner.\n"
+                f"  • A non-zero Line 14 would incorrectly add ~15.3% SE tax to every partner's return.",
                 'IRC §1402(a)(1); IRC §1402(a)(13); Pub 541 (Partnerships)',
                 "Remove any mapping to K_14; verify it is blank in the fill dict.",
                 fids=['K_14', 'K_14a'])
@@ -1339,10 +1300,8 @@ class AgentF1065_Reconcile(_SectionAgent):
         if not (gross >= 250_000 and assets >= 1_000_000):
             return self.format_issue(
                 'RC-R01', self.INFO,
-                f"Schedules L/M-1/M-2 NOT required. "
-                f"Gross receipts ${gross:,.0f} {'≥' if gross >= 250_000 else '<'} $250K threshold; "
-                f"total assets ${assets:,.0f} {'≥' if assets >= 1_000_000 else '<'} $1M threshold. "
-                f"Schedule B Q4(c) should answer 'Yes' to skip these schedules.",
+                f"✓ Schedules L, M-1, and M-2 are NOT required (income ${gross:,.0f} and/or assets ${assets:,.0f} are below IRS thresholds).\n"
+                f"  • Schedule B Question 4(c) should be answered 'Yes' — leave these schedule pages blank.",
                 'Form 1065 Instructions, Schedule B Q4(c); Treas. Reg. §1.6031(a)-1(b)(4)',
                 "Confirm Schedule B Q4(c) = Yes in the form. "
                 "Leave Schedules L/M-1/M-2 entirely blank.")
@@ -1363,11 +1322,8 @@ class AgentF1065_Reconcile(_SectionAgent):
         if bs_assets > 0 and abs(l14_end - bs_assets) > 1.00:
             return self.format_issue(
                 'RC-R02', self.ERROR,
-                f"Schedule L Line 14 (total assets, end) = ${l14_end:,.2f} "
-                f"but BS.total_assets = ${bs_assets:,.2f}. "
-                f"Discrepancy: ${abs(l14_end - bs_assets):,.2f}. "
-                f"Schedule L must equal the books (IRC §446 Books-First rule). "
-                f"IRS: a balance sheet that doesn't tie to books is an audit trigger.",
+                f"⚠ Schedule L (Balance Sheet): Line 14 shows ${l14_end:,.2f} total assets, but the books show ${bs_assets:,.2f}.\n"
+                f"  • The IRS balance sheet must match the actual books exactly — a ${abs(l14_end - bs_assets):,.2f} gap is an audit red flag.",
                 'Form 1065 Instructions Schedule L; IRC §446',
                 "Verify L_14_2 mapping uses BS.total_assets from books. "
                 "Re-run BookToIRS pipeline.",
@@ -1391,10 +1347,8 @@ class AgentF1065_Reconcile(_SectionAgent):
         if abs(m1_line1 - book_ni) > 1.00:
             return self.format_issue(
                 'RC-R03', self.WARN,
-                f"M-1 Line 1 (net income per books) = ${m1_line1:,.2f} "
-                f"but IS.net_income from books = ${book_ni:,.2f}. "
-                f"M-1 Line 1 must equal the books (Books-First: IRC §446). "
-                f"M-1 reconciliation is invalid if Line 1 doesn't start from the correct book income.",
+                f"Schedule M-1 Line 1 (net income per books) = ${m1_line1:,.2f}, but the books show ${book_ni:,.2f}.\n"
+                f"  • Line 1 is the starting point of the book-to-tax reconciliation — if it doesn't match the books, the entire M-1 is wrong.",
                 'Form 1065 Instructions Schedule M-1 Line 1; IRC §446; IRC §703',
                 "Verify M1_1 maps to IS.net_income in bookNS_IS.json. Re-run pipeline.",
                 fids=['M1_1'])
@@ -1416,11 +1370,9 @@ class AgentF1065_Reconcile(_SectionAgent):
         if abs(m1_l9) > 0.01:
             return self.format_issue(
                 'RC-R04', self.ERROR,
-                f"M-1 Line 9 (income per return) = ${m1_l9:,.2f}. "
-                f"Must be $0 for rental LLC. "
-                f"Line 9 = Schedule K Line 1 (ordinary income) = $0 for rental LLC. "
-                f"Rental income/loss is on Schedule K Line 2, never on Line 1. "
-                f"A non-zero M-1 Line 9 indicates IS.net_income was incorrectly mapped here.",
+                f"⚠ Schedule M-1 Line 9 (income per return) = ${m1_l9:,.2f} — must be $0 for a rental LLC.\n"
+                f"  • Line 9 represents ordinary business income, which is $0 for W&B (all income is passive rental, not ordinary).\n"
+                f"  • This means IS.net_income was incorrectly mapped to this line.",
                 'Form 1065 Instructions Schedule M-1 Line 9; IRC §469(c)(2)',
                 "Remove M1_9 mapping from bookNS_IS.json. "
                 "M-1 Line 9 should be blank/$0 for rental LLC.",
@@ -1441,12 +1393,10 @@ class AgentF1065_Reconcile(_SectionAgent):
             return None
         return self.format_issue(
             'RC-R05', self.INFO,
-            "Schedule M-2 must use the TAX BASIS METHOD of capital reporting "
-            "(IRS requirement for tax years 2020+). "
-            "Verify: partner capital accounts reflect actual tax basis "
-            "(contributions + taxable income − deductions − distributions), "
-            "NOT §704(b) book value or GAAP basis. "
-            "K-1 Box L must use the same tax basis method.",
+            "Schedule M-2 (capital account analysis) must use the 'Tax Basis' method — required by the IRS since 2020.\n"
+            "  • Tax basis = what each partner actually contributed + income allocated − deductions − cash received.\n"
+            "  • This is different from 'book value' or 'GAAP' — those methods are no longer accepted.\n"
+            "  • K-1 Box L must use the same tax basis method.",
             'Rev. Proc. 2020-13; TD 9902; Form 1065 Instructions Schedule M-2',
             "Confirm with CPA that M-2 uses tax basis. "
             "If partners' capital accounts were previously tracked on a different "
@@ -1506,26 +1456,25 @@ class AgentForm_Ext(_SectionAgent):
         if props:
             issues.append(self.format_issue(
                 'EX-R05', self.INFO,
-                f"Form 8825 required: {len(props)} active propert{'y' if len(props)==1 else 'ies'} "
-                f"({', '.join(props)})",
+                f"Form 8825 is required: {len(props)} active rental propert{'y' if len(props)==1 else 'ies'} ({', '.join(props)}) must be reported on Form 8825 (rental income/expense detail).",
                 'Form 8825 Instructions',
                 "Prepare Form 8825 via Form8825Agent (future) or manually"))
         if has_dep:
             issues.append(self.format_issue(
                 'EX-R07', self.INFO,
-                "Form 4562 required: depreciation entries found in GL",
+                "Form 4562 is required: depreciation entries are recorded in the books.",
                 'Form 4562 Instructions; IRC §168',
                 "Prepare Form 4562 via Form4562Agent (future) or manually"))
         if k1_cnt:
             issues.append(self.format_issue(
                 'EX-R01', self.INFO,
-                f"{k1_cnt} Schedule K-1{'s' if k1_cnt > 1 else ''} required (one per partner)",
+                f"{k1_cnt} Schedule K-1{'s' if k1_cnt > 1 else ''} {'are' if k1_cnt > 1 else 'is'} required — one for each partner.",
                 'Form 1065 Instructions, §563',
                 f"Prepare {k1_cnt} K-1s via SchK1Agent (future) or manually"))
         for uc in inv['under_construction']:
             issues.append(self.format_issue(
                 'EX-R06', self.INFO,
-                f"{uc} is under construction — excluded from Form 8825 (§168 not-yet-in-service)",
+                f"{uc} is under construction — not yet reported on Form 8825 (property must be placed in service first).",
                 'IRC §168',
                 "No action required until asset is placed in service"))
 

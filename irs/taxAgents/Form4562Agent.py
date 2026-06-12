@@ -279,11 +279,9 @@ class AgentF4562_Sec179(_SectionAgent):
         """
         return self.format_issue(
             'F45S-R01', self.INFO,
-            f"Form 4562 Part I Line 12 (§179 Deduction) = $0 for W&B Group. "
-            f"IRC §179(d)(1) explicitly excludes residential rental property. "
-            f"IRC §50(b)(2): property used to furnish lodging is ineligible for §179. "
-            f"Part I Line 1 shows ${self._SEC179_LIMIT_2024:,.0f} statutory limit "
-            f"(Rev. Proc. 2023-34) — informational only; Line 12 = $0.",
+            f"✓ $0 §179 deduction — correct for a residential rental building.\n"
+            f"  • Residential rental property cannot use the §179 immediate write-off (excluded by statute).\n"
+            f"  • Line 12 = $0. Line 1 shows the ${self._SEC179_LIMIT_2024:,.0f} annual cap (informational only).",
             'IRC §179(d)(1); IRC §50(b)(2); Rev. Proc. 2023-34; Form 4562 Part I',
             "No action required. Confirm Line 12 = $0 and Line 1 = "
             f"${self._SEC179_LIMIT_2024:,.0f} in the fill dict.",
@@ -302,10 +300,10 @@ class AgentF4562_Sec179(_SectionAgent):
         if line12 > 0.01:
             return self.format_issue(
                 'F45S-R02', self.ERROR,
-                f"Form 4562 Line 12 (§179 Deduction) = ${line12:,.2f}. "
-                f"Must be $0 for residential rental property. "
-                f"IRC §179(d)(1): residential rental buildings are categorically excluded from §179. "
-                f"IRC §6662: accuracy-related penalty (20%) applies to disallowed §179 deductions.",
+                f"⚠ Form 4562 Line 12 shows a §179 deduction of ${line12:,.2f} — this is NOT allowed for a residential rental building.\n"
+                f"  • Residential rental property is excluded from the §179 immediate write-off.\n"
+                f"  • The IRS will disallow this deduction and can add a 20% accuracy penalty.\n"
+                f"  • Line 12 must be set to $0.",
                 'IRC §179(d)(1); IRC §50(b)(2); IRC §6662',
                 "Remove the §179 deduction from Line 12. Set to $0. "
                 "The building depreciates under MACRS Part III (27.5-yr S/L) only.",
@@ -409,11 +407,9 @@ class AgentF4562_MACRS(_SectionAgent):
         if not rows and depr > 0.01:
             return self.format_issue(
                 'F45M-R01', self.ERROR,
-                f"No Acct.Fixed.Tangible.InService records found in llcAssets, "
-                f"but IS.depreciation = ${depr:,.2f}. "
-                f"Form 4562 Part III Line 19h requires a depreciable asset record. "
-                f"IRC §168(a): MACRS requires property 'placed in service' — "
-                f"verify the llcAssets entry has acctSub = Acct.Fixed.Tangible.InService.",
+                f"⚠ The books show ${depr:,.2f} in depreciation but no property is recorded as 'placed in service' in the asset list.\n"
+                f"  • Depreciation can only be claimed for property that has a placed-in-service record in llcAssets.\n"
+                f"  • Without this record, Form 4562 Part III (Line 19i) cannot be filled.",
                 'IRC §168(a); Form 4562 Instructions Part III',
                 "Add or correct the llcAssets record for H_805HighMesa with "
                 "acctSub = Acct.Fixed.Tangible.InService and a placed-in-service date.")
@@ -430,10 +426,9 @@ class AgentF4562_MACRS(_SectionAgent):
         if not placed:
             return self.format_issue(
                 'F45M-R02', self.ERROR,
-                "Placed-in-service date not found in llcAssets for any tangible property. "
-                "Form 4562 Part III Line 19h Col (b) requires the month and year placed in service. "
-                "IRC §168(a): MACRS begins on the placed-in-service date. "
-                "Without it, Year 1 depreciation (including mid-month convention) cannot be computed.",
+                "⚠ No placed-in-service date is recorded for the rental property.\n"
+                "  • The IRS requires the exact month and year the property was first placed in rental service (Form 4562, Column b).\n"
+                "  • Without this date, the Year 1 depreciation amount cannot be calculated.",
                 'IRC §168(a); Form 4562 Instructions Part III Col (b)',
                 "Check that the Acct.Fixed.Tangible.InService record in llcAssets_WBGroupLLC.json "
                 "exists and has a non-empty date. The 'dt' field (e.g. '2025.08.20') is accepted. "
@@ -458,11 +453,9 @@ class AgentF4562_MACRS(_SectionAgent):
             tang_total = net_tangible_basis(tang_rows)    # net depreciable basis
             return self.format_issue(
                 'F45M-R03', self.WARN,
-                f"Land records found in llcAssets (Acct.Fixed.Land = ${land_total:,.2f}). "
-                f"Verify Form 4562 Col (c) uses ONLY the net tangible depreciable basis "
-                f"(net Acct.Fixed.Tangible.InService = ${tang_total:,.2f}) and NOT the land value. "
-                f"IRC §167; Reg. §1.167(a)-2: land is never depreciable. "
-                f"Correct Col (c) = ${tang_total:,.2f} (excludes land ${land_total:,.2f}).",
+                f"Land (${land_total:,.2f}) is in the books — confirm it is NOT included in the depreciation basis on Form 4562.\n"
+                f"  • Land is never depreciable; only the building structure can be written off.\n"
+                f"  • Correct depreciable basis (Column c) = ${tang_total:,.2f} (building only, land excluded).",
                 'IRC §167; Treas. Reg. §1.167(a)-2; Form 4562 Instructions Col (c)',
                 f"Confirm Form 4562 Part III Line 19h Col (c) = ${tang_total:,.2f} "
                 f"(net tangible basis: Debit − Credit entries). Land ${land_total:,.2f} never depreciable.",
@@ -482,9 +475,8 @@ class AgentF4562_MACRS(_SectionAgent):
         if col_g > 0.01 and abs(col_g - depr) > 1.00:
             return self.format_issue(
                 'F45M-R04', self.ERROR,
-                f"Form 4562 Part III Line 19i Col (g) ({self._FID_DEPR}) = ${col_g:,.2f} but "
-                f"IS.depreciation = ${depr:,.2f}. Discrepancy: ${abs(col_g - depr):,.2f}. "
-                f"Books-First violation (IRC §446): Col (g) must equal IS.depreciation from books.",
+                f"⚠ Mismatch: Form 4562 depreciation (${col_g:,.2f}) doesn't match the books (${depr:,.2f}) — ${abs(col_g - depr):,.2f} difference.\n"
+                f"  • The depreciation on this form must come directly from the books, not from a formula or manual entry.",
                 'IRC §446; IRC §703; Form 4562 Instructions Col (g)',
                 f"Fix bookNS_IS.json: {self._FID_DEPR} must map to Acct.Exp.Depreciation "
                 f"(${depr:,.2f}). If the formula gives a different amount, correct the ledger.",
@@ -537,12 +529,10 @@ class AgentF4562_MACRS(_SectionAgent):
         expected = result['expected']
         return self.format_issue(
             'F45M-R05', severity,
-            f"MACRS formula reconciliation (Line 19i, 27.5yr, MM): "
-            f"net basis ${basis:,.2f} / 27.5 × (12.5-{month})/12 = ${expected:,.2f}. "
-            f"IS.depreciation (books) = ${depr:,.2f}. Difference = ${diff:,.2f}. "
-            f"This is an accounting reconciliation question — NOT a BookToIRS mapping issue. "
-            f"IS.depreciation is sourced from Acct.Exp.Depreciation (set by YE closing). "
-            f"Books-First (IRC §446): file IS.depreciation unless books are corrected.",
+            f"Depreciation check: the IRS formula gives ${expected:,.2f} but the books show ${depr:,.2f} — ${diff:,.2f} difference.\n"
+            f"  • Formula: ${basis:,.2f} ÷ 27.5 years × (12.5 − month {month}) ÷ 12 (partial Year 1)\n"
+            f"  • This is a books accounting question — if the books are correct, file the books amount.\n"
+            f"  • If the books entry was made incorrectly, fix the year-end closing entry first.",
             'IRC §168(c)(1); Pub 946 Table A-6; IRC §446 Books-First',
             f"Confirm: Is IS.depreciation = ${depr:,.2f} the correct MACRS amount for this property? "
             f"If YES → books are correct; proceed with filing IS.depreciation. "
@@ -639,11 +629,9 @@ class AgentF4562_Summary(_SectionAgent):
         if depr > 0.01 and line22 < 0.01:
             return self.format_issue(
                 'F45L-R01', self.ERROR,
-                f"Form 4562 Part IV Line 22 (f129) is blank but IS.depreciation = ${depr:,.2f}. "
-                f"Line 22 must equal IS.depreciation (Books-First: IRC §446). "
-                f"CAUTION: IRC §1016(a)(2) requires basis reduction by the amount ALLOWABLE "
-                f"even if not claimed — failing to report depreciation now causes a double "
-                f"deduction problem at disposition.",
+                f"⚠ Form 4562 Line 22 (Total Depreciation) is blank, but the books show ${depr:,.2f} of depreciation.\n"
+                f"  • Skipping depreciation doesn't save it for later — the IRS requires the property's basis be reduced even if the deduction isn't claimed.\n"
+                f"  • This will result in a larger taxable gain when the property is eventually sold.",
                 'IRC §168; IRC §1016(a)(2); IRC §446; Form 4562 Part IV Line 22',
                 "Verify bookNS_IS.json Form4562 section maps Acct.Exp.Depreciation → f129. "
                 "Re-run BookToIRS pipeline.",
@@ -667,11 +655,9 @@ class AgentF4562_Summary(_SectionAgent):
         if line22 > 0.01 and abs(line22 - depr) > 1.00:
             return self.format_issue(
                 'F45L-R02', self.ERROR,
-                f"Form 4562 Line 22 (f129) = ${line22:,.2f} but IS.depreciation = ${depr:,.2f}. "
-                f"Discrepancy: ${abs(line22 - depr):,.2f}. Books-First violation (IRC §446). "
-                f"Line 22 is the XF-R01 cross-form audit anchor — if it doesn't match "
-                f"IS.depreciation, the cross-form audit will flag an inconsistency with "
-                f"Form 8825 Line 14 (also sourced from IS.depreciation).",
+                f"⚠ Mismatch: Form 4562 Line 22 (${line22:,.2f}) doesn't match the books (${depr:,.2f}) — ${abs(line22 - depr):,.2f} difference.\n"
+                f"  • Line 22 is the total depreciation for the year and must match the books exactly.\n"
+                f"  • This discrepancy also breaks the cross-check between Form 4562 and Form 8825 Line 14.",
                 'IRC §446; IRC §703; Form 4562 Line 22; LLCTaxAgent XF-R01',
                 "Fix bookNS_IS.json Form4562 section: f129 must map to Acct.Exp.Depreciation. "
                 "Re-run BookToIRS pipeline.")
@@ -688,9 +674,8 @@ class AgentF4562_Summary(_SectionAgent):
         if depr > 0.01 and abs(line22 - depr) <= 1.00:
             return self.format_issue(
                 'F45L-R03', self.INFO,
-                f"Form 4562 Part IV Line 22 (f129) = ${line22:,.2f} = IS.depreciation confirmed. "
-                f"Cross-form audit anchor (XF-R01) is set. "
-                f"LLCTaxAgent will verify: F4562 L22 == F8825 L14 == IS.depreciation = ${depr:,.2f}.",
+                f"✓ Form 4562 Line 22 (Total Depreciation) = ${line22:,.2f} — matches the books.\n"
+                f"  • Depreciation will be cross-checked against Form 8825 Line 14 to confirm both forms agree.",
                 'Form 4562 Part IV; LLCTaxAgent XF-R01; IRC §446',
                 "No action required. XF-R01 runs in LLCTaxAgent.phase2_xf_audit().")
 
@@ -741,10 +726,9 @@ class AgentF4562_SpecialDepr(_SectionAgent):
         """
         return self.format_issue(
             'F45D-R01', self.INFO,
-            "Part II (Special/Bonus Depreciation) = $0. IRS-correct for residential rental. "
-            "IRC §168(k)(2)(A)(i): qualified property requires MACRS ≤ 20-year recovery period. "
-            "Residential rental uses 27.5-yr MACRS — excluded. "
-            "2025 bonus rate = 40%; not applicable to this property.",
+            "✓ $0 bonus depreciation — correct for a residential rental building.\n"
+            "  • Bonus/special depreciation (40% in 2025) only applies to assets with a 20-year life or shorter.\n"
+            "  • Residential rental buildings use a 27.5-year life and are not eligible.",
             'IRC §168(k)(2)(A)(i); Form 4562 Instructions Part II; TCJA 2017',
             "No action required. If W&B Group purchases 5-yr appliances or "
             "15-yr land improvements, consult CPA for Part II eligibility.")
@@ -764,9 +748,9 @@ class AgentF4562_SpecialDepr(_SectionAgent):
             names = ', '.join(r.get('propNm', str(r)) for r in short_life[:3])
             return self.format_issue(
                 'F45D-R02', self.WARN,
-                f"Potential 5-yr or 15-yr property detected: {names}. "
-                f"IRC §168(k): 40% bonus depreciation applies in 2025 for qualifying assets. "
-                f"CPA review required for Part II Lines 14–16 amounts.",
+                f"Possible short-lived assets found in the books: {names}.\n"
+                f"  • Appliances, carpet, fences, and driveways may qualify for the 40% bonus depreciation (2025).\n"
+                f"  • A CPA review is needed to confirm eligibility and calculate the Part II amount.",
                 'IRC §168(k); Form 4562 Part II Lines 14-16',
                 "Identify 5-yr (appliances) and 15-yr (improvements) assets. "
                 "Compute 40% × eligible basis. Enter on Part II Line 14.")
@@ -819,10 +803,9 @@ class AgentF4562_ListedProp(_SectionAgent):
         """
         return self.format_issue(
             'F45P-R01', self.INFO,
-            "Part V (Listed Property) = $0. IRS-correct for W&B Group. "
-            "No vehicles or IRC §280F property used in the rental business. "
-            "TCJA 2017: computers removed from listed property for assets after 12/31/2017. "
-            "Part V Lines 25–36 are correctly blank.",
+            "✓ $0 listed property — correct for W&B Group.\n"
+            "  • No vehicles or other listed property (cars, trucks) are used in the rental business.\n"
+            "  • Part V is correctly blank.",
             'IRC §280F; Form 4562 Part V; TCJA 2017 §280F(d)(4) amendment',
             "No action required. If a vehicle is ever used for rental business, "
             "complete Part V and maintain a contemporaneous mileage log (§274(d)).")
@@ -841,9 +824,9 @@ class AgentF4562_ListedProp(_SectionAgent):
             names = ', '.join(r.get('propNm', r.get('desc', 'unknown')) for r in vehicles[:3])
             return self.format_issue(
                 'F45P-R02', self.ERROR,
-                f"Vehicle(s) in llcAssets: {names}. "
-                f"IRC §280F: vehicles are listed property — Part V must be completed. "
-                f"Luxury auto caps (§280F(a)) apply. Business use ≤ 50% → ADS required.",
+                f"⚠ Vehicle(s) found in the asset list: {names}.\n"
+                f"  • Vehicles are 'listed property' — the IRS imposes special limits and requires a mileage log.\n"
+                f"  • Part V of Form 4562 must be completed, and annual dollar caps on the deduction apply.",
                 'IRC §280F(a); §280F(b); §274(d); Form 4562 Part V',
                 "Complete Part V. Document business use % with contemporaneous mileage log. "
                 "Apply annual luxury auto limits from IRS Rev. Proc. updates.",
@@ -911,12 +894,10 @@ class AgentF4562_Amortization(_SectionAgent):
         if not has_intangible:
             return self.format_issue(
                 'F45A-R01', self.INFO,
-                "Part VI = $0 (no Acct.Intangible.* in llcAssets). "
-                "W&B Group is a first-year LLC — CPA should verify: "
-                "(1) Partnership formation costs (§709): attorney fees, state filing → "
-                "up to $5,000 deductible; balance amortized 180 months. "
-                "(2) Pre-rental startup costs (§195): expenses before 8/2025 → same rules. "
-                "If present, capitalize as Acct.Intangible.OrgCosts or .Startup.",
+                "$0 amortization — no intangible costs recorded in the books.\n"
+                "  • W&B Group is in its first year — a CPA should confirm whether formation or startup costs were paid.\n"
+                "  • Attorney fees and state filing fees for forming the LLC may be partially deductible (up to $5,000), with the rest spread over 15 years.\n"
+                "  • Costs incurred before the property opened for rental may also qualify as startup costs under the same rules.",
                 'IRC §709(b); IRC §195(b); Form 4562 Part VI Lines 42-43',
                 "Review formation documents. If organization/startup costs exist, "
                 "capitalize in llcAssets and complete Part VI Lines 42-43.")
@@ -935,11 +916,10 @@ class AgentF4562_Amortization(_SectionAgent):
             total = sum(_safe_float(r.get('amt', 0)) for r in closing_rows)
             return self.format_issue(
                 'F45A-R02', self.WARN,
-                f"${total:,.2f} in 'Closing' entries found in llcAssets. "
-                f"CPA review required — closing costs may include amortizable items. "
-                f"(1) Loan origination points → IRC §461(g)(2): amortize over loan term. "
-                f"(2) Prepaid interest → deductible when accrued. "
-                f"(3) Title/transfer taxes → add to property cost basis.",
+                f"${total:,.2f} in closing costs found in the books — a CPA review is needed to classify each item correctly.\n"
+                f"  • Loan origination points: must be spread over the life of the loan (not a one-time deduction)\n"
+                f"  • Prepaid interest: deductible in the year it accrues\n"
+                f"  • Title and transfer taxes: added to the property's cost basis (increases future depreciation deduction)",
                 'IRC §461(g)(2); IRC §195; IRC §263; Form 4562 Part VI; Pub 527',
                 "Review closing statement line by line. Identify loan origination points. "
                 "Amortize points over loan term — annual amount to Form 8825 Line 12.",
@@ -955,11 +935,10 @@ class AgentF4562_Amortization(_SectionAgent):
         """
         return self.format_issue(
             'F45A-R03', self.INFO,
-            "Advisory: Loan origination points on rental mortgage must be amortized. "
-            "IRC §461(g)(2): points on rental property mortgage must be amortized "
-            "over the loan term — NOT immediately deductible (unlike primary residence). "
-            "Annual amortization amount → Form 8825 Line 12 (mortgage interest). "
-            "Verify with CPA whether any points were paid at H_805HighMesa closing.",
+            "Reminder: Points paid on a rental mortgage must be spread over the loan term — not deducted all at once.\n"
+            "  • This is different from a primary residence, where points are often immediately deductible.\n"
+            "  • The annual portion of points flows to Form 8825 Line 12 (mortgage interest).\n"
+            "  • Check the H_805HighMesa closing statement to see if any origination points were paid.",
             'IRC §461(g)(2); Pub 527; Form 8825 Line 12',
             "Review H_805HighMesa closing statement for origination fees/points. "
             "If present: amortize over loan term; add annual amount to Form 8825 Line 12.")
