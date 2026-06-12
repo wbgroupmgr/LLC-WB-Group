@@ -495,8 +495,22 @@ _SCHK1_PASSIVEITEMS_FIDS = [
     "F059", "F060",                            # Box 7 royalties / Box 8 ST cap gain
     "F061", "F062", "F063", "F064",           # Box 9a/9b/9c LT cap gains / Box 10 §1231
     "F065", "F066", "F067", "F068",           # Box 11 code+amt / Box 12 §179 code+amt
+    "F069", "F070", "F071", "F072",           # Box 13 code/amount pairs (first set)
+    "F073", "F074", "F075",                   # Box 13 additional code/amount fields
     "F076", "F077",                            # Box 14 SE code + amount
+    "F078", "F079",                            # Box 14 additional fields
+    "F080", "F081", "F082", "F083",           # Box 15 credits code/amount pairs
+    "F084",                                    # Box 16 foreign tax credit checkbox
+    "F085", "F086", "F087", "F088",           # Box 17 AMT items code/amount
+    "F089", "F090",                            # Box 17 continuation
+    "F091", "F092", "F093", "F094",           # Box 18 tax-exempt income code/amount
+    "F095", "F096",                            # Box 18 continuation
+    "F097",                                    # Box 19 header/code field
     "F098",                                    # Box 19a cash distributions
+    "F099", "F100",                            # Box 19b/19c property distributions
+    "F101", "F102", "F103", "F104",           # Box 20 code/amount pairs
+    "F105", "F106", "F107", "F108",           # Box 20 continuation
+    "F109", "F110", "F111",                   # Box 20 end fields + foreign-partner checkboxes
 ]
 
 _SCHK1_SECTIONS = [
@@ -527,6 +541,13 @@ _SCHK1_REFERENCES = {
         "reason": [
             "Part I — Partnership EIN (F008), name (F009), address (F010/F012), and IRS Center (F013) "
             "from llcProfile. Required so partners can cross-reference this K-1 to Form 1065 (IRC §6031).",
+            "Address field split (Line B): F010 (f1_8) = STREET only "
+            "(e.g. '177 Kingsway Dr'). F012 (f1_9) = CITY/STATE/ZIP "
+            "(e.g. 'Wimberley, TX 78676'). Together they form the full partnership mailing address. "
+            "Both are sourced from llcProfile.entity. F013 (f1_10) = IRS Service Center — "
+            "a SEPARATE field that must be set to 'E-File' (e-filers) or 'Ogden, UT 84201' "
+            "(paper-filed Texas LLC). Do not confuse F010/F012 (LLC mailing address) with "
+            "F021 (partner's address in Part II).",
             "Tax year header (F001-F005): begin/end month+day plus 2-digit year. "
             "Must match the Form 1065 tax year exactly.",
             "Final K-1 checkbox (F006): check only in the year the partner exits or LLC dissolves. "
@@ -542,8 +563,13 @@ _SCHK1_REFERENCES = {
             "Partner type (F014/F015): for a rental LLC with member-managers, members are "
             "typically 'LLC member-manager' (GP checkbox F014). Designation affects SE tax treatment "
             "(IRC §1402(a)(13)). Check with CPA — wrong type mis-classifies SE exposure.",
-            "Partner SSN/EIN (F019): required (IRC §6109). Wrong TIN = IRS cannot match K-1 to "
-            "partner's return. SSN formatted as XXX-XX-XXXX from llcOwners.ssn.",
+            "Partner SSN/EIN (F019, Line E): required by IRC §6109. "
+            "The IRS K-1 matching system links this K-1 to the partner's Form 1040 by TIN. "
+            "Wrong or missing TIN → IRS CP2000 automated underreporter notices, "
+            "unmatched income assessments, and §6721/§6722 information-return penalties "
+            "($310 per unfiled/incorrect K-1, 2025 rates). "
+            "Action: confirm the SSN in llcOwners matches exactly what the partner "
+            "uses on their Form 1040. Format: XXX-XX-XXXX from llcOwners[partner].SSN.",
             "Box J ownership percentages (F023-F028): profit/loss/capital %, beginning and end of year. "
             "Must sum to exactly 100% across all partners (IRC §704(b)). "
             "Use figures from the LLC Operating Agreement.",
@@ -552,9 +578,10 @@ _SCHK1_REFERENCES = {
             "QNR (Qualified Nonrecourse Financing, F033/F034) = mortgage balance × partner pct — "
             "mortgages on rental real estate are QNR under IRC §465(b)(6). "
             "Partners need correct QNR to establish at-risk basis for loss deductions.",
-            "Box L MUST use the TAX BASIS METHOD of capital reporting (mandatory for tax years 2020+). "
-            "Rev. Proc. 2020-13 and TD 9902 eliminated §704(b) book value, GAAP, and 'Other' methods. "
-            "Filing with a non-tax-basis method is an IRS compliance failure.",
+            "Box L capital reporting method: W&B Group uses the TAX BASIS METHOD (Rev. Proc. 2020-13; "
+            "TD 9902). Checkbox F045 ('Tax basis') must be checked; F046 ('Non-tax basis') must be blank. "
+            "Tax Basis is mandatory for all U.S. partnerships for tax years 2020 and later. "
+            "IRS automated systems validate this checkbox on every K-1.",
             "Tax basis capital account formula (IRC §705): "
             "BOY Capital (F039) + Contributions (F040) + Allocated Income (F041) "
             "− Distributions (F043) = EOY Capital (F044). "
@@ -582,12 +609,44 @@ _SCHK1_REFERENCES = {
             "Basis check performed on partner's individual return (Schedule E, Form 6198).",
             "Box 5 (Interest Income, F055): each partner's share = IS.interest_income × partner.pct. "
             "Partners report on Schedule B.",
-            "Box 14 (Self-Employment Income, F077): MUST be $0 for rental LLC. "
-            "IRC §1402(a)(1): rental income from real estate is explicitly excluded from "
-            "'net earnings from self-employment'. "
+            "Boxes 6-10 (F056-F064) — dividends, royalties, capital gains: $0 for W&B Group "
+            "unless a rental property is sold during the tax year. "
+            "Box 8 (F060, ST cap gain) and Box 9a (F061, LT cap gain) arise only on asset sales. "
+            "Box 10 (F064, §1231 gain): net gain from depreciable real property held >1 year. "
+            "§1250 recapture (Box 9c, unrecaptured depreciation at 25%) applies to sold rental property. "
+            "CPA must run Form 4797 for any property disposed of during the year.",
+            "Boxes 11-13 (F065-F075) — other income, §179, other deductions: "
+            "Box 11 (F065/F066, other income) = $0 for pure rental LLC absent unusual items "
+            "(e.g., debt cancellation income under §108). "
+            "Box 12 (F067/F068, §179) = $0 — buildings (§1250 property) and land are §179-ineligible. "
+            "Box 13 (F069-F075) codes: $0 for W&B Group 2025. No charitable contributions, "
+            "investment interest, or portfolio deductions expected. "
+            "§163(j) business interest limitation: W&B likely exempt via the small business "
+            "exception (§163(j)(3), avg gross receipts ≤ $30M for prior 3 years).",
+            "Box 14 (Self-Employment Income, F076/F077): MUST be $0 for ALL rental LLC partners. "
+            "IRC §1402(a)(1): rental income from real estate is EXPLICITLY excluded from "
+            "'net earnings from self-employment' regardless of the partner's management role. "
+            "An active managing member (Francis) is still not subject to SE tax on rental income "
+            "because the exclusion is for the NATURE of the income (rental), not for management activity. "
             "A non-zero Box 14 incorrectly triggers 15.3% SE tax on the partner's return.",
-            "Box 19a (Cash Distributions, F098): actual cash distributed to each partner. "
-            "NOT multiplied by pct — use actual per-partner amounts from llcOwners.",
+            "Boxes 15-18 (F078-F096) — credits, AMT adjustments, tax-exempt income: "
+            "$0 for W&B Group 2025. "
+            "Box 15 (F080-F083): partnership credits passed through to partners (none for W&B). "
+            "Box 16 (F084 checkbox): foreign tax credit — N/A for domestic-only LLC. "
+            "Box 17 (F085-F090): AMT preference items (excess §179, accelerated depr) — $0 for W&B. "
+            "Box 18 (F091-F096): tax-exempt income/nondeductible expenses — $0 for W&B "
+            "(no municipal bonds, no excess meals/entertainment).",
+            "Box 19 (F097-F100, Distributions): "
+            "Box 19a (F098, cash) = actual cash distributed to each partner (GL-sourced). "
+            "NOT multiplied by pct — use actual per-partner distribution amounts from llcOwners. "
+            "Box 19b/19c (F099/F100, property distributions) = $0 for W&B Group. "
+            "IRC §731: cash distributions ≤ outside basis are not taxable events.",
+            "Box 20 (F101-F111) — Code Z and other pass-through items: "
+            "Box 20 Code Z (NII, net investment income) = Box 2 amount (IS.net_rental × pct). "
+            "IRC §1411: passive rental income IS net investment income subject to 3.8% NIIT. "
+            "Partners above NIIT threshold ($200k single / $250k MFJ) report Box 20Z "
+            "on Form 8960 Line 4a. This is a separately stated item per IRC §702(a). "
+            "W&B should populate Box 20 Code Z = Box 2 amount in the K-1 PDF.",
         ],
     },
 }

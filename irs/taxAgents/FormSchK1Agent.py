@@ -732,6 +732,7 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
               Multi-member LLCs are NEVER disregarded entities — only SMLLCs can be DREs.
               Individual human partners are NEVER DREs → f18 NoCheck for all W&B partners.
         """
+        import re as _re
         ssn  = str(owner.get('SSN', owner.get('ssn', owner.get('tin', '')))).replace('-','').strip()
         nm   = _owner_name(owner)
         oID  = owner.get('oID', '')
@@ -745,13 +746,30 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
                 f"Current SSN field: '{ssn}'. "
                 f"f19 (Line E) must contain the partner's 9-digit SSN. "
                 f"IRC §6109: TIN required on every K-1. "
-                f"IRS computer matching fails without a valid TIN → notices/penalties for both "
-                f"the partnership AND the partner. "
-                f"NOTE: f12 = LLC city/state/zip (Part I). f19 = PARTNER SSN (Part II). "
+                f"IRS matching fails without a valid TIN → CP2000 notices and §6721/§6722 penalties. "
+                f"NOTE: f12 = LLC city/state/ZIP (Part I, Line B). f19 = PARTNER SSN (Part II, Line E). "
                 f"These are DIFFERENT fields. f18 (Disregarded Entity) = NoCheck for individuals.",
                 'IRC §6109; Treas. Reg. §301.6109-1; Form 1065 Instructions (K-1 Line E)',
                 f"Add SSN to llcOwners for '{oID}' in llcOwners_WBGroupLLC.json. "
                 f"Format: 'SSN': 'XXX-XX-XXXX'.")
+
+        # Check f21 address includes a 2-letter state abbreviation (e.g. TX)
+        has_state = bool(_re.search(r',\s*[A-Z]{2}\b', addr))
+        if addr and not has_state:
+            return self.format_issue(
+                'SK1B-R00', self.WARN,
+                f"Partner '{nm}' ({oID}): f21 (Line F, partner address) is missing the "
+                f"state abbreviation. Current value: '{addr}'. "
+                f"IRS K-1 instructions require full address: street, city, 2-letter STATE, ZIP. "
+                f"Example: '177 Kingsway Dr, Wimberley, TX 78676'. "
+                f"f19 (SSN): {'*'*3+'-'+'*'*2+'-'+ssn[-4:]} ✓  "
+                f"f20 (name): '{nm}' ✓  "
+                f"f18 (DE): NoCheck ✓ (individual partner). "
+                f"f12 = LLC city/state/ZIP (Part I). f19 = PARTNER SSN (Part II). Separate fields.",
+                'Form 1065 Instructions (K-1 Line F — partner address)',
+                f"Update 'addr' for '{oID}' in llcOwners_WBGroupLLC.json to include state: "
+                f"e.g. 'addr': '177 Kingsway Dr, Wimberley, TX 78676'.")
+
         return self.format_issue(
             'SK1B-R00', self.INFO,
             f"Partner '{nm}' ({oID}): identification fields OK. "
@@ -760,10 +778,10 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
             f"f21 (Line F, partner address): '{addr or '(not set)'}'. "
             f"f18 (Line H2, Disregarded Entity): NoCheck — correct for individual human partners. "
             f"f22 (Line I, Retirement Plan): NoCheck. "
-            f"f12 = LLC city/state/zip (Part I Line B, separate from partner fields).",
+            f"f12 = LLC city/state/ZIP (Part I Line B) — separate field, not partner address.",
             'IRC §6109; Form 1065 Instructions (K-1 Lines E, F, H2)',
-            f"Verify SSN is correct for '{nm}'. Confirm address in llcOwners matches "
-            f"what the partner uses on their individual return.")
+            f"Verify SSN matches '{nm}' Form 1040. Confirm f21 address is complete "
+            f"(street, city, state, ZIP).")
 
     def _rule_partner_type(self, owner: Dict):
         """
@@ -1073,6 +1091,33 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
         distrib = self._gl_distributions(oID)
         ending  = self._gl_ending_capital(oID, pct)
 
+        # Cross-check: GL contributions vs BS property acquisition cost.
+        # If the LLC acquired real property entirely with partner cash (no mortgage),
+        # total GL contributions should approximate total BS property value.
+        # A large gap means contribution entries are missing — outside basis understated.
+        _gap_note = ''
+        try:
+            from ledger.stmtBS import stmtBS_Tax
+            bs_agg   = stmtBS_Tax(self.llc).taxAggregates()
+            bldg     = _safe_float(bs_agg.get('buildings', 0))
+            land     = _safe_float(bs_agg.get('land', 0))
+            mortgage = _safe_float(bs_agg.get('mortgage', 0))
+            total_prop = bldg + land
+            total_contrib_all = round(contrib / pct, 2) if pct > 0.001 else contrib
+            gap = total_prop - (total_contrib_all + mortgage)
+            if gap > 5_000:
+                _gap_note = (
+                    f" ⚠ CONTRIBUTION MISMATCH: BS property ${total_prop:,.2f} "
+                    f"(bldg ${bldg:,.2f} + land ${land:,.2f}) vs "
+                    f"total GL contributions ${total_contrib_all:,.2f} + mortgage ${mortgage:,.2f}. "
+                    f"Unexplained gap ≈ ${gap:,.2f}. "
+                    f"Likely cause: property acquisition journal entries were not recorded as "
+                    f"Credits to Acct.Equity.Owner.Capital.Funds. "
+                    f"IRC §722: understated contributions = understated outside basis for all partners."
+                )
+        except Exception:
+            pass
+
         if contrib == 0:
             return self.format_issue(
                 'SK1B-R07', self.WARN,
@@ -1085,26 +1130,30 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
                 f"IRC §722: missing contributions = understated outside basis for '{nm}'. "
                 f"Box L: L1=$0 | L2(f40)=$0 ⚠ | L3(f41)=${box2:,.2f} | L5(f43)=${distrib:,.2f} | "
                 f"L6(f44)=${ending:,.2f}. "
-                f"f45 Tax basis checkbox: Check (Rev. Proc. 2020-13 mandatory). "
-                f"f46 Non-tax basis checkbox: NoCheck.",
+                f"f45 Tax basis: Check (Rev. Proc. 2020-13). f46 Non-tax basis: NoCheck."
+                + _gap_note,
                 'IRC §705; §722; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
                 f"Record contribution transaction in llcAssets for '{oID}'. "
                 f"Verify distributions reflect actual cash paid out (not income allocation).")
         else:
             return self.format_issue(
-                'SK1B-R07', self.INFO,
-                f"Partner '{nm}' ({oID}) Box L (tax basis, first year, GL-sourced): "
+                'SK1B-R07', self.WARN if _gap_note else self.INFO,
+                f"Partner '{nm}' ({oID}) Box L (tax basis, GL-sourced): "
                 f"L1(f39)=$0 + L2(f40)=${contrib:,.2f} + L3(f41)=${box2:,.2f} "
                 f"− L5(f43)=${distrib:,.2f} = L6(f44)=${ending:,.2f}. "
-                f"IRC §705 formula confirmed. "
-                f"f40 sourced from GL Credits to Acct.Equity.Owner.Capital.Funds. "
-                f"f44 = L2+L3−L5 (Books-First, IRC §446). "
-                f"f45 Tax basis checkbox: Check (Rev. Proc. 2020-13). "
-                f"f46 Non-tax basis checkbox: NoCheck.",
+                f"IRC §705 formula. "
+                f"f40: GL Credits → Acct.Equity.Owner.Capital.Funds (propOwners-weighted). "
+                f"f41 (L3): IS.net_rental × pct = ${box2:,.2f} — MUST be filled in PDF "
+                f"(regenerate if blank). "
+                f"f44 (L6): computed = ${ending:,.2f} — verify PDF shows this value. "
+                f"f45 Tax basis: Check (Rev. Proc. 2020-13). f46 Non-tax basis: NoCheck."
+                + _gap_note,
                 'IRC §705; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Verify all Box L values for '{nm}': "
-                f"L1=$0, L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}. "
-                f"Source: GL Credits to Acct.Equity.Owner.Capital.Funds weighted by propOwners.")
+                f"Verify Box L in PDF for '{nm}': "
+                f"L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}. "
+                + (f"INVESTIGATE contribution gap: record missing capital entries in llcAssets."
+                   if _gap_note else
+                   f"Source: GL Credits to Acct.Equity.Owner.Capital.Funds weighted by propOwners."))
 
     def _rule_sec704c(self, owner: Dict):
         """
@@ -1301,13 +1350,15 @@ class AgentSchK1_PassiveItems(_SectionAgent):
         nm       = _owner_name(owner)
         if abs(expected) > 0.01:
             return self.format_issue(
-                'SK1C-R02', self.INFO,
-                f"Partner '{nm}' ({oID}): Box 2 = IS.net_rental ${net:,.2f} × "
-                f"{pct*100:.2f}% = ${expected:,.2f}. "
-                f"Books-First (IRC §446): K-1 Box 2 must equal this computed value. "
+                'SK1C-R02', self.WARN,
+                f"Partner '{nm}' ({oID}): Box 2 (F050) MUST be filled. "
+                f"IS.net_rental ${net:,.2f} × {pct*100:.2f}% = ${expected:,.2f}. "
+                f"Books-First (IRC §446/703): this is the ONLY income box for a rental LLC. "
+                f"If Box 2 is blank in the PDF, the K-1 is incomplete — regenerate the PDF. "
                 f"LLCTaxAgent XF-R03 verifies sum of all partners' Box 2 = Schedule K Line 2.",
                 'IRC §446; IRC §702(a); IRC §703; Books-First rule',
-                f"Confirm K-1 Box 2 for '{nm}' = ${expected:,.2f} in the fill dict/PDF.")
+                f"Regenerate the K-1 PDF if Box 2 is blank. "
+                f"Verify Box 2 = ${expected:,.2f} for '{nm}' in the FILL.pdf after generation.")
         elif abs(net) < 0.01:
             return self.format_issue(
                 'SK1C-R02', self.WARN,
@@ -1442,29 +1493,63 @@ class AgentSchK1_PassiveItems(_SectionAgent):
 
     def _rule_box14_must_zero(self, owner: Dict):
         """
-        SK1C-R09: Box 14a (SE earnings) MUST be $0 — IRC §1402(a)(1); §1402(a)(13).
-        §1402(a)(1): 'net earnings from self-employment' explicitly EXCLUDES rentals
-        from real estate unless the taxpayer provides substantial personal services
-        (not applicable to a passive rental LLC).
-        §1402(a)(13): limited partners not subject to SE tax on distributive share.
+        SK1C-R09: Box 14a (SE earnings) MUST be $0 — IRC §1402(a)(1).
+
+        IRC §1402(a)(1) EXPLICITLY EXCLUDES rental income from real estate from
+        'net earnings from self-employment'. This exclusion is based on the NATURE
+        of the income (rental), NOT on the partner's management role.
+
+        CRITICAL DISTINCTION:
+          • Active manager (Francis, 96%): manages the LLC, signs documents, makes
+            decisions. This is INVESTMENT MANAGEMENT, not 'services' that override
+            the rental exclusion. IRC §1402(a)(1) excludes rental income EVEN for
+            the managing member — management of a rental investment ≠ provision of
+            substantial personal services to tenants.
+          • Passive members (Alexandra, Nicola): definitively not subject to SE tax.
+          • The '50% manager' question applies to §469(c)(7) Real Estate Professional
+            status — that is a PASSIVE LOSS question, not a SE tax question.
+            REP status may allow Francis to deduct rental losses against ordinary income,
+            but it does NOT expose him to SE tax on rental income.
+
+        EXCEPTION (extremely narrow): SE tax applies to rentals ONLY if the LLC
+        provides substantial personal services to occupants (e.g., hotel-style daily
+        maid service). W&B Group provides standard residential rental services →
+        exception does not apply.
+
         Non-zero Box 14a incorrectly triggers ~15.3% SE tax on rental income.
         """
         agg  = self._get_is()
         se   = _safe_float(agg.get('se_income', agg.get('self_employment', 0)))
         oID  = owner.get('oID', '')
+        nm   = _owner_name(owner)
+        status = str(owner.get('status', '') or '').lower()
+        is_manager = 'manager' in status
         if abs(se) > 0.01:
             pct = _owner_pct(owner)
             return self.format_issue(
                 'SK1C-R09', self.ERROR,
-                f"Partner {oID}: IS shows SE income = ${se:,.2f} → "
+                f"Partner '{nm}' ({oID}): IS shows SE income = ${se:,.2f} → "
                 f"Box 14a would be ${se*pct:,.2f} (non-zero). "
-                f"Box 14a MUST be $0 for rental LLC. "
-                f"IRC §1402(a)(1): rental income excluded from SE earnings. "
-                f"IRC §1402(a)(13): limited partners not subject to SE tax. "
-                f"Non-zero Box 14 triggers ~15.3% SE tax — a significant IRS penalty exposure.",
-                'IRC §1402(a)(1); §1402(a)(13); Pub 541 (Partnerships)',
-                "Remove any IS.se_income or self-employment mapping from the K-1 pipeline. "
+                f"Box 14a MUST be $0 for ALL rental LLC partners including managing members. "
+                f"IRC §1402(a)(1): rental income from real estate is excluded from SE earnings "
+                f"regardless of management role. SE exclusion = income type, not partner role. "
+                f"Non-zero Box 14 incorrectly triggers ~15.3% SE tax — major penalty exposure.",
+                'IRC §1402(a)(1); Pub 541 (Partnerships)',
+                "Remove any IS.se_income/self_employment mapping from the K-1 pipeline. "
                 "Box 14a must be blank/$0 for ALL rental LLC partners.")
+        return self.format_issue(
+            'SK1C-R09', self.INFO,
+            f"Partner '{nm}' ({oID}): Box 14a (SE earnings) = $0 ✓. "
+            f"{'Managing member (Francis): active management of a rental investment is NOT ' if is_manager else ''}"
+            f"{'substantial personal services under §1402(a)(1). ' if is_manager else ''}"
+            f"IRC §1402(a)(1): rental real estate income excluded from SE earnings for ALL partners. "
+            f"The SE exclusion is based on income type (rental), not management role. "
+            f"The >50% time test is §469(c)(7) REP status — a passive-loss question, "
+            f"not a SE tax question. Box 14a = $0 for every W&B partner.",
+            'IRC §1402(a)(1); §469(c)(7); Pub 541',
+            "No action. Box 14a is correctly $0. Advisory: if Francis believes he qualifies "
+            "as a Real Estate Professional (§469(c)(7)) for passive-loss purposes, "
+            "that analysis is separate and does not change Box 14a.")
 
     def _rule_box2_basis_advisory(self, owner: Dict):
         """
