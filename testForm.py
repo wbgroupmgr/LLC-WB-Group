@@ -11,6 +11,8 @@ Usage:
     python3 testForm.py --form Form1065
     python3 testForm.py --form Sch_K1
     python3 testForm.py --form Form4562 --llcName WBGroupLLC --year 2025
+    python3 testForm.py --all
+    python3 testForm.py --all --llcName WBGroupLLC --year 2025
 """
 import argparse
 import sys
@@ -18,6 +20,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
+
+_ALL_FORMS = ["Form1065", "Form8825", "Form4562", "Sch_K1"]
 
 
 def _norm_form(name: str) -> str:
@@ -27,12 +31,20 @@ def _norm_form(name: str) -> str:
     return "Form" + name
 
 
+def _run_form(llc, form_nm: str) -> None:
+    from irs.taxAgents.irsDiagAgent import IRSDiagAgent
+    print(IRSDiagAgent(llc, form_nm).diagnose_text())
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="BookToIRS pipeline diagnostic — calls IRSDiagAgent"
     )
-    ap.add_argument("--form", required=True,
-                    help="Form name: Form4562 | Form8825 | Form1065 | Sch_K1 (or just 4562)")
+    grp = ap.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--form",
+                     help="Form name: Form4562 | Form8825 | Form1065 | Sch_K1 (or just 4562)")
+    grp.add_argument("--all", action="store_true",
+                     help=f"Run all forms: {', '.join(_ALL_FORMS)}")
     ap.add_argument("--llcName", default=None, metavar="NAME")
     ap.add_argument("--year",    default=None, type=int, metavar="YEAR")
     args = ap.parse_args()
@@ -46,8 +58,14 @@ def main():
     from ledger.LLC import LLC
     llc = LLC(sp.DATA_NAME)
 
-    from irs.taxAgents.irsDiagAgent import IRSDiagAgent
-    print(IRSDiagAgent(llc, _norm_form(args.form)).diagnose_text())
+    if args.all:
+        for form_nm in _ALL_FORMS:
+            print(f"\n{'═'*96}")
+            print(f"  ── {form_nm} {'─'*(90 - len(form_nm))}")
+            print(f"{'═'*96}")
+            _run_form(llc, form_nm)
+    else:
+        _run_form(llc, _norm_form(args.form))
 
 
 if __name__ == "__main__":
