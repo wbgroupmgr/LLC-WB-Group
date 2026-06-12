@@ -791,6 +791,65 @@ class llcMgmt:
                 session_views=session_views,
             )
 
+        # ── Home Financial Snapshot API ───────────────────────────────────────
+        @app.route("/api/home/snapshot")
+        def api_home_snapshot():
+            try:
+                from ui.llcReportEngine import llcReportEngine as _RE
+                from ledger.stmtIS import stmtIS as _stmtIS
+                from ledger.stmtBS import stmtBS as _stmtBS
+
+                engine     = _RE(self.eSession)
+                gl_records = engine.getGLList(resolve_dups=True, force=True)
+
+                is_agg = _stmtIS(self.eSession.llc, gl_records=gl_records).taxAggregates()
+                bs_agg = _stmtBS(self.eSession.llc, gl_records=gl_records).taxAggregates()
+
+                # Monthly Revenue/Expense for bar chart — GL rows only,
+                # filtered to Acct.Rev.* (income) and Acct.Exp.* (expense).
+                # Using one side of double-entry per account avoids double-counting
+                # and excludes Asset/Equity/Liability entries (e.g. capital contributions).
+                monthly: Dict[str, Dict] = {}
+                for r in gl_records:
+                    dt   = str(r.get('dt') or '')
+                    acct = str(r.get('acct') or '')
+                    if len(dt) < 7:
+                        continue
+                    ym  = dt[:7]   # "2025.08"
+                    amt = float(r.get('amt') or 0)
+                    if ym not in monthly:
+                        monthly[ym] = {'income': 0.0, 'expense': 0.0}
+                    if acct.startswith('Acct.Rev'):
+                        monthly[ym]['income'] = round(monthly[ym]['income'] + amt, 2)
+                    elif acct.startswith('Acct.Exp'):
+                        monthly[ym]['expense'] = round(monthly[ym]['expense'] + amt, 2)
+
+                _ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                chart_data = []
+                for ym in sorted(monthly.keys()):
+                    parts = ym.split('.')
+                    try:
+                        lbl = _ABBR[int(parts[1])] if len(parts) >= 2 else ym
+                    except (ValueError, IndexError):
+                        lbl = ym
+                    chart_data.append({'label': lbl,
+                                       'income':  monthly[ym]['income'],
+                                       'expense': monthly[ym]['expense']})
+
+                return jsonify({
+                    'ok':             True,
+                    'total_income':   is_agg.get('total_income', 0),
+                    'total_expenses': is_agg.get('total_expenses', 0),
+                    'net_income':     is_agg.get('net_income', 0),
+                    'total_equity':   bs_agg.get('total_equity', 0),
+                    'earned_pnl':     is_agg.get('net_income', 0),
+                    'monthly':        chart_data,
+                })
+            except Exception as exc:
+                app.logger.exception("api_home_snapshot error")
+                return jsonify({'ok': False, 'error': str(exc)}), 500
+
         # ── Switch Year ───────────────────────────────────────────────────────
         @app.route("/switch_year", methods=["POST"])
         def switch_year():

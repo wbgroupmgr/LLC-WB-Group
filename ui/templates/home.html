@@ -3,7 +3,66 @@
 {% block topbar %}{% endblock %}
 
 {% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
+    // ── Financial Snapshot ────────────────────────────────────────────────
+    const _fmt = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', maximumFractionDigits:0}).format(v);
+    let _fsChart = null;
+
+    async function loadFinancialSnapshot() {
+        try {
+            const res  = await fetch('/api/home/snapshot');
+            const data = await res.json();
+            if (!data.ok) return;
+
+            const set = (id, val, cls) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = _fmt(val);
+                el.classList.remove('fs-empty');
+                if (cls) el.classList.add(cls);
+            };
+
+            const ni = data.net_income || 0;
+            set('fsRevenue',    data.total_income);
+            set('fsExpenses',   data.total_expenses);
+            set('fsNetIncome',  ni, ni < 0 ? 'fs-negative' : 'fs-positive');
+            set('fsTotalEquity', data.total_equity);
+            set('fsEarnedPnl',  data.earned_pnl, data.earned_pnl < 0 ? 'fs-negative' : 'fs-positive');
+
+            // Bar chart
+            const monthly = data.monthly || [];
+            const labels   = monthly.map(m => m.label);
+            const incomes  = monthly.map(m => m.income);
+            const expenses = monthly.map(m => m.expense);
+            const ctx = document.getElementById('fsBarChart');
+            if (!ctx) return;
+            if (_fsChart) _fsChart.destroy();
+            _fsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Income',  data: incomes,  backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3 },
+                        { label: 'Expense', data: expenses, backgroundColor: 'rgba(239,68,68,0.75)',  borderRadius: 3 },
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#d1d5db', font: { size: 11 } } } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+                        y: { ticks: { color: '#9ca3af', font: { size: 10 },
+                                      callback: v => '$' + (Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'k' : v) },
+                             grid: { color: 'rgba(255,255,255,.08)' } },
+                    }
+                }
+            });
+        } catch (e) { console.warn('FS snapshot error:', e); }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadFinancialSnapshot);
+
     async function confirmNewSession() {
         document.getElementById("newSessionBackdrop").style.display = "flex";
     }
@@ -104,8 +163,8 @@
     }
     .fs-chart-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
                       letter-spacing: 0.06em; color: #6b7280; margin-bottom: 6px; }
-    .fs-chart-canvas-wrap { min-height: 60px; position: relative; }
-    #fsBarChart { width: 100% !important; }
+    .fs-chart-canvas-wrap { min-height: 160px; position: relative; }
+    #fsBarChart { width: 100% !important; height: 160px !important; }
 
     /* Right column: stacked metric cards */
     .fs-right { display: flex; flex-direction: column; gap: 8px; }
@@ -286,7 +345,7 @@
     <!-- Chart left · YTD + Equity metrics right -->
     <div class="fs-body">
         <div class="fs-chart-box">
-            <div class="fs-chart-label">Per Month</div>
+            <div class="fs-chart-label">Per Month: Revenue-Expense</div>
             <div class="fs-chart-canvas-wrap">
                 <canvas id="fsBarChart" height="60"></canvas>
             </div>
