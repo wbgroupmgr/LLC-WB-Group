@@ -448,7 +448,9 @@ class _SectionAgent(IRSFormsAgent):
         for rule_fn in rules:
             try:
                 issue = rule_fn()
-                if issue:
+                if isinstance(issue, list):
+                    issues.extend([i for i in issue if i])
+                elif issue:
                     issues.append(issue)
             except Exception:
                 pass
@@ -971,7 +973,7 @@ class AgentF8825_NetIncome(_SectionAgent):
 
     def _rule_forensic_clusters(self):
         """
-        F8NI-R05 (forensic): same-amount + same-day clusters.
+        F8NI-R05 (forensic): same-amount + same-day clusters — one issue per cluster.
 
         Flags two real problems:
         - multi_prop: a return/refund is tagged to a DIFFERENT property than
@@ -983,17 +985,21 @@ class AgentF8825_NetIncome(_SectionAgent):
         has_return alone (same property) is NOT flagged.  A return-and-rebuy
         on the same day at the same property is legitimate business activity
         (wrong item returned, correct one purchased the same day).
+
+        Returns a list (one issue per suspicious cluster) so the section summary
+        shows separate findings rather than one bundled alert.
         """
         findings = self._forensic_amount_day_clusters()
         sus = [f for f in findings if f['multi_prop'] or f['duplicate']]
         if not sus:
-            return None
-        # Most-suspicious first: multi-prop refund pairs lead, then by amount.
+            return []
+        # Most-suspicious first: cross-property refunds lead, then by amount.
         sus.sort(key=lambda f: (-(f['multi_prop'] and f['has_return']),
                                 -f['multi_prop'], -f['amt'], f['dt']))
 
-        txns: List[Dict[str, Any]] = []
-        for f in sus:
+        suffix = 'abcdefghijklmnopqrstuvwxyz'
+        result = []
+        for idx, f in enumerate(sus):
             tags = []
             if f['multi_prop']:
                 tags.append('MULTI-PROP')
@@ -1001,32 +1007,41 @@ class AgentF8825_NetIncome(_SectionAgent):
                 tags.append('PURCHASE+RETURN')
             if f['duplicate']:
                 tags.append('DUPLICATE')
-            flag = ' / '.join(tags)
-            for b in f['txns']:
-                bb = dict(b)
-                bb['flag'] = flag
-                txns.append(bb)
+            flag     = ' / '.join(tags)
+            rule_id  = f"F8NI-R05{suffix[idx] if idx < len(suffix) else idx}"
+            critical = f['multi_prop'] and f['has_return']
+            props_str = ', '.join(f['props']) if f['props'] else 'one property'
 
-        lead     = sus[0]
-        critical = any(f['multi_prop'] and f['has_return'] for f in sus)
-        return self.format_issue(
-            'F8NI-R05', self.ERROR if critical else self.WARN,
-            f"Suspicious transaction pattern: {len(sus)} same-amount/same-day cluster(s) detected.\n"
-            f"  • Most concerning: ${lead['amt']:,.2f} on {lead['dt']} spanning {', '.join(lead['props']) or 'one property'} ({lead['count']} transactions, mixed purchase/return).\n"
-            f"  • A purchase and its refund must be tagged to the SAME property. If a refund is tagged to a different property, that property's expenses are understated and the other property's cost basis is overstated.\n"
-            f"  • This distorts Line 21 (Net Rental Income), Schedule K Line 2, and every partner's K-1 Box 2.",
-            'IRC §263(a); IRC §446 (Books-First); bank statement = source of truth',
-            f"Verify against the bank statement (books/{self.tax_year}/BankStmts/), then "
-            f"correct the mis-tagged transaction's propNm/account in the ledger — "
-            f"use the Fix links on the transactions below.",
-            fids=['F104', 'F113'],
-            suggested_mapping={
-                'txns':              txns,
-                'source_doc':        f'books/{self.tax_year}/BankStmts/',
-                'resolve_available': True,
-                'resolve_label':     'Mark Resolved — cluster verified against bank statement',
-                'resolve_note':      'Confirm each purchase/return pair shares the correct propNm.',
-            })
+            if f['multi_prop']:
+                msg = (
+                    f"${f['amt']:,.2f} on {f['dt']} — refund tagged to a DIFFERENT property ({props_str}).\n"
+                    f"  • One property's expense is understated; the other's cost basis is overstated.\n"
+                    f"  • Distorts Line 21 (Net Rental Income), Schedule K Line 2, and every K-1 Box 2."
+                )
+            else:
+                msg = (
+                    f"${f['amt']:,.2f} on {f['dt']} — possible double-post ({f['count']} transactions, {props_str}).\n"
+                    f"  • Two entries share the same date, amount, property, account, and direction.\n"
+                    f"  • Verify against the bank statement — if one is a duplicate, delete it."
+                )
+
+            txns = [dict(b, flag=flag) for b in f['txns']]
+            result.append(self.format_issue(
+                rule_id, self.ERROR if critical else self.WARN,
+                msg,
+                'IRC §263(a); IRC §446 (Books-First); bank statement = source of truth',
+                f"Verify against the bank statement (books/{self.tax_year}/BankStmts/), then "
+                f"correct the transaction's propNm/account in the ledger — "
+                f"use the Fix links on the transactions below.",
+                fids=['F104', 'F113'],
+                suggested_mapping={
+                    'txns':              txns,
+                    'source_doc':        f'books/{self.tax_year}/BankStmts/',
+                    'resolve_available': True,
+                    'resolve_label':     'Mark Resolved — verified against bank statement',
+                    'resolve_note':      'Confirm the transaction is correct or delete the duplicate.',
+                }))
+        return result
 
     def pass5_summarize(self) -> str:
         net = self._get_is_agg('net_rental')
