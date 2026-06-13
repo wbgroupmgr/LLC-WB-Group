@@ -312,14 +312,43 @@ _F1065_INCSTMT_FIDS = [
     "F074", "F075", "F076", "F077", "F078",
 ]
 _F1065_SCHEDB_FIDS = [
-    # Page 2: Q1 entity type (c2_1[0-5]), Q2a/Q2b (c2_2/c2_3), Q3a/Q3b (c2_4/c2_5)
-    "F079", "F080", "F081", "F082", "F083", "F084",   # Q1 entity type (6 options)
-    "F086", "F087",   # Q2a: entity owns 50%+ (Yes/No)
-    "F088", "F089",   # Q2b: individual owns 50%+ (Yes/No)
-    "F090", "F091",   # Q3a: partnership owns 20%+ of corp (Yes/No)
-    "F112", "F113",   # Q3b: partnership owns 50%+ of another partnership (Yes/No)
-    # Page 3: first two Yes/No pairs (exact IRS Q# depends on PDF layout)
-    "F161", "F162", "F164", "F165",
+    # Page 2: Q1 entity type (c2_1[0-5])
+    "F079", "F080", "F081", "F082", "F083", "F084",
+    # Page 2: Q2a–Q7 Yes/No pairs
+    "F086", "F087",   # Q2a: entity owns 50%+
+    "F088", "F089",   # Q2b: individual owns 50%+ (W&B: YES→F088)
+    "F090", "F091",   # Q3a: partnership owns 20%+ of corp
+    "F112", "F113",   # Q3b: partnership owns 50%+ of another partnership
+    "F139", "F140",   # Q4: M-3 required?
+    "F141", "F142",   # Q4a: >100 partners?
+    "F143", "F144",   # Q4b: BBA opt-out (Schedule B-2)?
+    "F145", "F146",   # Q4c: not required to file L/M-1/M-2? (W&B: YES→F145)
+    "F148", "F149",   # Q4d: distributed money/property?
+    "F150", "F151",   # Q5: foreign partnership?
+    "F153", "F154",   # Q6: Forms 8858 attached?
+    "F157", "F158",   # Q7: decreased foreign partner interest?
+    # Page 3: Q8–Q22 Yes/No pairs
+    "F161", "F162",   # Q8: PTP?
+    "F164", "F165",   # Q9: Form 8918?
+    "F166", "F167",   # Q10: IRS audit?
+    "F169", "F170",   # Q11: foreign partners?
+    "F173", "F174",   # Q12: Form 1042-S?
+    "F176", "F177",   # Q13: PFIC elections?
+    "F178", "F179",   # Q14: Form 8886?
+    "F182", "F183",   # Q15: foreign partner loan?
+    "F184", "F185",   # Q16: withholding foreign partnership?
+    "F186", "F187",   # Q17: debt-financed acquisitions?
+    "F188", "F189",   # Q18: oil/gas?
+    "F191", "F192",   # Q19: §721(c)?
+    "F193", "F194",   # Q20: foreign branches?
+    "F195", "F196",   # Q21: §754 election?
+    "F199", "F200",   # Q22: §267A hybrid mismatch?
+    # Page 4: Q23–Q28 Yes/No pairs
+    "F203", "F204",   # Q23: CFC partner?
+    "F205", "F206",   # Q24: interest income on Line 5?
+    "F207", "F208",   # Q26: royalties?
+    "F209", "F210",   # Q27: foreign partner distributive share?
+    "F212", "F213",   # Q28: foreign corp acquisition?
 ]
 _F1065_SCHEDK_FIDS = [
     "F215", "F216", "F218", "F219", "F220", "F221", "F228", "F230",

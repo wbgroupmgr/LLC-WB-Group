@@ -733,63 +733,72 @@ class AgentF1065_IncStmt(_SectionAgent):
 
 class AgentF1065_Other(_SectionAgent):
     """
-    IRS Knowledge Base — Form 1065 Schedule B: Other Information (Pages 2–3)
+    IRS Knowledge Base — Form 1065 Schedule B: Other Information (Pages 2–4)
 
-    Golden Rule (applied per question below): for each checkbox, explicitly
-    state the IRS condition that makes YES correct; default to NO if the
-    condition cannot be confirmed from W&B Group's books/profile.
+    Golden Rule: for every Schedule B checkbox, the IRS condition that makes YES
+    correct is stated below. If not confirmed from W&B Group's books/profile → NO.
+    All Yes/No decisions are hard — no "unknown" or "CPA:pending" punts.
 
-    Q1  Partnership type → Domestic limited liability company (c2_1[2]).
-        IRC §7701(a)(2): LLC taxed as partnership = "partnership" for Code purposes.
-        W&B Group = domestic LLC member-managed. chk must have f81 (c2_1[2]).
+    fid → Schedule B checkbox map (from Form1065_namespace.json, pages 2–4):
+      f81  = Q1 domestic LLC (c2_1[2], cv=/3)    → chk
+      f87  = Q2a No  (c2_2 checkText, cv=/2)     → chk
+      f88  = Q2b Yes (c2_3 checkBox,  cv=/1)     → chk when any individual >50%
+      f91  = Q3a No  (c2_4 checkText, cv=/2)     → chk
+      f113 = Q3b No  (c2_5 checkText, cv=/2)     → chk
+      f140 = Q4 No   (c2_6 checkText, cv=/2)     → chk
+      f142 = Q4a No  (c2_7 checkText, cv=/2)     → chk
+      f144 = Q4b No  (c2_8 checkText, cv=/2)     → chk
+      f145 = Q4c Yes (c2_9 checkBox,  cv=/1)     → chk when below threshold
+      f149 = Q4d No  (c2_10 checkText, cv=/2)    → chk when no distributions
+      f151 = Q5 No   (c2_11 checkText, cv=/2)    → chk
+      f154 = Q6 No   (c2_12 checkText, cv=/2)    → chk
+      f158 = Q7 No   (c2_13 checkText, cv=/2)    → chk
+      f162 = Q8 No   (c3_1 checkText,  cv=/2)    → chk
+      f165 = Q9 No   (c3_2 checkText,  cv=/2)    → chk
+      f167 = Q10 No  (c3_3 checkText,  cv=/2)    → chk
+      f170 = Q11 No  (c3_5 checkText,  cv=/2)    → chk
+      f174 = Q12 No  (c3_6 checkText,  cv=/2)    → chk
+      f177 = Q13 No  (c3_7 checkText,  cv=/2)    → chk
+      f179 = Q14 No  (c3_8 checkText,  cv=/2)    → chk
+      f183 = Q15 No  (c3_9 checkText,  cv=/2)    → chk
+      f185 = Q16 No  (c3_10 checkText, cv=/2)    → chk
+      f187 = Q17 No  (c3_11 checkText, cv=/2)    → chk
+      f189 = Q18 No  (c3_12 checkText, cv=/2)    → chk
+      f192 = Q19 No  (c3_13 checkText, cv=/2)    → chk
+      f194 = Q20 No  (c3_14 checkText, cv=/2)    → chk
+      f196 = Q21 No  (c3_15 checkText, cv=/2)    → chk
+      f200 = Q22 No  (c3_16 checkText, cv=/2)    → chk
+      f204 = Q23 No  (c4_1 checkText,  cv=/2)    → chk
+      f206 = Q24 No  (c4_2 checkText,  cv=/2)    → chk (no interest on Line 5)
+      f208 = Q26 No  (c4_3 checkText,  cv=/2)    → chk (no royalties)
+      f210 = Q27 No  (c4_4 checkText,  cv=/2)    → chk
+      f213 = Q28 No  (c4_6 checkText,  cv=/2)    → chk
 
-    Q2a Did any foreign/domestic corporation, partnership, trust, or tax-exempt
-        org own, directly or indirectly, 50%+ of the partnership? → NO.
-        W&B Group owners are all individual humans; no entity owner exists.
+    W&B Group definitive Yes/No decisions:
+      Q1  = LLC (f81) — domestic LLC per IRC §7701(a)(2)
+      Q2a = NO  (f87)  — all owners are individuals, no entity holds 50%+
+      Q2b = YES (f88)  — Francis Rojas holds 96% > 50% threshold
+      Q3a = NO  (f91)  — W&B holds only real property, no corp interest
+      Q3b = NO  (f113) — W&B holds only real property, no other partnership
+      Q4  = NO  (f140) — gross receipts < $50M; Schedule M-3 not required
+      Q4a = NO  (f142) — 3 partners, not >100
+      Q4b = NO  (f144) — no BBA opt-out election made (stay in §6221 audit regime)
+      Q4c = YES (f145) — income $4,400 < $250K AND assets $226K < $1M (Treas. Reg. §1.6031(a)-1(b)(4))
+      Q4d = NO  (f149) — $0 distributions in books (IS.distributions_cash = 0)
+      Q5–Q7   = NO  — domestic LLC, no foreign ops, no foreign partners
+      Q8  = NO  — private LLC, not a PTP (IRC §7704)
+      Q9–Q22  = NO  — domestic LLC, no material advisor, not under audit, no
+                       foreign partners, no PFIC, no Form 8886, no foreign loans,
+                       no debt-financed acq., no oil/gas, no §721(c), no §267A
+      Q23 = NO  — no CFC partner
+      Q24 = NO  — no interest income reported on Form 1065 Line 5
+      Q25 = text (3 — count of partners, not a checkbox)
+      Q26 = NO  — no royalties paid
+      Q27 = NO  — no foreign partner distributive share
+      Q28 = NO  — no foreign corp acquisition
 
-    Q2b Did any individual or estate own, directly or indirectly, 50%+ of
-        the partnership? → YES if any individual's ownership % > 50%; else NO.
-        W&B Group = 3 partners; check books. Affects §267 related-party rules.
-
-    Q3a Did the partnership own directly 20%+, or in combination 50%+, of a
-        foreign or domestic corporation? → NO.
-        W&B Group holds only real property; no corporate interest.
-
-    Q3b Did the partnership own directly or indirectly 50%+ of another
-        partnership? → NO. W&B Group holds only real property.
-
-    Q4  Required to file Schedule M-3? → NO (gross receipts < $50M).
-
-    Q4c Not required to file Schedules L, M-1, M-2? → YES when below threshold.
-        Treas. Reg. §1.6031(a)-1(b)(4): gross receipts < $250K AND assets < $1M
-        → skip those schedules. Filing empty schedules triggers audit noise.
-
-    Q4d Distributed money or property? → YES if any distribution in books.
-        Must match K-1 Box 19 and Schedule M-2 capital account analysis.
-
-    Q5–Q7   Foreign partnership / Form 8858 / decreased foreign partner interest
-        → NO. W&B Group is a domestic entity with no foreign operations.
-
-    Q8  Publicly traded partnership (PTP)? → NO. IRC §7704: PTP requires
-        interests traded on established securities market. W&B Group = private.
-
-    Q9–Q20  Material-advisor (8918), IRS audit, foreign partners, Form 1042-S,
-        PFIC elections, Form 8886, foreign partner loans, withholding foreign
-        partnership, debt-financed acquisitions, oil/gas, §721(c), foreign
-        branches → ALL NO for W&B Group (domestic rental LLC, no foreign nexus).
-
-    Q21 BBA opt-out election (IRC §6221(b))? → NO (default = stay IN BBA regime).
-        Electing out is a one-time annual choice; requires qualifying partners.
-        Do not elect out without CPA advice.
-
-    Q22–Q28 §267A hybrid mismatch, CFC, interest income on Line 5, royalties,
-        foreign partner distributive share, foreign corp acquisition, Form 7208
-        → ALL NO for W&B Group.
-
-    Q25 Number of Schedules K-1 → filled from owners count (text, not checkbox).
-
-    Partnership Representative (Schedule B Section): Required for all BBA
-        partnerships. IRC §6223 + Treas. Reg. §301.6223-1.
+    Partnership Representative: Required post-2018 BBA. IRC §6223 + Treas. Reg.
+        §301.6223-1. Francis X. Rojas is named PR.
     """
 
     LABEL             = 'Schedule B'
@@ -841,8 +850,7 @@ class AgentF1065_Other(_SectionAgent):
                 f"  • The LLC is below both IRS thresholds: income ${gross:,.0f} (under $250K) and/or assets ${assets:,.0f} (under $1M).\n"
                 f"  • Schedule B Question 4c should be answered 'Yes' to skip these schedules.",
                 'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)',
-                "Q4c defaults to No — use BookToIRS Aid to set Q4c = Yes (add chk entry "
-                "for the Q4c Yes checkbox fid once identified from Form1065_namespace.pdf).",
+                "Q4c Yes (f145, c2_9 checkBox) must be in F1065.chk. f146 (No box) must not be.",
                 auto_fix=True)
 
     def _rule_pr_named(self):
@@ -899,8 +907,8 @@ class AgentF1065_Other(_SectionAgent):
         OT-R11: Q2a — Did any foreign/domestic corporation, partnership,
         trust, or tax-exempt org own 50%+ of the partnership?
         Golden Rule: YES only if a non-individual entity holds 50%+.
-        W&B Group owners are all individual humans → answer is NO.
-        Default No pipeline handles this; confirm no entity owner exists.
+        W&B Group owners are all individual humans → NO.
+        fid f87 (c2_2 checkText, cv=/2) in chk sets the No checkbox.
         """
         owners = self._get_owners()
         entity_types = {'corp','corporation','trust','partnership','org','llc','entity'}
@@ -914,90 +922,100 @@ class AgentF1065_Other(_SectionAgent):
                 f"⚠ Form 1065 Schedule B Question 2a: an entity (not an individual) holds 50%+ of the LLC: {names}.\n"
                 f"  • Question 2a must be answered YES — this triggers additional ownership disclosure requirements.",
                 'Form 1065 Instructions, Schedule B Q2a; IRC §267(b)',
-                "Add the Q2a Yes checkbox fid to chk in llcProfile. "
-                "File additional ownership disclosure if required.")
+                "Replace f87 with f86 in F1065.chk (f86=Q2a Yes, cv=/1). "
+                "File additional ownership disclosure if required.",
+                fids=['f86'])
         return self.format_issue(
             'OT-R11', self.INFO,
-            "✓ Form 1065 Question 2a: all W&B Group owners are individuals — answer is NO (no company or trust owns 50%+).",
+            "✓ Form 1065 Question 2a: all W&B Group owners are individuals — NO (f87 in chk sets No checkbox).",
             'Form 1065 Instructions, Schedule B Q2a', '')
 
     def _rule_sched_b_q2b_individual_majority(self):
         """
         OT-R12: Q2b — Did any individual or estate own 50%+ of the partnership?
         Golden Rule: YES if any individual's ownership % > 50%; else NO.
-        W&B Group has 3 partners; if any one holds >50%, Q2b = Yes.
+        W&B Group: Francis Rojas owns 96% → YES.
+        fid f88 (c2_3 checkBox, cv=/1) in chk sets the Yes checkbox.
         """
         owners = self._get_owners()
         majority = [o for o in owners if self._owner_pct(o) > 0.5]
+        chks = list((getattr(self.llc, 'F1065', {}) or {}).get('chk', []))
         if majority:
             nm = ', '.join(str(o.get('nm', o.get('name', '?'))) for o in majority)
             pcts = ', '.join(f"{self._owner_pct(o)*100:.1f}%" for o in majority)
+            has_yes = 88 in chks
+            if not has_yes:
+                return self.format_issue(
+                    'OT-R12', self.ERROR,
+                    f"⚠ Form 1065 Schedule B Question 2b: {nm} owns {pcts} — YES checkbox not set.\n"
+                    f"  • f88 (Q2b Yes, c2_3 checkBox) must be in F1065.chk.",
+                    'Form 1065 Instructions, Schedule B Q2b; IRC §267(b)',
+                    "Add 88 to F1065.chk in llcProfile.",
+                    fids=['f88'])
             return self.format_issue(
-                'OT-R12', self.WARN,
-                f"Form 1065 Schedule B Question 2b: {nm} owns {pcts} — more than 50% of the LLC.\n"
-                f"  • Question 2b must be answered YES. This is factually correct for W&B Group (Francis owns 96%).",
-                'Form 1065 Instructions, Schedule B Q2b; IRC §267(b)',
-                "Add the Q2b Yes checkbox fid to chk in llcProfile to mark Q2b = Yes.")
+                'OT-R12', self.INFO,
+                f"✓ Form 1065 Question 2b: {nm} owns {pcts} — YES (f88 in chk sets Yes checkbox).",
+                'Form 1065 Instructions, Schedule B Q2b; IRC §267(b)', '')
         return self.format_issue(
             'OT-R12', self.INFO,
-            "✓ Form 1065 Question 2b: no single individual owns more than 50% — answer is NO.",
+            "✓ Form 1065 Question 2b: no single individual owns more than 50% — NO (f89 should be in chk).",
             'Form 1065 Instructions, Schedule B Q2b', '')
 
     def _rule_sched_b_q3a_no_corp_ownership(self):
         """
-        OT-R13: Q3a — Did the partnership own directly 20%+ (or in combination
-        50%+) of a foreign or domestic corporation?
-        Golden Rule: YES only if the LLC holds a 20%+ corporate interest.
-        W&B Group holds only real property (houses) — no corporate interest exists.
-        Answer is NO.
+        OT-R13: Q3a — Did the partnership own directly 20%+ of a corp?
+        W&B Group holds only real property → NO.
+        fid f91 (c2_4 checkText, cv=/2) in chk sets the No checkbox.
         """
         return self.format_issue(
             'OT-R13', self.INFO,
-            "✓ Form 1065 Question 3a: W&B Group owns only real property, not shares in any company — answer is NO.",
+            "✓ Form 1065 Question 3a: W&B Group owns only real property, not shares in any company — NO (f91 in chk).",
             'Form 1065 Instructions, Schedule B Q3a; IRC §267(b)', '')
 
     def _rule_sched_b_q3b_no_partnership_ownership(self):
         """
-        OT-R14: Q3b — Did the partnership own directly or indirectly 50%+
-        of another partnership?
-        Golden Rule: YES only if the LLC holds a majority interest in another
-        partnership entity. W&B Group holds only real property. Answer is NO.
+        OT-R14: Q3b — Did the partnership own 50%+ of another partnership?
+        W&B Group holds only real property → NO.
+        fid f113 (c2_5 checkText, cv=/2) in chk sets the No checkbox.
         """
         return self.format_issue(
             'OT-R14', self.INFO,
-            "✓ Form 1065 Question 3b: W&B Group owns only real property, not an interest in another partnership — answer is NO.",
+            "✓ Form 1065 Question 3b: W&B Group owns only real property, not another partnership — NO (f113 in chk).",
             'Form 1065 Instructions, Schedule B Q3b; IRC §267(c)', '')
 
     def _rule_sched_b_q4c_schedules_not_required(self):
         """
         OT-R15: Q4c — Is the partnership not required to file Schedules L, M-1, M-2?
         Golden Rule: YES when gross receipts < $250K AND assets < $1M.
-        This is the most operationally important Schedule B question — filing empty
-        schedules when not required triggers IRS automated scrutiny.
-        Currently defaults to No (not in chk). Must be set to Yes if below threshold.
+        fid f145 (c2_9 checkBox, cv=/1) in chk sets the Yes checkbox.
         """
         gross  = abs(self._get_is_total('Income'))
         assets = self._get_bs_total_assets()
+        chks   = list((getattr(self.llc, 'F1065', {}) or {}).get('chk', []))
         if gross < 250_000 and assets < 1_000_000:
+            has_yes = 145 in chks
+            if not has_yes:
+                return self.format_issue(
+                    'OT-R15', self.ERROR,
+                    f"⚠ Form 1065 Question 4c: below thresholds (income ${gross:,.0f} < $250K, assets ${assets:,.0f} < $1M) but YES checkbox not set.\n"
+                    f"  • f145 (Q4c Yes, c2_9 checkBox) must be in F1065.chk.",
+                    'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)',
+                    "Add 145 to F1065.chk in llcProfile.",
+                    auto_fix=True)
             return self.format_issue(
-                'OT-R15', self.WARN,
-                f"Form 1065 Question 4c: W&B Group is below both thresholds (income ${gross:,.0f} < $250K, assets ${assets:,.0f} < $1M).\n"
-                f"  • Question 4c must be answered YES — the LLC does NOT need to file Schedules L, M-1, or M-2.\n"
-                f"  • This checkbox is currently not set — it needs to be added.",
-                'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)',
-                "Open Form1065_namespace.pdf, find 'Q4c not required' checkbox, note the "
-                "fid number, and add it to F1065.chk in llcProfile.",
-                auto_fix=True)
+                'OT-R15', self.INFO,
+                f"✓ Form 1065 Question 4c: below thresholds (income ${gross:,.0f}, assets ${assets:,.0f}) — YES (f145 in chk). Schedules L/M-1/M-2 NOT required.",
+                'Form 1065 Instructions, Schedule B Q4c; Treas. Reg. §1.6031(a)-1(b)(4)', '')
         return self.format_issue(
             'OT-R15', self.INFO,
-            f"Form 1065 Question 4c: W&B Group is above threshold (income ${gross:,.0f}, assets ${assets:,.0f}) — Schedules L/M-1/M-2 ARE required.",
+            f"Form 1065 Question 4c: above threshold (income ${gross:,.0f}, assets ${assets:,.0f}) — Schedules L/M-1/M-2 ARE required.",
             'Form 1065 Instructions, Schedule B Q4c', '')
 
     def _rule_sched_b_q4d_distributions(self):
         """
         OT-R16: Q4d — Did the partnership distribute money or property to any partner?
         Golden Rule: YES if any distribution appears in llcOwners or books.
-        Must match K-1 Box 19 and Schedule M-2 capital account analysis.
+        fid f148 (c2_10 checkBox, cv=/1) = Yes; f149 (c2_10 checkText, cv=/2) = No.
         """
         owners = self._get_owners()
         has_distrib = any(_safe_float(o.get('distributions',
@@ -1006,29 +1024,26 @@ class AgentF1065_Other(_SectionAgent):
             return self.format_issue(
                 'OT-R16', self.WARN,
                 "Form 1065 Question 4d: cash distributions to partners are recorded in the books.\n"
-                "  • Question 4d ('Did the partnership distribute money or property?') must be answered YES.",
+                "  • Question 4d must be answered YES — replace f149 with f148 in F1065.chk.",
                 'Form 1065 Instructions, Schedule B Q4d; K-1 Box 19',
-                "Confirm Q4d = Yes in form. Add Q4d Yes checkbox fid to chk via Aid.",
-                fids=['B_4d'])
+                "Remove 149 from F1065.chk; add 148 (Q4d Yes, c2_10 checkBox).",
+                fids=['f148'])
         return self.format_issue(
             'OT-R16', self.INFO,
-            "✓ Form 1065 Question 4d: no distributions found in the books — answer is NO.",
+            "✓ Form 1065 Question 4d: no distributions in books — NO (f149 in chk sets No checkbox).",
             'Form 1065 Instructions, Schedule B Q4d', '')
 
     def _rule_sched_b_no_foreign_activity(self):
         """
-        OT-R17: Q5–Q7, Q9–Q20, Q22–Q28 (foreign / complex activity questions).
-        Golden Rule: ALL should be NO for W&B Group.
-        W&B Group is a domestic LLC with no foreign partners, no foreign assets,
-        no foreign branches, no PFIC elections, no reportable transactions, no
-        oil/gas, no §721(c) transactions, no §267A hybrids, no CFCs.
-        Step H default No handles all of these. This rule confirms no foreign/complex
-        activity exists so the defaults are correct.
+        OT-R17: Q5–Q7, Q9–Q28 (foreign / complex activity questions).
+        Golden Rule: ALL are NO for W&B Group — domestic LLC, U.S. partners,
+        U.S. real property only. No-box fids f151, f154, f158, f165–f213 in chk.
         """
         return self.format_issue(
             'OT-R17', self.INFO,
-            "✓ Form 1065 Questions 5–28 (foreign activity, foreign partners, complex transactions): all NO for W&B Group.\n"
-            "  • W&B is a domestic LLC with U.S. partners investing in U.S. real property — none of these foreign/complex questions apply.\n"
+            "✓ Form 1065 Q5–Q28 (foreign activity, complex transactions): all NO for W&B Group.\n"
+            "  • Domestic LLC, U.S. partners, U.S. real property — none of these foreign/complex questions apply.\n"
+            "  • No-box fids are in F1065.chk (f151, f154, f158, f162, f165, f167, f170, f174, f177, f179, f183, f185, f187, f189, f192, f194, f196, f200, f204, f206, f208, f210, f213).\n"
             "  • Confirm no unusual transactions occurred in 2025.",
             'Form 1065 Instructions, Schedule B Q5–Q28',
             "If any of these conditions applied in 2025, contact CPA before filing.")
@@ -1036,13 +1051,11 @@ class AgentF1065_Other(_SectionAgent):
     def _rule_sched_b_no_ptp(self):
         """
         OT-R18: Q8 — Is the partnership a publicly traded partnership (PTP)?
-        Golden Rule: YES only if interests are traded on an established securities
-        market (NYSE, NASDAQ, OTC market) or secondary market under IRC §7704.
-        W&B Group is a private multi-member LLC — answer is NO.
+        W&B Group is private → NO. fid f162 (c3_1 checkText, cv=/2) in chk.
         """
         return self.format_issue(
             'OT-R18', self.INFO,
-            "✓ Form 1065 Question 8 (publicly traded partnership): W&B Group is a private LLC — not publicly traded. Answer is NO.",
+            "✓ Form 1065 Question 8 (PTP): W&B Group is a private LLC — NO (f162 in chk).",
             'IRC §7704; Form 1065 Instructions, Schedule B Q8', '')
 
 
