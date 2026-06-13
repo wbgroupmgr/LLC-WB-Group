@@ -20,14 +20,35 @@ condition cannot be confirmed from W&B Group's books/profile.
 All boolean/checkbox fields must follow the two-rule binary check standard
 defined in `FormSchK1Agent._SectionAgent` Golden Rule §2.
 
-### TODO-2: Home Page Financial Statements — Fill FS Data (tackle after TODO-1)
-**Priority:** Medium — home page FS section displays placeholder/empty values.
-**Scope:** Wire all Financial Statement sections on the home page (`/`) to live
-data from `stmtBS`, `stmtIS`, and `stmtGL`.  Ensure every line item in the FS
-display (Balance Sheet, Income Statement, GL summary) reflects current book data,
-not hardcoded zeros or stale cache values.
-**File:** `ui/templates/` (home page template) + relevant Flask routes in
-`ui/llcMgmt.py`.
+---
+
+## [1.3.0] — 2026-06-13  **Financial Snapshot + Form 1065 Guided Review Fix**
+
+### Fixed
+- **Home Financial Snapshot (issue #21)** — wired `/api/home/snapshot` to live
+  IS/BS/GL data; stacked bar chart (Income / Exp:Ops / Exp:Other); horizontal
+  5-column metrics table (YTD Revenue, YTD Expenses, Net Income, Total Equity,
+  Earned P&L); split expense into `expense_op` (operational) vs `expense_cap`
+  (Acct.Exp.Depreciation) so December depreciation no longer inflates expense bar.
+- **Form 1065 Guided Review — KD-R02 false positive (issue #22)** —
+  `_load_fill_dict()` fell back to reading `{}` when `Form1065_fillDict.json`
+  was missing (pipeline never saves it).  Added FILL.pdf fallback: reads field
+  values via pypdf using `_SHORT_TO_LK` (f5_02→K_2).  K_2 = 667.55 now resolved
+  correctly so KD-R02 no longer fires.
+- **Form 1065 Guided Review — contradictory badge/body (issue #22)** —
+  `_normalize_summary()` omitted `'issues'` from section dicts; template
+  `{% if sec.issues %}` was always falsy, showing "✓ No issues" while badge
+  showed "✗ Needs Fixing".  Added `'issues': s.get('issues', [])`.
+- **testForm.py alias (no issue)** — `--form 1069` now maps to `Form1065` with
+  a NOTE message; unknown forms exit with a clear list of valid options.
+
+### Technical Notes
+- `Form1065Agent._SectionAgent._SHORT_TO_LK`: hardcoded shortName→logicalKey
+  table for Schedule K fields; needed because Form1065 namespace has no keys PDF
+  (all `logicalKey` = '').  Only K_1/K_2 needed today; extend as more K_ rules
+  are added.
+- Home snapshot API now returns `expense_op` + `expense_cap` separately; template
+  uses Chart.js `stack: 'expense'` on both datasets to render stacked bar.
 
 ---
 
