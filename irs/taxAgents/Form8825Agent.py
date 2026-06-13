@@ -973,14 +973,19 @@ class AgentF8825_NetIncome(_SectionAgent):
         """
         F8NI-R05 (forensic): same-amount + same-day clusters.
 
-        The classic signature is a PURCHASE and its RETURN posted under different
-        propNm during bank ingestion. Example caught here: $14.06 on 2025-10-09 —
-        two RV_RV1 purchases plus one refund mis-tagged to H_805HighMesa. The
-        mis-tagged refund understates H_805 expense and overstates RV_RV1 basis.
-        Truth: books/<yr>/BankStmts/*.csv (WIMBERLEY ACE purchase + return).
+        Flags two real problems:
+        - multi_prop: a return/refund is tagged to a DIFFERENT property than
+          its purchase — one property's expense is understated, the other's
+          basis is overstated.
+        - duplicate: two rows with identical (prop, acct, contra, aType) —
+          a double-post of the same transaction.
+
+        has_return alone (same property) is NOT flagged.  A return-and-rebuy
+        on the same day at the same property is legitimate business activity
+        (wrong item returned, correct one purchased the same day).
         """
         findings = self._forensic_amount_day_clusters()
-        sus = [f for f in findings if f['multi_prop'] or f['has_return']]
+        sus = [f for f in findings if f['multi_prop'] or f['duplicate']]
         if not sus:
             return None
         # Most-suspicious first: multi-prop refund pairs lead, then by amount.
