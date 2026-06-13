@@ -1087,6 +1087,57 @@ class irsForm:
                     except Exception:
                         pass
 
+        # ── inject empty /Off appearances for orphan /Btn widgets ───────────
+        # Some IRS PDF checkboxes (e.g. Form 1065 c3_4[0]) have /AP/N with
+        # only a "/1" (on) stream and no "/Off" stream.  PDF viewers that
+        # can't find a matching Off appearance fall back to rendering the
+        # only stream present — showing a phantom checkmark even when the
+        # field is /Off.  Inject a minimal blank stream for those widgets.
+        _EMPTY_AP = b"q Q"   # valid PDF content stream: push/pop graphics state
+        phantom_cleared = 0
+        try:
+            from pypdf.generic import DecodedStreamObject, DictionaryObject, ArrayObject
+            for page in writer.pages:
+                annots = page.get("/Annots")
+                if annots is None:
+                    continue
+                try:
+                    annots = annots.get_object()
+                    annot_list = list(annots)
+                except Exception:
+                    continue
+                for annot_ref in annot_list:
+                    try:
+                        annot = annot_ref.get_object()
+                        if str(annot.get("/Subtype") or "") != "/Widget":
+                            continue
+                        if str(annot.get("/FT") or "") != "/Btn":
+                            continue
+                        cur_as = str(annot.get("/AS") or "")
+                        if cur_as not in ("/Off", ""):
+                            continue  # field is on — don't touch it
+                        ap = annot.get("/AP")
+                        if ap is None:
+                            continue
+                        ap_obj = ap.get_object()
+                        n_dict = ap_obj.get("/N")
+                        if n_dict is None:
+                            continue
+                        n_obj = n_dict.get_object() if hasattr(n_dict, "get_object") else n_dict
+                        if not hasattr(n_obj, "get"):
+                            continue
+                        if NameObject("/Off") in n_obj:
+                            continue  # already has an Off appearance
+                        # Build a minimal empty stream and inject it
+                        empty_stream = DecodedStreamObject()
+                        empty_stream.set_data(_EMPTY_AP)
+                        n_obj[NameObject("/Off")] = empty_stream
+                        phantom_cleared += 1
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         writer.set_need_appearances_writer(True)
         with open(out_path, "wb") as fh:
             writer.write(fh)
@@ -1094,6 +1145,6 @@ class irsForm:
         if self.verbose:
             print(f"  ✅ FILL PDF (DF)  → {out_path.name}  "
                   f"({ok_text} text + {stamped} checkbox toggled / "
-                  f"{ok_check} requested)")
+                  f"{ok_check} requested, {phantom_cleared} phantom /Off injected)")
         return str(out_path)
 
