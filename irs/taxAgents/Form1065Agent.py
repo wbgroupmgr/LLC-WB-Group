@@ -52,6 +52,13 @@ class _SectionAgent(IRSFormsAgent):
     AGENT_KEY    = ''   # key used in session state dict
     LOGICAL_PREFIXES: List[str] = []  # logical-key prefixes this section owns
 
+    # Form1065 namespace has no keys PDF → logicalKeys are empty strings.
+    # Map shortName → logicalKey for every field checked by audit rules.
+    _SHORT_TO_LK: Dict[str, str] = {
+        'f5_01': 'K_1',   # Schedule K Line 1: ordinary business income
+        'f5_02': 'K_2',   # Schedule K Line 2: net rental real estate income
+    }
+
     def __init__(self, llc, tax_year: int):
         super().__init__(llc, tax_year)
         self._profile = None
@@ -179,26 +186,49 @@ class _SectionAgent(IRSFormsAgent):
     # ── Shared helper ────────────────────────────────────────────────────────
 
     def _load_fill_dict(self) -> Dict[str, Any]:
-        """Load cached Form1065_fillDict.json if it exists; else {}."""
+        """Load Form1065_fillDict.json if it exists; else fall back to FILL.pdf."""
         forms_dir = self._forms_dir()
         if forms_dir is None:
             return {}
         p = forms_dir / 'Form1065_fillDict.json'
-        if not p.exists():
+        if p.exists():
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                fields = data.get('fields', data) if isinstance(data, dict) else {}
+                # Normalize: each field entry may be a dict with 'logicalKey' / 'value'
+                result = {}
+                for fid, entry in fields.items():
+                    if isinstance(entry, dict):
+                        lk  = entry.get('logicalKey', fid)
+                        val = entry.get('value', '')
+                        result[lk] = val
+                    else:
+                        result[fid] = entry
+                if result:
+                    return result
+            except Exception:
+                pass
+        # Fallback: read FILL.pdf directly using _SHORT_TO_LK (namespace has no logicalKeys)
+        fill_path = forms_dir / 'Form1065_FILL.pdf'
+        if not fill_path.exists():
             return {}
         try:
-            with open(p) as f:
-                data = json.load(f)
-            fields = data.get('fields', data) if isinstance(data, dict) else {}
-            # Normalize: each field entry may be a dict with 'logicalKey' / 'value'
+            from pypdf import PdfReader
+            rdr = PdfReader(str(fill_path))
+            pdf_fields = rdr.get_fields() or {}
             result = {}
-            for fid, entry in fields.items():
-                if isinstance(entry, dict):
-                    lk  = entry.get('logicalKey', fid)
-                    val = entry.get('value', '')
-                    result[lk] = val
-                else:
-                    result[fid] = entry
+            for fobj in pdf_fields.values():
+                if not isinstance(fobj, dict):
+                    continue
+                sn = fobj.get('/T', '')
+                if sn.endswith('[0]'):
+                    sn = sn[:-3]
+                lk = self._SHORT_TO_LK.get(sn)
+                if lk:
+                    val = fobj.get('/V', '')
+                    if val and val not in ('/Off', '/No', ''):
+                        result[lk] = val
             return result
         except Exception:
             return {}
@@ -1621,6 +1651,7 @@ class Form1065Agent(IRSFormsAgent):
                     'halt_count':    s.get('halt_count', 0),
                     'resolve_count': s.get('resolve_count', 0),
                     'review_count':  s.get('review_count', 0),
+                    'issues':        s.get('issues', []),
                 })
         return {
             'tax_year':      state.get('tax_year', self.tax_year),
