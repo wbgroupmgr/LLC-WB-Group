@@ -334,6 +334,11 @@ class Form1065(irsForm):
             return str(legacy)
         return str(canonical)
 
+    def aid(self) -> "BookToIRS":
+        """Factory for the BookToIRS bridge service (used by /api/aid/regenerate)."""
+        from irs.BookToIRS import BookToIRS
+        return BookToIRS(self.llc, "Form1065")
+
     # ── Keys PDF loader override (legacy name) ────────────────────────────
     def _loadKeyMap(self) -> Dict[str, str]:
         candidates = [
