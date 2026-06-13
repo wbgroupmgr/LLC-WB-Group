@@ -26,8 +26,18 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 
 
+_VALID_FORMS = {"Form4562", "Form8825", "Form1065", "Sch_K1"}
+
+# Common typo aliases → canonical form name
+_ALIASES = {"1069": "Form1065", "Form1069": "Form1065"}
+
+
 def _norm_form(name: str) -> str:
     name = name.strip()
+    if name in _ALIASES:
+        canonical = _ALIASES[name]
+        print(f"[testform] NOTE: '{name}' not a valid form — assuming '{canonical}'", flush=True)
+        return canonical
     if name.startswith(("Form", "Sch_", "Schedule")):
         return name
     return "Form" + name
@@ -58,6 +68,9 @@ def main():
     llc = LLC(sp.DATA_NAME)
 
     form_nm     = _norm_form(args.form)
+    if form_nm not in _VALID_FORMS:
+        print(f"ERROR: unknown form '{form_nm}'. Valid: {', '.join(sorted(_VALID_FORMS))}", file=sys.stderr)
+        sys.exit(1)
     partner_idx = max(0, args.member - 1)   # convert 1-based CLI → 0-based index
 
     from irs.taxAgents.irsDiagAgent import IRSDiagAgent
