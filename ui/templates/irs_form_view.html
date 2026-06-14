@@ -437,6 +437,26 @@ const _AGENT_START_URL  = _SCRIPT_ROOT + '/api/agent/' + _AGENT_KEY + '/start';
 let _currentMember = {{ (default_member or '') | tojson }};
 let _diagLoaded    = false;
 
+// ── Sections refresh (works for K-1 per-member and single-form) ─────────────
+
+function sectionsRefresh() {
+    document.getElementById('sectionsBody').innerHTML =
+        '<div class="pane-init"><p>Loading…</p></div>';
+    fetch(agentUrl(_AGENT_STATUS_URL))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.ok && d.summary) {
+                renderSections(d.summary);
+                const ts = d.summary.last_run;
+                if (ts && (Date.now() - new Date(ts).getTime()) / 3600000 > 2)
+                    setBadge('stale', '⚠ Stale — regenerate');
+            } else {
+                renderEmpty();
+            }
+        })
+        .catch(function () { renderEmpty('Could not load agent status.'); });
+}
+
 // ── Tab switching ────────────────────────────────────────────────────────────
 
 window.leftTabSwitch = function (name, btn) {
@@ -448,6 +468,7 @@ window.leftTabSwitch = function (name, btn) {
     const pane = document.getElementById('pane' + name);
     if (pane) pane.classList.add('active');
     btn.classList.add('active');
+    if (name === 'Sections') sectionsRefresh();
     if (name === 'Diagnosis' && !_diagLoaded) diagLoad();
 };
 
@@ -536,15 +557,7 @@ window.k1MemberChanged = function (oID) {
     const dl = document.getElementById('dlBtn');
     if (dl) dl.href = buildPdfUrl(oID, null) + (oID ? '&' : '?') + 'download=1';
 
-    document.getElementById('sectionsBody').innerHTML =
-        '<div class="pane-init"><p>Loading agent status…</p></div>';
-    fetch(agentUrl(_AGENT_STATUS_URL))
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-            if (d.ok && d.summary) renderSections(d.summary);
-            else renderEmpty();
-        })
-        .catch(function () { renderEmpty(); });
+    sectionsRefresh();
 
     if (document.getElementById('paneDiagnosis').classList.contains('active')) diagLoad();
 };
@@ -860,19 +873,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (selEl) selEl.value = {{ default_member | tojson }};
     k1MemberChanged({{ default_member | tojson }});
     {%- else %}
-    fetch(agentUrl(_AGENT_STATUS_URL))
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-            if (d.ok && d.summary) {
-                renderSections(d.summary);
-                const ts = d.summary.last_run;
-                if (ts && (Date.now() - new Date(ts).getTime()) / 3600000 > 2)
-                    setBadge('stale', '⚠ Stale — regenerate');
-            } else {
-                renderEmpty();
-            }
-        })
-        .catch(function () { renderEmpty('Could not load agent status.'); });
+    sectionsRefresh();
     {%- endif %}
 
     // Auto-open Aid if ?aid_fid= in URL

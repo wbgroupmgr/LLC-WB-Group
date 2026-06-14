@@ -114,10 +114,11 @@ _FILL_MAP_K1: Dict[str, Dict] = {
     # ── Partner identification (Part II, per-partner) ────────────────────────
     "K1_PtEIN":     {"source": "partner", "path": "ein",
                      "note": "Partner's SSN or EIN (Line E)"},
-    "K1_PtName":    {"source": "partner", "path": "name",
-                     "note": "Partner's name (Line F)"},
-    "K1_PtAddr":    {"source": "partner", "path": "address",
-                     "note": "Partner's address/city/state/ZIP (Line F)"},
+    # K1_PtName fills f13 (f1_10) with the merged partner identity block.
+    # f19 (f1_11) has no logicalKey — force blank per PDF structure.
+    # K1_PtAddr removed — no standalone address AcroForm field in this PDF.
+    "K1_PtName":    {"source": "partner", "path": "name_addr_info",
+                     "note": "Partner name + address + role (Line F, merged)"},
     "K1_PtTypeGP":  {"source": "partner", "path": "is_gp_manager",
                      "note": "Line G: GP/LLC member-manager checkbox"},
     "K1_PtTypeLP":  {"source": "partner", "path": "is_lp_member",
@@ -424,6 +425,8 @@ class Sch_K1(Form1065):
         partner_src: Dict = {
             "name":          name,
             "address":       address,
+            # Merged Line F block: name + mailing address + membership role.
+            "name_addr_info": "\n".join(filter(None, [name, address, status])),
             "ein":           partner_raw.get("SSN", partner_raw.get("ssn",
                              partner_raw.get("ein", ""))),
             "mem_type":      mem_type,
