@@ -1299,14 +1299,15 @@ class AgentSchK1_PassiveItems(_SectionAgent):
         oID      = owner.get('oID', '')
         nm       = _owner_name(owner)
         if abs(expected) > 0.01:
+            # Books have the answer — confirmed, not a warning.
+            # The only open question is whether the FILL.pdf was regenerated.
             return self.format_issue(
-                'SK1C-R02', self.WARN,
-                f"K-1 for {nm} ({oID}): Box 2 (rental income) must be filled in.\n"
-                f"  • The books show net rental income of ${net:,.2f} × {pct*100:.2f}% ownership = ${expected:,.2f} for {nm}.\n"
-                f"  • Box 2 is the only income box for a rental LLC — if it's blank in the PDF, regenerate the K-1.",
+                'SK1C-R02', self.INFO,
+                f"✓ K-1 for {nm} ({oID}): Box 2 (net rental income) = ${expected:,.2f}.\n"
+                f"  • Source: IS.net_rental ${net:,.2f} × {pct*100:.2f}% ownership = ${expected:,.2f}.\n"
+                f"  • Box 2 is the only income box for a rental LLC. If the PDF shows blank, regenerate the K-1.",
                 'IRC §446; IRC §702(a); IRC §703; Books-First rule',
-                f"Regenerate the K-1 PDF if Box 2 is blank. "
-                f"Verify Box 2 = ${expected:,.2f} for '{nm}' in the FILL.pdf after generation.")
+                f"Regenerate the K-1 PDF if Box 2 is blank in the FILL.pdf.")
         elif abs(net) < 0.01:
             return self.format_issue(
                 'SK1C-R02', self.WARN,
@@ -1648,12 +1649,12 @@ class AgentSchK1_PassiveItems(_SectionAgent):
                 'SK1C-R20', self.INFO,
                 f"✓ K-1 for {nm} ({oID}): Box 20 Code Z (Net Investment Income) = ${box2:,.2f}.\n"
                 f"  • This equals Box 2 — passive rental income is subject to the 3.8% Net Investment Income Tax (NIIT).\n"
-                f"  • Partners earning above $200,000 (single) or $250,000 (married) owe this additional 3.8% on Form 8960.\n"
-                f"  • Exception: if a partner qualifies as a full-time Real Estate Professional, their rental income is not NII.",
-                'IRC §1411(c)(1)(A)(i); Form 8960; Form 1065 Instructions (K-1 Box 20 Code Z)',
-                f"MAP Box 20Z in _FILL_MAP_K1 → IS.net_rental × pct. "
-                f"Inform '{nm}': if Box 2 > $0 and income exceeds NIIT threshold, "
-                f"report Box 20Z on Form 8960 Line 4a.")
+                f"  • NIIT applies if your total income (AGI) exceeds: $200,000 (single/HOH) or $250,000 (married filing jointly).\n"
+                f"  • If {nm}'s AGI is above that threshold, report Box 20Z on Form 8960 Line 4a of your personal return.\n"
+                f"  • Exception: qualifies as full-time Real Estate Professional (§469(c)(7)) → rental income is not NII.",
+                'IRC §1411(c)(1)(A)(i); IRC §1411(b); Form 8960 Line 4a; K-1 Box 20 Code Z',
+                f"Have {nm} confirm their AGI with their CPA. "
+                f"If AGI exceeds the NIIT threshold, report Box 20 Code Z = ${box2:,.2f} on Form 8960 Line 4a.")
         return self.format_issue(
             'SK1C-R20', self.INFO,
             f"✓ K-1 for {nm} ({oID}): Box 20 Code Z (Net Investment Income) = $0.\n"
