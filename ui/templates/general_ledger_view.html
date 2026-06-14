@@ -530,6 +530,8 @@
     .aud-btn-cancel:hover { background: #d1d5db; }
 
     @media print {
+        @page { size: portrait; margin: 10mm; }
+        html { zoom: 65%; }
         .toolbar-row, .menu, #auditPanel, #jsonPane { display: none !important; }
         .title-panel { position: static; box-shadow: none; }
         .title-toolbar { background: #1e3a8a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
