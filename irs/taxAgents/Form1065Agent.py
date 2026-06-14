@@ -57,6 +57,7 @@ class _SectionAgent(IRSFormsAgent):
     _SHORT_TO_LK: Dict[str, str] = {
         'f5_01': 'K_1',   # Schedule K Line 1: ordinary business income
         'f5_02': 'K_2',   # Schedule K Line 2: net rental real estate income
+        'f5_49': 'K_19a', # Schedule K Line 19a: cash distributions to partners
     }
 
     def __init__(self, llc, tax_year: int):
@@ -1110,6 +1111,7 @@ class AgentF1065_Distr(_SectionAgent):
             self._rule_k2_is_net_not_gross,
             self._rule_partner_alloc_100,
             self._rule_no_se_income,
+            self._rule_k19a_cash_distributions,
         ])
 
     def pass5_summarize(self) -> str:
@@ -1250,6 +1252,94 @@ class AgentF1065_Distr(_SectionAgent):
                 'IRC §1402(a)(1); IRC §1402(a)(13); Pub 541 (Partnerships)',
                 "Remove any mapping to K_14; verify it is blank in the fill dict.",
                 fids=['K_14', 'K_14a'])
+
+    def _rule_k19a_cash_distributions(self):
+        """
+        IRS Rule: Schedule K Line 19a = total cash the LLC actually paid out
+        to ALL partners during the year.
+
+        This is NOT the same as allocated income (Schedule K Line 2).
+        Distinction:
+          - Line 2  (net rental income): paper profit — taxed on partners'
+            returns whether or not cash was paid out (IRC §702(a)).
+          - Line 19a (cash distributions): actual money transferred to
+            partners — generally NOT taxable if ≤ outside basis (IRC §731).
+
+        Source per Books-First (IRC §446): GL Capital.Dist credits and
+        Capital.Funds debits tagged to specific partners.  NOT the IS
+        "member distribution" row — that row is allocated income, not cash out.
+
+        The filed value flows to each partner's K-1 Box 19a.
+        """
+        fill      = self._load_fill_dict()
+        k19a_filed = _safe_float(fill.get('K_19a'))
+
+        # Compute GL-sourced total distributions across all partners.
+        try:
+            from irs.taxAgents.FormSchK1Agent import gl_distributions
+            owners      = self._get_owners()
+            gl_total    = round(sum(gl_distributions(self.llc, o.get('oID', ''))
+                                    for o in owners), 2)
+        except Exception:
+            gl_total = None
+
+        net_rental = self._get_is_agg('net_rental')
+
+        if gl_total is not None and abs(k19a_filed - gl_total) > 1.00:
+            if gl_total == 0 and k19a_filed > 0:
+                return self.format_issue(
+                    'KD-R04', self.WARN,
+                    f"Schedule K Line 19a (Cash Distributions) = ${k19a_filed:,.2f} but the books show $0.\n"
+                    f"  • Line 19a must equal actual cash sent to partners — money that physically left the LLC bank account.\n"
+                    f"  • The IS 'Member distribution' row (${net_rental:,.2f}) is allocated income, not cash out — wrong source for this line.\n"
+                    f"  • Books show no Capital.Dist entries. If no cash was distributed, Line 19a must be blank.\n"
+                    f"  • The ${k19a_filed:,.2f} appears to be a stale value — not traceable to current books.",
+                    'IRC §731; Form 1065 Instructions Schedule K Line 19a',
+                    "If no cash was distributed to any partner: remove F279 mapping from bookNS and re-run. "
+                    "If cash WAS distributed, add Capital.Dist GL entries tagged to each partner and re-run.",
+                    fids=['K_19a'])
+            return self.format_issue(
+                'KD-R04', self.WARN,
+                f"Schedule K Line 19a (Cash Distributions) = ${k19a_filed:,.2f} but GL shows ${gl_total:,.2f}.\n"
+                f"  • Line 19a = actual cash sent to partners (bank transfers), not paper income allocation.\n"
+                f"  • Difference: ${abs(k19a_filed - gl_total):,.2f} — verify Capital.Dist GL entries match the filed amount.",
+                'IRC §731; Form 1065 Instructions Schedule K Line 19a',
+                "Re-run after verifying Capital.Dist GL entries match the total cash distributed. "
+                "If no cash was distributed, leave Line 19a blank.",
+                fids=['K_19a'])
+
+        if k19a_filed > 0 and abs(k19a_filed - net_rental) < 1.00:
+            return self.format_issue(
+                'KD-R04', self.ERROR,
+                f"⚠ Schedule K Line 19a = ${k19a_filed:,.2f} — this matches Line 2 net rental income, which is wrong.\n"
+                f"  • Line 19a must be actual cash distributed, not the income allocation.\n"
+                f"  • Filing income as a distribution would misrepresent partner basis (IRC §705) and overstate distributions.",
+                'IRC §731; IRC §705; Form 1065 Instructions Schedule K Line 19a',
+                "Clear Line 19a (remove F279 mapping). If cash was distributed, enter the GL-sourced amount.",
+                fids=['K_19a'])
+
+        if k19a_filed == 0 and gl_total is not None and gl_total > 0:
+            return self.format_issue(
+                'KD-R04', self.WARN,
+                f"Schedule K Line 19a (Cash Distributions) is blank but GL shows ${gl_total:,.2f} distributed.\n"
+                f"  • Each partner must receive their share on K-1 Box 19a to track outside basis correctly.",
+                'IRC §731; Form 1065 Instructions Schedule K Line 19a',
+                "Map GL total distributions → K_19a in bookNS and re-run.",
+                fids=['K_19a'])
+
+        # Clean — either both $0 or filed matches GL within $1.
+        if k19a_filed == 0:
+            return self.format_issue(
+                'KD-R04', self.INFO,
+                f"✓ Schedule K Line 19a (Cash Distributions) is blank — consistent with GL showing no cash distributions.\n"
+                f"  • If any cash was paid out to partners during 2025, it must be recorded here and on each K-1 Box 19a.",
+                'Form 1065 Instructions Schedule K Line 19a; IRC §731',
+                None, fids=['K_19a'])
+        return self.format_issue(
+            'KD-R04', self.INFO,
+            f"✓ Schedule K Line 19a (Cash Distributions) = ${k19a_filed:,.2f} — matches GL-sourced total.",
+            'Form 1065 Instructions Schedule K Line 19a; IRC §731',
+            None, fids=['K_19a'])
 
 
 # ────────────────────────────────────────────────────────────────────────────
