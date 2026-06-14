@@ -1014,7 +1014,7 @@ class llcMgmt:
                 else:
                     view_title = self.VIEW_TITLES.get(obj_type, obj_type)
                 return render_template(
-                    "irs_pdf_view.html",
+                    "irs_form_view.html",
                     title=self.title,
                     obj_type=obj_type,
                     view_title=view_title,

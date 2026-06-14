@@ -1,0 +1,729 @@
+{% extends "base.html" %}
+{# irs_form_view.html — Unified IRS form view (v1.0)
+   Replaces irs_pdf_view.html + agent_*_review.html dual-page pattern.
+   Single "Generate Form" button: clears stale state → fills FILL.pdf → runs section agents.
+   Left panel: section agent accordion (was Guided Review).
+   Right panel: FILL.pdf iframe.
+   Aid dialog retained as a secondary tool for advanced mapping edits.
+#}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<style>
+/* ── Shell: full-viewport flex column ─────────────────────────────── */
+.form-shell {
+    display: flex; flex-direction: column;
+    height: calc(100vh - 40px);
+    border-radius: 10px; overflow: hidden;
+    background: white; box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+
+/* ── Form header bar ───────────────────────────────────────────────── */
+.form-hdr {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #1e40af; color: white;
+    padding: 9px 14px; flex-shrink: 0;
+}
+.form-hdr .form-menu details { position: relative; }
+.form-hdr .form-menu summary {
+    list-style: none; cursor: pointer; font-size: 18px;
+    background: rgba(255,255,255,.18); color: white;
+    border-radius: 4px; padding: 4px 10px; user-select: none;
+}
+.form-hdr-label { font-size: 15px; font-weight: 700; color: #bfdbfe; white-space: nowrap; }
+.form-hdr-sep { color: #93c5fd; font-size: 13px; }
+.form-hdr-title { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.form-hdr-spacer { flex: 1; }
+
+/* Status badge */
+.status-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 10px;
+    border-radius: 12px; white-space: nowrap;
+}
+.status-badge.ns      { background: rgba(255,255,255,.15); color: #bfdbfe; }
+.status-badge.running { background: #dbeafe; color: #1d4ed8; }
+.status-badge.current { background: #dcfce7; color: #166534; }
+.status-badge.all-go  { background: #dcfce7; color: #166534; }
+.status-badge.warn    { background: #fef3c7; color: #78350f; }
+.status-badge.err     { background: #fee2e2; color: #991b1b; }
+.status-badge.stale   { background: #fef3c7; color: #78350f; }
+
+/* Header action buttons */
+.btn-generate {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 16px; background: white; color: #1e40af;
+    border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.btn-generate:hover  { background: #dbeafe; }
+.btn-generate:disabled { background: #e5e7eb; color: #9ca3af; cursor: default; }
+.btn-hdr {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+    border-radius: 6px; color: white; font-size: 13px;
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.btn-hdr:hover { background: rgba(255,255,255,.28); color: white; }
+.btn-hdr.danger { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.4); color: #fecaca; }
+.btn-hdr.danger:hover { background: rgba(239,68,68,.35); }
+
+/* ── Stats bar ─────────────────────────────────────────────────────── */
+.stats-bar {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 7px 14px;
+    background: #eef2ff; border-bottom: 2px solid #3b82f6;
+    flex-shrink: 0;
+}
+.stat-chip {
+    display: inline-flex; align-items: baseline; gap: 7px;
+    background: white; color: #1e3a8a;
+    border: 1px solid #c7d2fe; border-radius: 999px;
+    padding: 5px 13px; font-size: 13px;
+}
+.stat-chip .chip-val { font-weight: 700; font-size: 14px; }
+
+/* ── Split panels ──────────────────────────────────────────────────── */
+.form-panels { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+/* Left panel — section accordion */
+.panel-left {
+    width: 44%; display: flex; flex-direction: column;
+    border-right: 1px solid #e2e8f0; overflow: hidden; min-height: 0;
+}
+.panel-left-hdr {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0; flex-shrink: 0; flex-wrap: wrap;
+}
+.panel-left-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: #6b7280;
+}
+.member-select {
+    font-size: 12px; padding: 3px 7px;
+    border: 1px solid #d1d5db; border-radius: 4px;
+    background: white; color: #111827; cursor: pointer; max-width: 240px;
+}
+.agent-ts { font-size: 11px; color: #9ca3af; margin-left: auto; white-space: nowrap; }
+.sections-body { flex: 1; overflow-y: auto; min-height: 0; }
+
+/* Right panel — PDF iframe */
+.panel-right {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; min-height: 0;
+}
+.panel-right-hdr {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
+}
+.panel-right-title {
+    font-size: 12px; font-weight: 600; font-family: monospace; color: #374151; flex: 1;
+}
+.ns-link { font-size: 11px; color: #9ca3af; text-decoration: none; }
+.ns-link:hover { color: #4b5563; text-decoration: underline; }
+.pdf-ts { font-size: 11px; color: #9ca3af; white-space: nowrap; }
+.pdf-panel { flex: 1; overflow: hidden; min-height: 0; position: relative; }
+.pdf-iframe {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; border: none;
+}
+.pdf-missing {
+    background: #fef3c7; border: 1px solid #f59e0b;
+    color: #78350f; padding: 16px; margin: 12px;
+    border-radius: 8px; font-size: 14px;
+}
+
+/* ── Section accordion ─────────────────────────────────────────────── */
+.acc-section { border-bottom: 1px solid #f3f4f6; }
+.acc-hdr {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer; user-select: none;
+    background: #fafafa;
+}
+.acc-hdr:hover { background: #f3f4f6; }
+.acc-chev {
+    font-size: 15px; color: #9ca3af; line-height: 1;
+    transition: transform .15s; display: inline-block; flex-shrink: 0;
+}
+.acc-chev.open { transform: rotate(90deg); }
+.acc-label { flex: 1; font-size: 13px; font-weight: 600; color: #111827; }
+.acc-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.sec-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 12px;
+}
+.sec-badge.go   { background: #dcfce7; color: #166534; }
+.sec-badge.err  { background: #fee2e2; color: #991b1b; }
+.sec-badge.warn { background: #fef3c7; color: #78350f; }
+.sec-badge.ns   { background: #f3f4f6; color: #9ca3af; }
+
+.acc-body { display: none; padding: 4px 12px 8px 12px; }
+.acc-body.open { display: block; }
+
+/* ── Issue rows ────────────────────────────────────────────────────── */
+.issue-row {
+    display: flex; gap: 8px; padding: 5px 0;
+    border-top: 1px solid #f9fafb; font-size: 12px;
+}
+.issue-row:first-child { border-top: none; }
+.sev-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+.sev-icon.err  { color: #991b1b; }
+.sev-icon.warn { color: #92400e; }
+.sev-icon.info { color: #1e3a8a; }
+.issue-body { flex: 1; min-width: 0; }
+.issue-rule { font-size: 10px; font-weight: 700; color: #6b7280; font-family: monospace; }
+.issue-msg  { color: #374151; line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+.issue-action { font-size: 11px; color: #1d4ed8; margin-top: 3px; }
+.issue-cite   { font-size: 11px; color: #9ca3af; font-style: italic; margin-top: 2px; }
+.fid-chips { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px; }
+.fid-chip {
+    display: inline-block; font-family: monospace; font-size: 11px;
+    background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;
+    border-radius: 4px; padding: 1px 5px;
+}
+.no-issues { font-size: 12px; color: #166534; padding: 6px 0; }
+.ext-advice {
+    background: #fafaf5; border: 1px solid #e7e5e4; border-radius: 6px;
+    padding: 8px 12px; font-size: 12px; color: #78716c; margin: 8px 12px;
+}
+.verify-bar { display: flex; justify-content: flex-end; padding: 4px 0 2px; }
+.btn-verify {
+    font-size: 11px; padding: 3px 10px;
+    border: 1px solid #d1d5db; border-radius: 4px;
+    background: white; color: #6b7280; cursor: pointer;
+}
+.btn-verify:hover { background: #f3f4f6; }
+.btn-verify.verified { background: #dcfce7; color: #166534; border-color: #86efac; cursor: default; }
+
+/* ── Empty / loading states ────────────────────────────────────────── */
+.sections-init {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 12px; padding: 20px; text-align: center;
+}
+.sections-init p { font-size: 13px; color: #6b7280; margin: 0; }
+.sections-init .hint { font-size: 11px; color: #9ca3af; }
+</style>
+{% endblock %}
+
+{% block content %}
+<script>const _SCRIPT_ROOT = {{ request.script_root | tojson }};</script>
+
+{# AID_FORM must be set before including _aid_dialog.html #}
+<script>window.AID_FORM = {{ meta.formId | tojson }};</script>
+
+<div class="form-shell">
+
+    {# ── Header bar ─────────────────────────────────────────────── #}
+    <div class="form-hdr">
+        <div class="form-menu">
+            <details>
+                <summary>☰</summary>
+                {% include '_nav_dropdown.html' %}
+            </details>
+        </div>
+        <span class="form-hdr-label">📄 {{ title }}</span>
+        <span class="form-hdr-sep">›</span>
+        <span class="form-hdr-title">{{ view_title }}</span>
+        <span class="form-hdr-spacer"></span>
+
+        <span class="status-badge ns" id="statusBadge">Not run</span>
+
+        <button class="btn-generate" id="generateBtn" onclick="generateForm()">
+            ▶ Generate Form
+        </button>
+
+        {% if meta.pdfPresent %}
+        <a class="btn-hdr" id="dlBtn"
+           href="{{ pdf_url }}?download=1" download
+           title="Download FILL.pdf">↓ Download</a>
+        {% endif %}
+
+        <button class="btn-hdr" onclick="window.print()" title="Print">🖨 Print</button>
+
+        <button class="btn-hdr" onclick="aidOpen()"
+                title="Open Book→IRS mapping aid">🛠 Aid</button>
+
+        <button class="btn-hdr" onclick="cpaReviewOpen()"
+                title="CPA advisory fields">🔍 CPA</button>
+
+        <a class="btn-hdr danger" href="{{ url_for('logout') }}"
+           onclick="return confirm('Sign out?')">⏻ Logoff</a>
+    </div>
+
+    {# ── Stats bar ──────────────────────────────────────────────── #}
+    {% if stats_labels %}
+    <div class="stats-bar">
+        {% for s in stats_labels %}
+        <span class="stat-chip">
+            <span class="chip-val">{{ s.value }}</span>
+            <span>{% if s.group %}{{ s.group }} — {% endif %}{{ s.text }}</span>
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── Split panels ───────────────────────────────────────────── #}
+    <div class="form-panels">
+
+        {# LEFT: Section agent accordion #}
+        <div class="panel-left">
+            <div class="panel-left-hdr">
+                <span class="panel-left-title">Section agent</span>
+                {% if meta.owners %}
+                <select id="memberSelect" class="member-select"
+                        onchange="k1MemberChanged(this.value)">
+                    <option value="">— Partnership totals —</option>
+                    {% for o in meta.owners %}
+                    <option value="{{ o.oID }}"
+                            {% if not o.fill_exists %}disabled title="PDF not yet generated"{% endif %}>
+                        {{ o.name }}{% if not o.fill_exists %} ⚠{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <span class="agent-ts" id="agentTs"></span>
+            </div>
+            <div class="sections-body" id="sectionsBody">
+                <div class="sections-init">
+                    <p>Click <strong>Generate Form</strong> to run the section agents and fill the PDF.</p>
+                    <span class="hint">Generate Form = fill FILL.pdf from books + run all section agents</span>
+                </div>
+            </div>
+        </div>
+
+        {# RIGHT: PDF iframe #}
+        <div class="panel-right">
+            <div class="panel-right-hdr">
+                <span class="panel-right-title" id="fillFileLabel">{{ meta.formId }}_FILL.pdf</span>
+                {% if ns_pdf_url %}
+                <a class="ns-link" href="{{ ns_pdf_url }}" target="_blank" rel="noopener"
+                   title="View AcroForm field namespace">{{ meta.formId }}_namespace.pdf ↗</a>
+                {% endif %}
+                <span class="pdf-ts" id="pdfTs"></span>
+            </div>
+            <div class="pdf-panel">
+                {% if meta.pdfPresent %}
+                <iframe id="pdfFrame" class="pdf-iframe"
+                        src="{{ pdf_url }}" title="{{ view_title }}"></iframe>
+                {% else %}
+                <div class="pdf-missing">
+                    <strong>FILL.pdf not found.</strong><br>
+                    Click <strong>Generate Form</strong> to create it from the books.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+    </div>{# /form-panels #}
+</div>{# /form-shell #}
+
+{# Aid dialog — retained for advanced mapping edits #}
+{% include '_aid_dialog.html' %}
+
+{# CPA Review modal #}
+<div class="modal-backdrop" id="cpaReviewBackdrop"
+     onclick="if(event.target===this)document.getElementById('cpaReviewBackdrop').style.display='none'">
+  <div class="modal">
+    <h3>🔍 CPA Review — <span id="cpaFormNm"></span></h3>
+    <div id="cpaReviewBody"><div style="color:#9ca3af;padding:12px 0">Loading…</div></div>
+    <div class="modal-toolbar">
+      <button class="btn btn-secondary"
+              onclick="document.getElementById('cpaReviewBackdrop').style.display='none'">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+const _FORM_NM   = {{ meta.formId | tojson }};
+const _PDF_URL   = {{ url_for('serve_irs_pdf', form_id=meta.formId) | tojson }};
+const _REGEN_URL = _SCRIPT_ROOT + '/api/aid/regenerate';
+const _VFY_URL   = _SCRIPT_ROOT + '/api/aid/verify_section';
+const _CPA_URL   = _SCRIPT_ROOT + '/api/aid/cpa_review';
+
+{# Agent URL patterns — Form1065 uses named routes; others use generic /api/agent/<key>/ #}
+{% if meta.formId == 'Form1065' %}
+const _AGENT_KEY        = 'form1065';
+const _AGENT_STATUS_URL = {{ url_for('agent_form1065_get_summary') | tojson }};
+const _AGENT_START_URL  = {{ url_for('agent_form1065_start') | tojson }};
+{% else %}
+const _AGENT_KEY        = {{ meta.get('agent_key', 'schk1') | tojson }};
+const _AGENT_STATUS_URL = _SCRIPT_ROOT + '/api/agent/' + _AGENT_KEY + '/status';
+const _AGENT_START_URL  = _SCRIPT_ROOT + '/api/agent/' + _AGENT_KEY + '/start';
+{% endif %}
+
+let _currentMember = {{ (default_member or '') | tojson }};
+
+// ── URL helpers ─────────────────────────────────────────────────────────────
+
+function buildPdfUrl(oID, ts) {
+    let url = _PDF_URL;
+    if (oID) url += '?member=' + encodeURIComponent(oID);
+    if (ts)  url += (oID ? '&' : '?') + 'ts=' + ts;
+    return url;
+}
+
+function agentUrl(base) {
+    if (_currentMember) return base + '?member=' + encodeURIComponent(_currentMember);
+    return base;
+}
+
+// ── Status badge helper ──────────────────────────────────────────────────────
+
+function setBadge(cls, txt) {
+    const b = document.getElementById('statusBadge');
+    b.className = 'status-badge ' + cls;
+    b.textContent = txt;
+}
+
+// ── Generate Form — single atomic action ────────────────────────────────────
+// 1. POST /api/aid/regenerate   → fills FILL.pdf from books
+// 2. Reload PDF iframe          → shows fresh PDF immediately
+// 3. POST /api/agent/<key>/start → runs all section agents
+// 4. renderSections()            → rebuilds left panel accordion
+
+window.generateForm = async function () {
+    const btn  = document.getElementById('generateBtn');
+    btn.disabled = true;
+
+    try {
+        // Step 1 — fill FILL.pdf
+        btn.textContent = '⏳ Filling PDF…';
+        setBadge('running', 'Running…');
+
+        const r1 = await fetch(_REGEN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ formNm: _FORM_NM }),
+        });
+        const d1 = await r1.json();
+        if (!d1.ok) throw new Error('Regenerate: ' + (d1.error || 'unknown'));
+
+        // Reload PDF iframe immediately so the user can see the fresh PDF
+        // while agents are still running
+        const frame = document.getElementById('pdfFrame');
+        if (frame) {
+            frame.src = buildPdfUrl(_currentMember, Date.now());
+            const now = new Date();
+            document.getElementById('pdfTs').textContent =
+                'Generated ' + now.toLocaleTimeString();
+        }
+
+        // Step 2 — run section agents
+        btn.textContent = '⏳ Running agents…';
+        const r2 = await fetch(agentUrl(_AGENT_START_URL), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        const d2 = await r2.json();
+        if (!d2.ok) throw new Error('Agent run: ' + (d2.error || 'unknown'));
+
+        if (d2.summary) renderSections(d2.summary);
+
+    } catch (err) {
+        setBadge('stale', '⚠ Error');
+        alert('Generate Form failed: ' + err.message);
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = '▶ Generate Form';
+    }
+};
+
+// ── K-1 member selector ──────────────────────────────────────────────────────
+
+window.k1MemberChanged = function (oID) {
+    _currentMember = oID;
+
+    // Update PDF iframe to show this member's K-1
+    const frame = document.getElementById('pdfFrame');
+    if (frame) frame.src = buildPdfUrl(oID, Date.now());
+
+    // Update file label + download link
+    const lbl = oID ? 'Sch_K1_' + oID + '_FILL.pdf' : 'Sch_K1_FILL.pdf';
+    const fl  = document.getElementById('fillFileLabel');
+    if (fl) fl.textContent = lbl;
+    const dl = document.getElementById('dlBtn');
+    if (dl) dl.href = buildPdfUrl(oID, null) + (oID ? '&' : '?') + 'download=1';
+
+    // Re-fetch agent status for this member
+    document.getElementById('sectionsBody').innerHTML =
+        '<div class="sections-init"><p>Loading agent status…</p></div>';
+    fetch(agentUrl(_AGENT_STATUS_URL))
+        .then(r => r.json())
+        .then(d => { if (d.ok && d.summary) renderSections(d.summary); else renderEmpty(); })
+        .catch(() => renderEmpty());
+};
+
+// ── Render sections accordion ────────────────────────────────────────────────
+
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                           .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderEmpty(msg) {
+    document.getElementById('sectionsBody').innerHTML =
+        '<div class="sections-init">' +
+        '<p>' + (msg || 'Click <strong>Generate Form</strong> to run section agents.') + '</p>' +
+        '<span class="hint">Generate Form = fill FILL.pdf from books + run all section agents</span>' +
+        '</div>';
+    document.getElementById('agentTs').textContent = '';
+}
+
+function renderSections(summary) {
+    // Normalize: sections may be a list (generic agents) or object (form1065)
+    let sections = summary.sections;
+    if (!Array.isArray(sections)) sections = Object.values(sections || {});
+    if (!sections.length) { renderEmpty(); return; }
+
+    let html = '';
+    let totalErr = 0, totalWarn = 0, hasRun = false;
+    let extAdvice = summary.ext_advice || '';
+
+    sections.forEach(function (sec) {
+        if (sec.agent === 'AgentForm_Ext') {
+            extAdvice = extAdvice || sec.summary || '';
+            return;
+        }
+        if (sec.state !== 'NOT_STARTED') hasRun = true;
+
+        const issues   = sec.issues || [];
+        const errCount = issues.filter(function (i) { return !i.resolved && i.severity === 'ERROR'; }).length;
+        const warnCount= issues.filter(function (i) { return !i.resolved && i.severity === 'WARN';  }).length;
+        totalErr  += errCount;
+        totalWarn += warnCount;
+
+        // Section state badges
+        let badges = '';
+        if (errCount)   badges += '<span class="sec-badge err">' + errCount  + (errCount  > 1 ? ' errors' : ' error') + '</span>';
+        if (warnCount)  badges += '<span class="sec-badge warn">' + warnCount + (warnCount > 1 ? ' warns'  : ' warn')  + '</span>';
+        if (!errCount && !warnCount && sec.state === 'GO')
+            badges += '<span class="sec-badge go">GO</span>';
+        if (sec.state === 'NOT_STARTED')
+            badges += '<span class="sec-badge ns">not started</span>';
+
+        // Auto-open sections that have errors or warnings
+        const open = (errCount + warnCount) > 0;
+
+        // Issue rows
+        let issueHtml = '';
+        issues.forEach(function (issue) {
+            if (issue.resolved) return;
+            const sevCls = issue.severity === 'ERROR' ? 'err' : issue.severity === 'WARN' ? 'warn' : 'info';
+            const sevIcn = issue.severity === 'ERROR' ? '⚠' : issue.severity === 'WARN' ? '△' : 'ℹ';
+            // Preserve newline bullet formatting from section agent messages
+            const msgHtml = escHtml(issue.message || '')
+                .replace(/\n  • /g, '<br>&nbsp;&nbsp;• ')
+                .replace(/\n/g, '<br>');
+            const fidsHtml = (issue.fids || []).map(function (f) {
+                return '<span class="fid-chip">' + escHtml(f) + '</span>';
+            }).join('');
+            issueHtml +=
+                '<div class="issue-row">' +
+                  '<span class="sev-icon ' + sevCls + '" aria-label="' + issue.severity + '">' + sevIcn + '</span>' +
+                  '<div class="issue-body">' +
+                    '<div class="issue-rule">' + escHtml(issue.rule_id || '') + '</div>' +
+                    '<div class="issue-msg">' + msgHtml + '</div>' +
+                    (issue.action  ? '<div class="issue-action">→ ' + escHtml(issue.action) + '</div>' : '') +
+                    (issue.irs_cite? '<div class="issue-cite">' + escHtml(issue.irs_cite) + '</div>' : '') +
+                    (fidsHtml      ? '<div class="fid-chips">' + fidsHtml + '</div>' : '') +
+                  '</div>' +
+                '</div>';
+        });
+        if (!issueHtml) {
+            issueHtml = '<div class="no-issues">✓ No issues — section is ready</div>';
+        }
+
+        const secId = escHtml(sec.agent || sec.label || '');
+        html +=
+            '<div class="acc-section">' +
+              '<div class="acc-hdr" onclick="_accToggle(this)">' +
+                '<span class="acc-chev' + (open ? ' open' : '') + '">›</span>' +
+                '<span class="acc-label">' + escHtml(sec.label || sec.agent || '') + '</span>' +
+                '<span class="acc-badges">' + badges + '</span>' +
+              '</div>' +
+              '<div class="acc-body' + (open ? ' open' : '') + '">' +
+                issueHtml +
+                '<div class="verify-bar">' +
+                  '<button class="btn-verify" data-sec-id="' + secId + '" onclick="_verifySection(this)">Verify</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+    });
+
+    if (extAdvice) {
+        html += '<div class="ext-advice">ℹ Next Steps: ' + escHtml(extAdvice) + '</div>';
+    }
+
+    document.getElementById('sectionsBody').innerHTML = html;
+
+    // Update overall status badge
+    if (totalErr) {
+        setBadge('err', '⚠ ' + totalErr + (totalErr > 1 ? ' errors' : ' error'));
+    } else if (totalWarn) {
+        setBadge('warn', '△ ' + totalWarn + (totalWarn > 1 ? ' warnings' : ' warning'));
+    } else if (hasRun) {
+        setBadge('all-go', '✓ All GO');
+    } else {
+        setBadge('ns', 'Not run');
+    }
+
+    if (summary.last_run) {
+        document.getElementById('agentTs').textContent =
+            'Last run: ' + new Date(summary.last_run).toLocaleString();
+    }
+}
+
+// ── Accordion toggle ─────────────────────────────────────────────────────────
+
+window._accToggle = function (hdr) {
+    const chev = hdr.querySelector('.acc-chev');
+    const body = hdr.nextElementSibling;
+    const open = body.classList.toggle('open');
+    if (open) chev.classList.add('open'); else chev.classList.remove('open');
+};
+
+// ── Verify section ───────────────────────────────────────────────────────────
+
+window._verifySection = async function (btn) {
+    const secId = btn.getAttribute('data-sec-id');
+    const orig  = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳…';
+    try {
+        const r = await fetch(_VFY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ form: _FORM_NM, section_id: secId }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            btn.textContent = '✓ Verified';
+            btn.classList.add('verified');
+        } else {
+            btn.textContent = orig;
+            btn.disabled = false;
+        }
+    } catch {
+        btn.textContent = orig;
+        btn.disabled = false;
+    }
+};
+
+// ── CPA Review modal ─────────────────────────────────────────────────────────
+
+const _STATUS_BADGE = {
+    "auto": '<span class="pill" style="background:#dcfce7;color:#166534;border:1px solid #86efac">auto-filled</span>',
+    "zero": '<span class="pill" style="background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db">$0 / blank</span>',
+    "cpa":  '<span class="pill" style="background:#fef3c7;color:#78350f;border:1px solid #fcd34d">CPA review</span>',
+};
+
+window.cpaReviewOpen = function () {
+    const formNm = _FORM_NM;
+    document.getElementById('cpaFormNm').textContent = formNm;
+    document.getElementById('cpaReviewBody').innerHTML =
+        '<div style="color:#9ca3af;padding:12px 0">Loading…</div>';
+    document.getElementById('cpaReviewBackdrop').style.display = 'flex';
+    fetch(_CPA_URL + '?formNm=' + encodeURIComponent(formNm))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.ok) {
+                document.getElementById('cpaReviewBody').innerHTML =
+                    '<div style="color:#991b1b">Error: ' + (data.error || 'unknown') + '</div>';
+                return;
+            }
+            let html = '';
+            // Part summaries
+            (data.parts || []).forEach(function (p) {
+                const badge = _STATUS_BADGE[p.status] || '';
+                const detail = p.detail
+                    ? '<div style="color:#6b7280;font-size:12px;white-space:pre-wrap;margin-top:4px">' + escHtml(p.detail) + '</div>' : '';
+                html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px">' +
+                    '<strong style="min-width:120px">' + escHtml(p.part) + '</strong>' +
+                    badge + '<span>' + escHtml(p.summary) + detail + '</span></div>';
+            });
+            // Depreciation notes
+            const dn = data.depr_notes || {};
+            if (dn.title) {
+                html += '<h4 style="margin:16px 0 6px">' + escHtml(dn.title) + '</h4>';
+                if (dn.explanation) html += '<p style="font-size:13px;color:#6b7280">' + escHtml(dn.explanation) + '</p>';
+            }
+            // CPA fields
+            (data.fields || []).forEach(function (f) {
+                html += '<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #f9fafb">' +
+                    '<code>' + escHtml(f.label || f.logicalKey) + '</code> — ' + escHtml(f.note || '') + '</div>';
+            });
+            if (!html) html = '<div style="color:#166534">No CPA review items defined for this form.</div>';
+            document.getElementById('cpaReviewBody').innerHTML = html;
+        })
+        .catch(function (err) {
+            document.getElementById('cpaReviewBody').innerHTML =
+                '<div style="color:#991b1b">Fetch error: ' + err + '</div>';
+        });
+};
+
+// ── Override aidRegenerate to preserve K-1 member selection ──────────────────
+// (aidRegenerate is defined by _aid_dialog.html; we wrap it here)
+{%- if meta.owners %}
+document.addEventListener('DOMContentLoaded', function () {
+    const _origRegen = window.aidRegenerate;
+    if (typeof _origRegen === 'function') {
+        window.aidRegenerate = async function () {
+            await _origRegen();
+            const frame = document.getElementById('pdfFrame');
+            if (frame && _currentMember) frame.src = buildPdfUrl(_currentMember, Date.now());
+        };
+    }
+});
+{%- endif %}
+
+// ── Auto-load agent status on page open ──────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', function () {
+
+    {%- if default_member %}
+    // K-1 with a default member: sync the select and fetch that member's status
+    const selEl = document.getElementById('memberSelect');
+    if (selEl) selEl.value = {{ default_member | tojson }};
+    k1MemberChanged({{ default_member | tojson }});
+    {%- else %}
+    // All other forms (or K-1 without member): fetch current agent status
+    fetch(agentUrl(_AGENT_STATUS_URL))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.ok && d.summary) {
+                renderSections(d.summary);
+                // If the agent has run but PDF may be stale, show that
+                const ts = d.summary.last_run;
+                if (ts) {
+                    const ageHrs = (Date.now() - new Date(ts).getTime()) / 3600000;
+                    if (ageHrs > 2 && document.getElementById('statusBadge').className.includes('all-go')) {
+                        setBadge('stale', '⚠ Stale — regenerate');
+                    }
+                }
+            } else {
+                renderEmpty();
+            }
+        })
+        .catch(function () { renderEmpty('Could not load agent status.'); });
+    {%- endif %}
+
+    // Auto-open Aid if ?aid_fid= is in the URL
+    const aidFid = new URLSearchParams(window.location.search).get('aid_fid');
+    if (aidFid) {
+        const tryOpen = function () {
+            if (typeof window.aidOpen === 'function') window.aidOpen(aidFid);
+        };
+        setTimeout(tryOpen, 300);
+        const iv = setInterval(function () {
+            if (typeof window.aidOpen === 'function') { clearInterval(iv); window.aidOpen(aidFid); }
+        }, 100);
+        setTimeout(function () { clearInterval(iv); }, 3000);
+    }
+});
+
+})(); // end IIFE
+</script>
+{% endblock %}
