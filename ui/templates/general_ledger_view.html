@@ -528,6 +528,14 @@
                       border-radius: 6px; padding: 8px 14px; font-size: 13px;
                       cursor: pointer; }
     .aud-btn-cancel:hover { background: #d1d5db; }
+
+    @media print {
+        .toolbar-row, .menu, #auditPanel, #jsonPane { display: none !important; }
+        .title-panel { position: static; box-shadow: none; }
+        .title-toolbar { background: #1e3a8a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        details { page-break-inside: avoid; }
+        details[open] summary ~ * { display: block; }
+    }
 </style>
 {% endblock %}
 
@@ -564,6 +572,7 @@
                     <div class="act-dropdown">
                         <button onclick="window.location.href=buildViewUrl()">🔄 Refresh</button>
                         <button class="act-primary" onclick="runAudit()">🔍 Audit</button>
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.print()">🖨️ Print</button>
                         <button class="act-warning" onclick="togglePane('jsonPane')">{ } JSON</button>
                     </div>
                 </details>

@@ -218,6 +218,15 @@
     .amt-pos { color: #166534; }
     .amt-neg { color: #991b1b; }
     .acct-name { font-family: monospace; font-size: 12px; color: #4b5563; }
+
+    @media print {
+        .toolbar-row, .menu, #jsonPane, #bsAuditPanel { display: none !important; }
+        .title-panel { position: static; box-shadow: none; }
+        .title-toolbar { background: #1e40af; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        details[open] summary ~ * { display: block; }
+        details:not([open]) summary ~ * { display: none; }
+        details { page-break-inside: avoid; }
+    }
 </style>
 {% endblock %}
 
@@ -252,6 +261,7 @@
                         {% if obj_type == 'stmtBalanceSheet' %}
                         <button class="act-primary" onclick="openBSAudit()">🔍 BalSheetAudit</button>
                         {% endif %}
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.print()">🖨️ Print</button>
                         <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
                     </div>
                 </details>
