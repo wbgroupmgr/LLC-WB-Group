@@ -1,10 +1,15 @@
-%%{init: {'theme': 'base', 
+%%{init: {'theme': 'base',
           'themeVariables': {'fontSize': '12px', 'primaryColor': '#f0f4f8', 'edgeLabelBackground': '#ffffff', 'clusterBkg': '#f9f9f9'},
           'flowchart': { 'rankSpacing': 30, 'nodeSpacing' : 10, 'padding' : 5 }
    }}%%
 flowchart TD
     %% ════════════════════════════════════════════════════════════════════
-    %% BookToIRS High Level Data Flow
+    %% BookToIRS High Level Data Flow  (HL++)
+    %%
+    %% Main flow  L1→L2→L3→L4→L5  shows the major artifacts and pipeline.
+    %% Shadow artifacts  SA  (gray dashed border) show the hidden files that
+    %% must stay in sync for regenerate() to produce correct output.
+    %% They do not carry data — they are INTEGRITY GUARDS on the main flow.
     %% ════════════════════════════════════════════════════════════════════
 
     subgraph InvisibleContainer [" "]
@@ -93,9 +98,9 @@ flowchart TD
             N343["3.4.3  AgentSchK1_Capital"]
             N341 ~~~ N342 ~~~ N343
         end
-        
-    end 
-    %% Invisible 
+
+    end
+    %% Invisible
     end
 
     %% ════════════════════════════════════════════════════════════════════
@@ -177,7 +182,30 @@ flowchart TD
         L54 ~~~ L53 ~~~ L52 ~~~ L51
     end
 
-    
+    %% ════════════════════════════════════════════════════════════════════
+    %% SA.  Shadow Artifacts  — Startup Integrity Guards
+    %%
+    %% These files exist ON DISK alongside the main artifacts but are NOT
+    %% part of the main data flow.  They are checked by startupCheck.py
+    %% every time the server starts.  If stale, the main pipeline produces
+    %% wrong output without any obvious error.
+    %%
+    %% Visual convention: gray dashed border = "shadow / guard" layer.
+    %% Dashed arrows (-.->)  = "monitors / guards" (not data transfer).
+    %% ════════════════════════════════════════════════════════════════════
+    subgraph SA["⚙  Shadow Artifacts  ·  Startup Integrity Guards  (irs/startupCheck.py)"]
+        direction LR
+
+        SA1["S.1  Session State\n.agent_work/\n*_session_state.json\n─────────────\nTransient — cleared\non every server start\n(never survives restart)"]
+
+        SA2["S.2  Namespace JSON\n{form}_namespace.json\n─────────────\nAuto-built from IRS PDF.\nStale if IRS.pdf replaced.\nWARN if PDF newer than JSON."]
+
+        SA3["S.3  bookNS Integrity\nbookNS_integrity.json\n─────────────\nSHA256 of bookNS sections\nat last VERIFY click.\nWARN if BUS repo drifts\nfrom LLC repo expectations."]
+
+        SA4["S.4  FILL.pdf Staleness\n{form}_FILL.pdf\n─────────────\nFILL is stale if any\nbookNS_*.json is newer.\nWARN → run REGENERATE\nin Guided Review."]
+
+        SA1 ~~~ SA2 ~~~ SA3 ~~~ SA4
+    end
 
     %% ════════════════════════════════════════════════════════════════════
     %% MAIN FLOW CONNECTIONS
@@ -197,14 +225,25 @@ flowchart TD
     L4  -->|"Financial YE Report"| L5
 
     %% ════════════════════════════════════════════════════════════════════
+    %% SHADOW ARTIFACT GUARDS
+    %% Dashed arrows = "startup integrity check monitors this layer"
+    %% Direction: from the LAYER being monitored → to the GUARD that checks it
+    %% ════════════════════════════════════════════════════════════════════
+
+    L2  -.->|"bookNS\nsource files"| SA3
+    L2  -.->|"bookNS\nsource files"| SA4
+    L3  -.->|"pipeline\nsession state"| SA1
+    L3  -.->|"namespace\nartifact"| SA2
+    L5  -.->|"FILL.pdf\noutput"| SA4
+
+    %% ════════════════════════════════════════════════════════════════════
     %% STYLING
     %% ════════════════════════════════════════════════════════════════════
 
     %% Hide the outer container's borders, background, and text
     style InvisibleContainer fill:none,stroke:none,color:none
 
-
-    %% Layer backgrounds
+    %% Main layer backgrounds
     style L1  fill:#e8f4e8,stroke:#388e3c,stroke-width:3px,color:#1b5e20
     style L2  fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
     style L21 fill:#fffde7,stroke:#f9a825,stroke-width:2px
@@ -225,4 +264,9 @@ flowchart TD
     style L53 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
     style L54 fill:#e8eaf6,stroke:#5c6bc0,stroke-width:1px
 
-    
+    %% Shadow artifacts — muted gray, dashed border to signal "guard layer not data layer"
+    style SA  fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px,color:#424242
+    style SA1 fill:#fafafa,stroke:#bdbdbd,stroke-width:1px,color:#616161
+    style SA2 fill:#fafafa,stroke:#bdbdbd,stroke-width:1px,color:#616161
+    style SA3 fill:#fafafa,stroke:#bdbdbd,stroke-width:1px,color:#616161
+    style SA4 fill:#fffde7,stroke:#f57f17,stroke-width:1px,color:#4e342e
