@@ -22,6 +22,59 @@ defined in `FormSchK1Agent._SectionAgent` Golden Rule §2.
 
 ---
 
+## [1.4.0] — 2026-06-14  **SchK1 Box L Capital Account + Form 8825 Forensic Clusters**
+
+### Added
+- **Form 8825 forensic cluster reporting (F8NI-R05a…d)** — one finding per
+  suspicious transaction cluster instead of a single bundled list.  Each cluster
+  gets its own rule ID (`F8NI-R05a`, `F8NI-R05b`, …), its own resolve button, and
+  its own description.  `_run_audit()` now handles list-returning rules via
+  `issues.extend()`.  False-positive fix: `has_return` alone (same property
+  return-and-rebuy) no longer triggers; only `multi_prop` or `duplicate` fires.
+- **`gl_contributions(llc, oID)` returns `(attributed, untagged)` tuple** — null
+  `propOwners` entries are NOT silently allocated by ownership %; surfaced as
+  separate WARN `SK1B-R07u` so the operator can tag the entry explicitly.
+- **SK1B-R07u — untagged capital contributions rule** — new
+  `_rule_capital_unattributed` in `AgentSchK1_PartnerCapital`.  Fires when any
+  `Capital.Funds` credit rows have null/empty `propOwners`; names the managing
+  member as the almost-certain contributor.  Per-member display; same warning
+  shown on all three K-1s since the GL gap affects all of them.
+- **docs/BUS/design_BUS_03.01_Auditing_Forensics.md** — new design doc capturing
+  three-layer control architecture: Layer 1 (GL entry prevention, v1.5), Layer 2
+  (monthly reconciliation, v1.4), Layer 3 (continuous monitoring agent, v2.x).
+  Opened GitHub issue #27.
+
+### Fixed
+- **SchK1 Box L capital account — wrong source** (issue #23 Problem 1) —
+  `_gl_load_all()` misses `Capital.Funds` when it appears as the CONTRA account
+  (e.g., DR Fixed.Asset / CR Capital.Funds for the $219K property contribution).
+  Switched all capital GL reads to `stmtGL(llc).load()` (full double-entry
+  expansion) so contra-side credits are visible.
+- **Sch_K1._buildFillDict tuple leak** (issue #23) — `gl_contributions()` changed
+  to return `(attributed, untagged)` but `_buildFillDict` passed the tuple directly
+  to `_fmt()`, producing `"(225829.28, 0.0)"` in the PDF fill.  Fixed: unpack at
+  call site (`partner_contrib, _ = gl_contributions(...)`).
+- **SK1B-R07 display — one clean number per member** (issue #23) — removed
+  "(tagged)" label when `untagged == 0`.  Passive members ($0 attributed, $0
+  untagged) now show INFO "Expected for passive member" instead of WARN data gap.
+- **SK1C-R02 misleading WARN** (issue #23) — changed to INFO when books have the
+  Box 2 value.  New message: "✓ K-1 for {nm}: Box 2 = ${expected:,.2f}. Source:
+  IS.net_rental × pct."
+- **SK1C-R20 NIIT threshold vague** (issue #23) — added explicit thresholds:
+  $200,000 (single/HOH) or $250,000 (married filing jointly).
+
+### Technical Notes
+- `_gl_capital_rows(llc)` — new module-level helper in `FormSchK1Agent.py`;
+  reads `stmtGL(llc).load()` and filters to three tracked equity accounts
+  (`Capital.Funds`, `Capital.Reinvestment`, `Capital.Dist`).
+- `gl_ending_capital(llc, oID, owner_pct, net_rental)` — calls
+  `gl_contributions()` and unpacks the tuple; `gl_distributions()` likewise uses
+  `stmtGL` to find both debit-side `Capital.Funds` and credit-side `Capital.Dist`.
+- IRS K-1 $0 field convention: `_fmt(0.0)` returns `""` (leave blank, not "0") —
+  already correct in `irsForm._fmt`.  Members 2 & 3 contributions fill is blank.
+
+---
+
 ## [1.3.0] — 2026-06-13  **Financial Snapshot + Form 1065 Guided Review Fix**
 
 ### Fixed
