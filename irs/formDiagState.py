@@ -316,6 +316,21 @@ def check_integrity(form_name: str, forms_dir: Any) -> List[str]:
     return mismatches
 
 
+def check_integrity_at_startup(forms_dir: Any) -> Dict[str, List[str]]:
+    """Run check_integrity() for all known forms without requiring a form object.
+
+    Returns {form_name: [mismatched_src, ...]} for any form with drift.
+    Called by irs.startupCheck at server startup (before any request is served).
+    """
+    _KNOWN = ("Form1065", "Form8825", "Form4562", "Sch_K1")
+    results: Dict[str, List[str]] = {}
+    for form in _KNOWN:
+        mm = check_integrity(form, forms_dir)
+        if mm:
+            results[form] = mm
+    return results
+
+
 def get_regression_report(state: Dict) -> List[Dict]:
     """Return list of {section_id, name, verified_at, verified_sha} for REGRESSION sections."""
     out = []

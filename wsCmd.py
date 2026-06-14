@@ -581,6 +581,14 @@ class WsCmd:
         print(f"  http://{addr}:{port}/login")
         print("=" * 64)
 
+        # Artifact integrity sweep — clears session state, warns on stale FILL/namespace
+        if _sp.IRS_FORMS_DIR:
+            try:
+                from irs.startupCheck import startup_integrity_sweep
+                startup_integrity_sweep(_sp.IRS_FORMS_DIR)
+            except Exception as _sc_exc:
+                print(f"  WARNING: startup integrity sweep failed: {_sc_exc}")
+
         eSession = utilEditSession(llcName=self.llc_name, year=self.year, load=load, edOpt=ed_opt)
         app = llcMgmt(eSession)
         app.run(host=addr, port=port, debug=debug, notebook=notebook)
