@@ -475,6 +475,7 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
 
     def pass2_audit(self, owner: Dict) -> Dict[str, Any]:
         return self._run_audit([
+            self._rule_k1_layout_orientation,
             self._rule_tax_year,
             self._rule_ein,
             self._rule_name,
@@ -498,6 +499,57 @@ class AgentSchK1_PartnershipInfo(_SectionAgent):
                 f"IRS center='{f1065.get('irs_center', '(not set)')}'.")
 
     # ── Rules ────────────────────────────────────────────────────────────────
+
+    def _rule_k1_layout_orientation(self, owner: Dict):
+        """
+        SK1A-R00: K-1 layout orientation — two-part structure (Part I vs Part II).
+
+        Schedule K-1 is divided into two independent sections:
+
+          PART I  (f1–f13) — PARTNERSHIP information (the LLC itself, same on every K-1):
+            f1–f5  = Tax year (beginning/ending month, day, 2-digit year)
+            f6     = Final K-1 checkbox
+            f7     = Amended K-1 checkbox
+            f8     = LLC EIN (Line A)
+            f9     = LLC name (Line B — name part)
+            f10    = LLC street address (Line B — '177 Kingsway Dr')
+            f11    = PTP checkbox (Line D — publicly traded partnership)
+            f12    = LLC city/state/ZIP (Line B — 'Wimberley, Tx 78676')  ← NOT the partner's SSN
+            f13    = IRS Service Center where Form 1065 was filed (Line C)
+
+          PART II (f14–f48) — PARTNER information (different on each partner's K-1):
+            f14/f15 = Partner type: GP/manager (f14) or LP/other (f15)
+            f16/f17 = Domestic (f16) or foreign (f17)
+            f18     = Disregarded entity (Line H2) — for SMLLC/trust partners ONLY
+            f19     = Partner's SSN or EIN (Line E) ← THIS is where partner SSN lives
+            f20     = Partner's name (Line F)
+            f21     = Partner's address (Line F)
+            f22     = Retirement plan checkbox (Line I)
+            f23–f28 = Ownership % Profit/Loss/Capital (Box J)
+            f29–f36 = Partner's share of liabilities (Box K1)
+            f37–f48 = Capital account (Box L)
+
+        COMMON CONFUSION: f12 shows the LLC's city/state/ZIP ('Wimberley, Tx 78676').
+        This is CORRECT — it is Part I (LLC info), not Part II (partner info).
+        The partner's SSN is in f19 (Part II, Line E) — a completely separate field.
+        """
+        pr     = self._get_profile()
+        entity = pr.get('entity', {})
+        csz    = entity.get('city_state_zip', f"{pr.get('F1065', {}).get('C_city', '')} "
+                            f"{pr.get('F1065', {}).get('C_state', '')} "
+                            f"{pr.get('F1065', {}).get('C_zip', '')}")
+        oID    = owner.get('oID', '')
+        return self.format_issue(
+            'SK1A-R00', self.INFO,
+            f"✓ K-1 for {oID}: layout orientation — Part I (LLC info) and Part II (partner info) are separate.\n"
+            f"  • Part I (f1–f13): same on every K-1 — shows the LLC's EIN, name, address, and IRS center.\n"
+            f"    f12 = LLC city/state/ZIP = '{csz}' — this is CORRECT (LLC address, NOT the partner's SSN).\n"
+            f"    f13 = IRS Service Center (Line C) — where Form 1065 was filed.\n"
+            f"  • Part II (f14–f48): partner-specific — SSN is f19, name is f20, address is f21.\n"
+            f"    f18 (Disregarded Entity) is NOT related to f19/f20 — SSN and name are ALWAYS required.",
+            'Form 1065 Instructions (Schedule K-1, Parts I and II overview)',
+            "No action needed for this rule — it is informational only. "
+            "Subsequent rules check each Part I/II field individually.")
 
     def _rule_tax_year(self, owner: Dict):
         """
@@ -835,14 +887,15 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
 
         return self.format_issue(
             'SK1B-R00', self.INFO,
-            f"✓ K-1 for {nm} ({oID}): identification fields look good.\n"
-            f"  • SSN (last 4): {'*'*3+'-'+'*'*2+'-'+ssn[-4:]} ✓\n"
-            f"  • Name: '{nm}' ✓\n"
-            f"  • Address: '{addr or '(not set)'}'\n"
-            f"  • No 'Disregarded Entity' flag needed — all W&B partners are individual people.",
+            f"✓ K-1 for {nm} ({oID}): Part II identification fields look good.\n"
+            f"  • f19 (Line E — Partner SSN): ***-**-{ssn[-4:]} ✓  (not the LLC's EIN — this is {nm}'s personal SSN)\n"
+            f"  • f20 (Line F — Partner name): '{nm}' ✓\n"
+            f"  • f21 (Line F — Partner address): '{addr or '(not set)'}'\n"
+            f"  • f18 (Line H2 — Disregarded Entity): NOT checked ✓ — correct for an individual person.\n"
+            f"    Note: f18 unchecked does NOT suppress f19/f20 — SSN and name are required on every K-1.",
             'IRC §6109; Form 1065 Instructions (K-1 Lines E, F, H2)',
             f"Verify SSN matches '{nm}' Form 1040. Confirm address is complete "
-            f"(street, city, state, ZIP).")
+            f"(street, city, 2-letter state abbrev., ZIP).")
 
     def _rule_partner_type(self, owner: Dict):
         """
@@ -931,9 +984,25 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
     def _rule_disregarded_entity(self, owner: Dict):
         """
         SK1B-R03: Disregarded entity check — Treas. Reg. §301.7701-3.
-        A single-member LLC (SMLLC) that hasn't elected corporate treatment is a DRE.
-        Individual humans are NEVER disregarded entities.
-        Detect: tID set AND name contains 'LLC' or 'Trust'.
+
+        K-1 Line H2 field f18 = 'Disregarded Entity' (DE) checkbox.
+
+        A disregarded entity is a single-member LLC (SMLLC) or grantor trust that has NOT
+        elected corporate tax treatment (Form 8832). The SMLLC is 'disregarded' — the IRS
+        treats it as if it doesn't exist, taxing the underlying owner directly.
+
+        CRITICAL: f18 (Line H2 DE checkbox) is COMPLETELY INDEPENDENT of f19 (SSN) and f20 (name).
+          f18 unchecked = 'This partner is NOT a disregarded entity.'
+          f18 unchecked does NOT mean f19/f20 are blank — partner SSN and name are ALWAYS required
+          on every K-1 regardless of the DRE status. A K-1 without f19 (SSN) is missing the
+          primary tax matching key and will cause IRS matching failures.
+
+        For W&B Group 2025:
+          ALL partners are individual human beings (not LLCs or trusts).
+          Individual humans are NEVER disregarded entities → f18 = NoCheck for all W&B partners.
+          This is CORRECT. f19 (SSN) and f20 (name) are still filled in — as always required.
+
+        Detection heuristic: partner name contains LLC/TRUST/CORP/INC/LTD AND has a tID (EIN).
         """
         nm   = _owner_name(owner)
         tID  = str(owner.get('tID', '') or '').strip()
@@ -944,11 +1013,21 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
             return self.format_issue(
                 'SK1B-R03', self.INFO,
                 f"K-1 for {nm} ({oID}): this partner appears to be an LLC or Trust (not an individual).\n"
-                f"  • If it's a single-member LLC that hasn't elected corporate tax treatment, the K-1 should note it as a 'disregarded entity' (Line H2).\n"
-                f"  • The K-1 is issued to the LLC entity, but the underlying owner's SSN goes in Line E.",
+                f"  • If it's a single-member LLC that hasn't elected corporate tax treatment, the K-1 should note it as a 'disregarded entity' (Line H2, f18).\n"
+                f"  • The K-1 is issued to the LLC entity, but the underlying owner's SSN goes in Line E (f19).\n"
+                f"  • Note: f18 checked/unchecked has NO effect on whether f19 (SSN) or f20 (name) must be filled — those are always required.",
                 'Treas. Reg. §301.7701-3; Form 1065 Instructions (K-1 Line H2)',
                 f"Verify the legal structure of '{nm}'. If DE: check K1_PtDE checkbox. "
                 f"Ensure Line E (K1_PtEIN) contains the beneficial owner's SSN, not the LLC EIN.")
+        # Individual human partner — explicit confirmation that f18 unchecked is correct
+        return self.format_issue(
+            'SK1B-R03', self.INFO,
+            f"✓ K-1 for {nm} ({oID}): Disregarded Entity (Line H2, f18) = NOT checked — correct.\n"
+            f"  • {nm} is an individual person, not an LLC or trust — 'Disregarded Entity' does not apply.\n"
+            f"  • f18 unchecked does NOT mean f19 (SSN) or f20 (name) should be blank.\n"
+            f"    Those are required on EVERY K-1 regardless of f18's value — and they are filled.",
+            'Treas. Reg. §301.7701-3; Form 1065 Instructions (K-1 Line H2)',
+            "No action needed. f18 is correctly left unchecked for all W&B individual partners.")
 
     def _rule_ownership_pct(self, owner: Dict):
         """
