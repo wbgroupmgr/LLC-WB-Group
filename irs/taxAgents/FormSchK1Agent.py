@@ -129,57 +129,138 @@ def _gl_load_all(llc) -> List[dict]:
     return all_recs
 
 
-def gl_contributions(llc, oID: str) -> float:
+def _gl_capital_rows(llc) -> List[dict]:
     """
-    Box L L2 (f40) — capital contributed during the year, GL-sourced.
-    Credits to Acct.Equity.Owner.Capital.Funds / Reinvestment across ALL GL tables.
-    Scans llcAssets + llcExpRev + llcPayables + llcReceivables — contributions
-    may be recorded in any table depending on how they were entered.
-    IRC §722: partner's initial outside basis = cash contributed.
+    All Capital.Funds/Reinvestment/Dist rows from the FULL double-entry stmtGL.
+
+    Raw source loaders (_gl_load_all) only find Capital accounts when they are
+    the PRIMARY account on a record.  When Capital.Funds is the CONTRA (credit
+    side) — e.g. DR Fixed.Asset / CR Capital.Funds for a property contribution —
+    the raw loader misses it.  stmtGL expands every source record to two rows so
+    both sides are visible.  This is the correct source for Box L (IRC §705/722).
     """
-    total = 0.0
-    for r in _gl_load_all(llc):
-        if str(r.get('acct', '')).strip() not in _GL_CONTRIB_ACCTS:
+    from ledger.stmtGL import stmtGL
+    _TRACKED = {
+        'Acct.Equity.Owner.Capital.Funds',
+        'Acct.Equity.Owner.Capital.Reinvestment',
+        'Acct.Equity.Owner.Capital.Dist',
+    }
+    try:
+        return [r for r in stmtGL(llc).load()
+                if str(r.get('acct', '')) in _TRACKED]
+    except Exception:
+        return []
+
+
+def gl_contributions(llc, oID: str) -> tuple:
+    """
+    Box L L2 (f40) — capital contributed during the year.
+
+    Uses stmtGL (full double-entry) so property-contribution entries where
+    Capital.Funds is the CONTRA (credit) side are captured.
+
+    Returns (attributed, untagged) where:
+      attributed — sum of credits to Capital.Funds/Reinvestment with explicit
+                   propOwners referencing oID.
+      untagged   — sum of credits to Capital.Funds/Reinvestment where propOwners
+                   is null/empty (cannot be attributed without a data fix).
+
+    Null-propOwners rows are NOT silently allocated by ownership pct — doing so
+    would give 2%-members false contributions equal to 2% of the property value.
+    The caller (section agent) surfaces these as a separate WARN.
+
+    YE income-closing entries ("YE Net Income" in desc) are excluded.
+    IRC §722: partner's outside basis = cash + FMV of property contributed.
+    """
+    attributed = 0.0
+    untagged   = 0.0
+    _FUND = {'Acct.Equity.Owner.Capital.Funds', 'Acct.Equity.Owner.Capital.Reinvestment'}
+    for r in _gl_capital_rows(llc):
+        if str(r.get('acct', '')) not in _FUND:
             continue
-        if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+        if str(r.get('aType', '')).lower() not in ('credit', 'cr', 'c'):
             continue
+        if 'YE Net Income' in str(r.get('desc', '')):
+            continue
+        amt = float(r.get('amt', 0) or 0)
         po  = _parse_prop_owners_gl(r.get('propOwners'))
-        pct = po.get(oID, 0.0)
-        if pct > 0:
-            try:
-                total += float(r.get('amt', 0) or 0) * pct
-            except (TypeError, ValueError):
-                pass
-    return round(total, 2)
+        if po:
+            pct = po.get(oID, 0.0)
+            if pct > 0:
+                attributed += amt * pct
+        else:
+            untagged += amt
+    return round(attributed, 2), round(untagged, 2)
 
 
 def gl_distributions(llc, oID: str) -> float:
     """
-    Box L L5 (f43) — withdrawals and distributions, GL-sourced.
-    Credits to Acct.Equity.Owner.Capital.Dist across ALL GL tables.
-    NOT equal to allocated income — these are actual cash payments to partners.
+    Box L L5 (f43) — withdrawals and distributions, GL-sourced via stmtGL.
+
+    Counts two types of outflows:
+      1. Debits to Capital.Funds/Reinvestment with explicit propOwners for oID
+         (non-YE entries) — return-of-capital / withdrawal transactions.
+      2. Credits to Capital.Dist with explicit propOwners for oID — formal
+         distribution entries.
+
+    Null-propOwners rows excluded (no silent allocation).
+    NOT equal to allocated income — distributions are actual cash paid out.
     """
     total = 0.0
-    for r in _gl_load_all(llc):
-        if str(r.get('acct', '')).strip() not in _GL_DISTRIB_ACCTS:
-            continue
-        if str(r.get('aType', '')).strip().lower() not in ('credit', 'cr', 'c'):
+    for r in _gl_capital_rows(llc):
+        acct  = str(r.get('acct', ''))
+        atype = str(r.get('aType', '')).lower()
+        amt   = float(r.get('amt', 0) or 0)
+        if 'YE Net Income' in str(r.get('desc', '')):
             continue
         po  = _parse_prop_owners_gl(r.get('propOwners'))
+        if not po:
+            continue  # skip untagged rows
         pct = po.get(oID, 0.0)
-        if pct > 0:
-            try:
-                total += float(r.get('amt', 0) or 0) * pct
-            except (TypeError, ValueError):
-                pass
+        if pct <= 0:
+            continue
+        # Debits to Capital.Funds = withdrawals / return of capital
+        if acct in {'Acct.Equity.Owner.Capital.Funds',
+                    'Acct.Equity.Owner.Capital.Reinvestment'}:
+            if atype in ('debit', 'dr', 'd'):
+                total += amt * pct
+        # Credits to Capital.Dist = formal distributions
+        elif acct == 'Acct.Equity.Owner.Capital.Dist':
+            if atype in ('credit', 'cr', 'c'):
+                total += amt * pct
     return round(total, 2)
+
+
+def gl_untagged_contributions(llc) -> List[dict]:
+    """
+    Capital.Funds/Reinvestment credit rows with null/empty propOwners.
+    Returned as brief dicts for display in the section agent WARN.
+    """
+    _FUND = {'Acct.Equity.Owner.Capital.Funds', 'Acct.Equity.Owner.Capital.Reinvestment'}
+    result = []
+    for r in _gl_capital_rows(llc):
+        if str(r.get('acct', '')) not in _FUND:
+            continue
+        if str(r.get('aType', '')).lower() not in ('credit', 'cr', 'c'):
+            continue
+        if 'YE Net Income' in str(r.get('desc', '')):
+            continue
+        po = _parse_prop_owners_gl(r.get('propOwners'))
+        if not po:
+            result.append({
+                'dt':   r.get('dt', ''),
+                'amt':  float(r.get('amt', 0) or 0),
+                'desc': str(r.get('desc', ''))[:80],
+            })
+    return result
 
 
 def gl_ending_capital(llc, oID: str, owner_pct: float,
                       net_rental: float = None) -> float:
     """
     Box L L6 (f44) — ending capital account, GL-sourced (IRC §705).
-    Formula: L2(contributions) + L3(IS.net_rental × pct) − L5(distributions).
+    Formula: L2(attributed contributions) + L3(IS.net_rental × pct) − L5(distributions).
+    Untagged contributions are excluded from the ending balance (surfaced as WARN).
     """
     if net_rental is None:
         try:
@@ -187,10 +268,10 @@ def gl_ending_capital(llc, oID: str, owner_pct: float,
             net_rental = float(stmtIS(llc).taxAggregates().get('net_rental', 0))
         except Exception:
             net_rental = 0.0
-    contrib = gl_contributions(llc, oID)
-    distrib = gl_distributions(llc, oID)
-    income  = round(net_rental * owner_pct, 2)
-    return round(contrib + income - distrib, 2)
+    attributed, _ = gl_contributions(llc, oID)
+    distrib       = gl_distributions(llc, oID)
+    income        = round(net_rental * owner_pct, 2)
+    return round(attributed + income - distrib, 2)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -311,7 +392,12 @@ class _SectionAgent(IRSFormsAgent):
     # ── GL capital helpers — delegate to module-level functions ─────────────
 
     def _gl_contributions(self, oID: str) -> float:
-        """Box L L2 (f40) — GL-sourced. See module-level gl_contributions()."""
+        """Box L L2 attributed total. See gl_contributions() for full tuple."""
+        attributed, _ = gl_contributions(self.llc, oID)
+        return attributed
+
+    def _gl_contributions_full(self, oID: str) -> tuple:
+        """Returns (attributed, untagged). Use when the WARN note is needed."""
         return gl_contributions(self.llc, oID)
 
     def _gl_distributions(self, oID: str) -> float:
@@ -670,6 +756,7 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
             lambda o=owner: self._rule_box_k1_liabilities(o),
             lambda o=owner: self._rule_tax_basis_method(o),
             lambda o=owner: self._rule_capital_account_summary(o),
+            lambda o=owner: self._rule_capital_unattributed(o),
             lambda o=owner: self._rule_sec704c(o),
         ], owner)
 
@@ -1047,65 +1134,89 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
         oID     = owner.get('oID', '')
         nm      = _owner_name(owner)
 
-        # GL-sourced values (Books-First, IRC §446/703)
-        contrib = self._gl_contributions(oID)
-        distrib = self._gl_distributions(oID)
-        ending  = self._gl_ending_capital(oID, pct)
+        # GL-sourced values (Books-First, IRC §446/703) — stmtGL full double-entry
+        contrib, untagged = self._gl_contributions_full(oID)
+        distrib           = self._gl_distributions(oID)
+        ending            = self._gl_ending_capital(oID, pct)
 
-        # Cross-check: GL contributions vs BS property acquisition cost.
-        # If the LLC acquired real property entirely with partner cash (no mortgage),
-        # total GL contributions should approximate total BS property value.
-        # A large gap means contribution entries are missing — outside basis understated.
-        _gap_note = ''
-        try:
-            from ledger.stmtBS import stmtBS_Tax
-            bs_agg   = stmtBS_Tax(self.llc).taxAggregates()
-            bldg     = _safe_float(bs_agg.get('buildings', 0))
-            land     = _safe_float(bs_agg.get('land', 0))
-            mortgage = _safe_float(bs_agg.get('mortgage', 0))
-            total_prop = bldg + land
-            total_contrib_all = round(contrib / pct, 2) if pct > 0.001 else contrib
-            gap = total_prop - (total_contrib_all + mortgage)
-            if gap > 5_000:
-                _gap_note = (
-                    f" ⚠ CONTRIBUTION MISMATCH: BS property ${total_prop:,.2f} "
-                    f"(bldg ${bldg:,.2f} + land ${land:,.2f}) vs "
-                    f"total GL contributions ${total_contrib_all:,.2f} + mortgage ${mortgage:,.2f}. "
-                    f"Unexplained gap ≈ ${gap:,.2f}. "
-                    f"Likely cause: property acquisition journal entries were not recorded as "
-                    f"Credits to Acct.Equity.Owner.Capital.Funds. "
-                    f"IRC §722: understated contributions = understated outside basis for all partners."
-                )
-        except Exception:
-            pass
+        untagged_note = ''
+        if untagged > 0.01:
+            untagged_note = (
+                f"\n  ⚠ ${untagged:,.2f} in Capital.Funds entries have no propOwners tag "
+                f"(see SK1B-R07u below). These are excluded from Box L until tagged."
+            )
 
-        if contrib == 0:
+        if contrib == 0 and untagged == 0:
             return self.format_issue(
                 'SK1B-R07', self.WARN,
                 f"K-1 for {nm} ({oID}): no capital contributions found in the books (Box L, Line 2 = $0).\n"
-                f"  • If {nm} put money into the LLC when it was formed, that contribution needs to be recorded in the books.\n"
+                f"  • If {nm} put money into the LLC when it was formed, that contribution needs to be recorded.\n"
                 f"  • Without it, {nm}'s ownership basis is understated, which can limit their ability to claim losses.\n"
-                f"  • Box L summary: Start=$0 | Contributed=$0 ⚠ | Income=${box2:,.2f} | Distributions=${distrib:,.2f} | Ending=${ending:,.2f}."
-                + _gap_note,
+                f"  • Box L: Start=$0 | Contributed=$0 ⚠ | Income=${box2:,.2f} | Distributions=${distrib:,.2f} | Ending=${ending:,.2f}.",
                 'IRC §705; §722; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Record contribution transaction in llcAssets for '{oID}'. "
-                f"Verify distributions reflect actual cash paid out (not income allocation).")
+                f"Record contribution transaction in the books for '{nm}'. "
+                f"Verify distributions reflect actual cash paid out, not income allocation.")
         else:
+            has_warn = untagged > 0.01
             return self.format_issue(
-                'SK1B-R07', self.WARN if _gap_note else self.INFO,
-                f"{'⚠' if _gap_note else '✓'} K-1 for {nm} ({oID}) capital account (Box L, tax basis):\n"
+                'SK1B-R07', self.WARN if has_warn else self.INFO,
+                f"{'⚠' if has_warn else '✓'} K-1 for {nm} ({oID}) capital account (Box L, tax basis):\n"
                 f"  • Start of year: $0 (first year)\n"
-                f"  • Capital contributed: ${contrib:,.2f}\n"
-                f"  • Share of 2025 income: ${box2:,.2f}\n"
+                f"  • Capital contributed (tagged): ${contrib:,.2f}\n"
+                f"  • Share of {self.tax_year} income: ${box2:,.2f}\n"
                 f"  • Distributions paid out: ${distrib:,.2f}\n"
                 f"  • End of year balance: ${ending:,.2f}"
-                + _gap_note,
+                + untagged_note,
                 'IRC §705; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
                 f"Verify Box L in PDF for '{nm}': "
-                f"L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}. "
-                + (f"INVESTIGATE contribution gap: record missing capital entries in llcAssets."
-                   if _gap_note else
-                   f"Source: GL Credits to Acct.Equity.Owner.Capital.Funds weighted by propOwners."))
+                f"L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}."
+                + (f" Fix untagged contributions (SK1B-R07u) to complete Box L."
+                   if has_warn else
+                   f" Source: stmtGL Credits to Acct.Equity.Owner.Capital.Funds by propOwners."))
+
+    def _rule_capital_unattributed(self, owner: Dict):
+        """
+        SK1B-R07u: Capital.Funds credit entries with no propOwners tag.
+
+        These contributions cannot be attributed to a specific member without
+        a propOwners field.  Silently allocating by ownership pct would give
+        2%-members false contribution amounts (e.g. 2% × $219K = $4,380 for
+        a member who contributed nothing).  Per the no-silent-fallback rule
+        these are surfaced as a WARN so the operator can tag them in the books.
+
+        FIX: open the transaction in the web editor and add
+             propOwners = {"<oID>": 100}  for the contributing member.
+        """
+        untagged_rows = gl_untagged_contributions(self.llc)
+        if not untagged_rows:
+            return None
+        total = sum(r['amt'] for r in untagged_rows)
+        lines = '\n'.join(
+            f"  • {r['dt']} | ${r['amt']:,.2f} | {r['desc']}"
+            for r in untagged_rows
+        )
+        # Identify the managing member — untagged contributions most likely belong to them
+        try:
+            all_owners = self.llc.owners()
+        except Exception:
+            all_owners = [owner]
+        mgr = next(
+            (o for o in all_owners
+             if 'manager' in str(o.get('status', '')).lower()),
+            owner   # fall back to current owner if no manager found
+        )
+        mgr_nm  = _owner_name(mgr)
+        mgr_oID = mgr.get('oID', owner.get('oID', ''))
+        return self.format_issue(
+            'SK1B-R07u', self.WARN,
+            f"Capital.Funds: {len(untagged_rows)} contribution(s) totaling ${total:,.2f} "
+            f"have no propOwners tag — excluded from all members' Box L until fixed.\n"
+            f"  • These are almost certainly {mgr_nm}'s contributions (property + closing funds).\n"
+            + lines,
+            'IRC §722; IRC §705; Books-First (propOwners required for per-member attribution)',
+            f"For each entry, open the transaction in the web editor and add "
+            f"propOwners = {{\"{mgr_oID}\": 100}}. "
+            f"After tagging, regenerate to update Box L.")
 
     def _rule_sec704c(self, owner: Dict):
         """
