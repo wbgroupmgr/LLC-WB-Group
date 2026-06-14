@@ -408,7 +408,7 @@ class Sch_K1(Form1065):
         # Source: Credits to Acct.Equity.Owner.Capital.Funds in llcAssets,
         # weighted by propOwners per partner (IRC §722; COA Standard Mapping).
         oID = partner_raw.get("oID", partner_raw.get("ownerID", ""))
-        partner_contrib = gl_contributions(self.llc, oID)
+        partner_contrib, _ = gl_contributions(self.llc, oID)  # attributed float only
 
         # Per-partner distributions (f43 / Box L L5) — GL-sourced.
         # Source: Credits to Acct.Equity.Owner.Capital.Dist, weighted by propOwners.
