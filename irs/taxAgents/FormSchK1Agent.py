@@ -1146,23 +1146,38 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
                 f"(see SK1B-R07u below). These are excluded from Box L until tagged."
             )
 
+        is_manager = 'manager' in str(owner.get('status', '')).lower()
+
         if contrib == 0 and untagged == 0:
-            return self.format_issue(
-                'SK1B-R07', self.WARN,
-                f"K-1 for {nm} ({oID}): no capital contributions found in the books (Box L, Line 2 = $0).\n"
-                f"  • If {nm} put money into the LLC when it was formed, that contribution needs to be recorded.\n"
-                f"  • Without it, {nm}'s ownership basis is understated, which can limit their ability to claim losses.\n"
-                f"  • Box L: Start=$0 | Contributed=$0 ⚠ | Income=${box2:,.2f} | Distributions=${distrib:,.2f} | Ending=${ending:,.2f}.",
-                'IRC §705; §722; Rev. Proc. 2020-13; Form 1065 Instructions (K-1 Box L)',
-                f"Record contribution transaction in the books for '{nm}'. "
-                f"Verify distributions reflect actual cash paid out, not income allocation.")
+            if is_manager:
+                # Managing member with $0 contributions is likely a data gap
+                return self.format_issue(
+                    'SK1B-R07', self.WARN,
+                    f"⚠ K-1 for {nm} ({oID}): no capital contributions recorded (Box L, Line 2 = $0).\n"
+                    f"  • The managing member typically contributes cash or property when the LLC is formed.\n"
+                    f"  • Without it, {nm}'s ownership basis is $0, which limits their ability to claim losses.\n"
+                    f"  • Box L: Contributed=$0 | Income=${box2:,.2f} | Ending=${ending:,.2f}.",
+                    'IRC §705; §722; Rev. Proc. 2020-13',
+                    f"Record the capital contribution for '{nm}' in the books "
+                    f"(DR Cash → CR Acct.Equity.Owner.Capital.Funds, with propOwners set).")
+            else:
+                # Passive/minor member with $0 contributions is normal
+                return self.format_issue(
+                    'SK1B-R07', self.INFO,
+                    f"✓ K-1 for {nm} ({oID}) capital account (Box L, tax basis):\n"
+                    f"  • Capital contributed: $0 (no cash contribution recorded — expected for this member)\n"
+                    f"  • Share of {self.tax_year} income: ${box2:,.2f}\n"
+                    f"  • End of year balance: ${ending:,.2f}",
+                    'IRC §705; Rev. Proc. 2020-13',
+                    f"Box L: L2=$0, L3=${box2:,.2f}, L5=$0, L6=${ending:,.2f}.")
         else:
             has_warn = untagged > 0.01
+            # Only show "(tagged)" label when there are still untagged entries to distinguish from
+            contrib_label = "Capital contributed (tagged)" if has_warn else "Capital contributed"
             return self.format_issue(
                 'SK1B-R07', self.WARN if has_warn else self.INFO,
                 f"{'⚠' if has_warn else '✓'} K-1 for {nm} ({oID}) capital account (Box L, tax basis):\n"
-                f"  • Start of year: $0 (first year)\n"
-                f"  • Capital contributed (tagged): ${contrib:,.2f}\n"
+                f"  • {contrib_label}: ${contrib:,.2f}\n"
                 f"  • Share of {self.tax_year} income: ${box2:,.2f}\n"
                 f"  • Distributions paid out: ${distrib:,.2f}\n"
                 f"  • End of year balance: ${ending:,.2f}"
@@ -1171,8 +1186,7 @@ class AgentSchK1_PartnerCapital(_SectionAgent):
                 f"Verify Box L in PDF for '{nm}': "
                 f"L2=${contrib:,.2f}, L3=${box2:,.2f}, L5=${distrib:,.2f}, L6=${ending:,.2f}."
                 + (f" Fix untagged contributions (SK1B-R07u) to complete Box L."
-                   if has_warn else
-                   f" Source: stmtGL Credits to Acct.Equity.Owner.Capital.Funds by propOwners."))
+                   if has_warn else ""))
 
     def _rule_capital_unattributed(self, owner: Dict):
         """
