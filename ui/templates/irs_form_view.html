@@ -55,16 +55,36 @@
 }
 .btn-generate:hover  { background: #dbeafe; }
 .btn-generate:disabled { background: #e5e7eb; color: #9ca3af; cursor: default; }
-.btn-hdr {
+
+/* Action menu dropdown */
+.action-menu { position: relative; }
+.action-menu > summary {
+    list-style: none; cursor: pointer; user-select: none;
     display: inline-flex; align-items: center; gap: 5px;
-    padding: 6px 12px;
+    padding: 6px 13px;
     background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
-    border-radius: 6px; color: white; font-size: 13px;
-    cursor: pointer; text-decoration: none; white-space: nowrap;
+    border-radius: 6px; color: white; font-size: 13px; font-weight: 600;
+    white-space: nowrap;
 }
-.btn-hdr:hover { background: rgba(255,255,255,.28); color: white; }
-.btn-hdr.danger { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.4); color: #fecaca; }
-.btn-hdr.danger:hover { background: rgba(239,68,68,.35); }
+.action-menu > summary:hover { background: rgba(255,255,255,.28); }
+.action-menu > summary::-webkit-details-marker { display: none; }
+.action-dropdown {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 500;
+    background: white; border: 1px solid #e2e8f0;
+    border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.14);
+    min-width: 200px; padding: 5px 0; overflow: hidden;
+}
+.action-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 16px; font-size: 13px; color: #111827;
+    cursor: pointer; background: none; border: none; width: 100%;
+    text-align: left; text-decoration: none; white-space: nowrap;
+}
+.action-item:hover { background: #f0f4ff; color: #1e40af; }
+.action-item .ai  { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+.action-divider   { border: none; border-top: 1px solid #f3f4f6; margin: 4px 0; }
+.action-item.danger       { color: #991b1b; }
+.action-item.danger:hover { background: #fff1f2; color: #7f1d1d; }
 
 /* ── Stats bar ─────────────────────────────────────────────────────── */
 .stats-bar {
@@ -296,17 +316,38 @@
             ▶ Generate Form
         </button>
 
-        {% if meta.pdfPresent %}
-        <a class="btn-hdr" id="dlBtn"
-           href="{{ pdf_url }}?download=1" download
-           title="Download FILL.pdf">↓ Download</a>
-        {% endif %}
-
-        <button class="btn-hdr" onclick="window.print()" title="Print">🖨 Print</button>
-        <button class="btn-hdr" onclick="aidOpen()" title="Book→IRS mapping aid">🛠 Aid</button>
-        <button class="btn-hdr" onclick="cpaReviewOpen()" title="CPA advisory fields">🔍 CPA</button>
-        <a class="btn-hdr danger" href="{{ url_for('logout') }}"
-           onclick="return confirm('Sign out?')">⏻ Logoff</a>
+        <details class="action-menu" id="actionMenu">
+            <summary>⚡ Actions ▾</summary>
+            <div class="action-dropdown">
+                <button class="action-item" onclick="generateForm();document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">▶</span> Generate Form
+                </button>
+                <a class="action-item" id="dlBtn"
+                   href="{{ pdf_url }}?download=1" download
+                   onclick="document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">↓</span> Download
+                </a>
+                <hr class="action-divider">
+                <button class="action-item" onclick="printForm();document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">🖨</span> Print Form
+                </button>
+                <button class="action-item" onclick="printSummary();document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">📋</span> Print Summary
+                </button>
+                <hr class="action-divider">
+                <button class="action-item" onclick="aidOpen();document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">🛠</span> Aid — Book→IRS Map
+                </button>
+                <button class="action-item" onclick="cpaReviewOpen();document.getElementById('actionMenu').removeAttribute('open')">
+                    <span class="ai">🔍</span> CPA Review Fields
+                </button>
+                <hr class="action-divider">
+                <a class="action-item danger" href="{{ url_for('logout') }}"
+                   onclick="return confirm('Sign out?')">
+                    <span class="ai">⏻</span> Logoff
+                </a>
+            </div>
+        </details>
     </div>
 
     {# ── Stats bar ──────────────────────────────────────────────── #}
@@ -491,6 +532,80 @@ function diagUrl() {
     if (_currentMember) url += '&member=' + encodeURIComponent(_currentMember);
     return url;
 }
+
+// ── Print helpers ────────────────────────────────────────────────────────────
+
+window.printForm = function () {
+    const frame = document.getElementById('pdfFrame');
+    if (frame && frame.contentWindow) {
+        try { frame.contentWindow.print(); return; } catch (e) {}
+    }
+    // fallback: open PDF in new tab so browser print dialog fires on the PDF
+    window.open(buildPdfUrl(_currentMember, null), '_blank');
+};
+
+window.printSummary = async function () {
+    // Ensure both panes have content
+    const secHtml  = document.getElementById('sectionsBody').innerHTML || '';
+    let   diagHtml = document.getElementById('diagContent').innerHTML  || '';
+    if (!_diagLoaded) {
+        // fetch diagnosis synchronously before printing
+        try {
+            const r = await fetch(diagUrl());
+            const d = await r.json();
+            if (d.ok) diagHtml = _renderDiag(d);
+        } catch (e) {}
+    }
+
+    const title = document.title || _FORM_NM;
+    const win = window.open('', '_blank', 'width=900,height=700');
+    win.document.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<title>' + title + ' — Summary</title>' +
+        '<style>' +
+        'body{font-family:system-ui,sans-serif;font-size:12px;margin:20px;color:#111}' +
+        'h2{font-size:15px;font-weight:700;margin:0 0 8px;padding-bottom:5px;border-bottom:2px solid #3b82f6;color:#1e40af}' +
+        'h3{font-size:13px;font-weight:700;margin:14px 0 5px;color:#1e3a8a}' +
+        '.section-block{margin-bottom:20px}' +
+        '.acc-section{border-bottom:1px solid #f3f4f6}' +
+        '.acc-hdr{padding:6px 8px;background:#fafafa;font-weight:600;font-size:12px;cursor:default}' +
+        '.acc-chev{display:none}' +
+        '.acc-body{display:block!important;padding:4px 10px 8px 20px}' +
+        '.acc-summary{font-size:11px;color:#6b7280;display:block}' +
+        '.sec-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px}' +
+        '.sec-badge.go{background:#dcfce7;color:#166534}' +
+        '.sec-badge.err{background:#fee2e2;color:#991b1b}' +
+        '.sec-badge.warn{background:#fef3c7;color:#78350f}' +
+        '.issue-row{display:flex;gap:6px;padding:4px 0;border-top:1px solid #f9fafb;font-size:11px}' +
+        '.sev-icon{font-weight:700;min-width:20px}' +
+        '.sev-icon.err{color:#991b1b}.sev-icon.warn{color:#92400e}.sev-icon.info{color:#1e3a8a}' +
+        '.issue-rule{font-size:10px;font-weight:700;color:#6b7280;font-family:monospace}' +
+        '.issue-msg{color:#374151;line-height:1.5;white-space:pre-wrap}' +
+        '.no-issues{color:#166534;font-size:11px;padding:3px 0}' +
+        '.aid-fix-link,.btn-verify,.mapping-hint{display:none}' +
+        '.diag-section{margin-bottom:12px}' +
+        '.diag-section-head{font-weight:700;font-size:12px;color:#1e3a8a;border-bottom:1px solid #bfdbfe;padding-bottom:3px;margin-bottom:4px}' +
+        '.diag-table{width:100%;border-collapse:collapse;font-size:10px}' +
+        '.diag-table th{text-align:left;color:#6b7280;font-weight:600;border-bottom:1px solid #e5e7eb;padding:2px 4px}' +
+        '.diag-table td{padding:2px 4px;border-bottom:1px solid #f3f4f6;vertical-align:top}' +
+        '.diag-table td.fid{font-family:monospace;color:#1e40af}.diag-table td.val{font-weight:600}' +
+        '.diag-table td.zero{font-weight:600;color:#92400e}' +
+        '.diag-cite{font-size:10px;color:#374151;font-style:italic;margin:3px 0}' +
+        '.diag-reason{font-size:10px;color:#6b7280;background:#f8fafc;border-left:3px solid #bfdbfe;padding:3px 6px;margin:2px 0}' +
+        '.pane-init{color:#9ca3af;font-size:12px;padding:8px}' +
+        '@media print{body{margin:10px}h2{break-after:avoid}}' +
+        '</style></head><body>' +
+        '<h2>📋 ' + title + ' — Section Summary</h2>' +
+        '<div class="section-block">' + secHtml + '</div>' +
+        '<hr style="border:none;border-top:2px solid #e2e8f0;margin:16px 0">' +
+        '<h2>📊 BookToIRS Diagnostic</h2>' +
+        '<div class="section-block">' + diagHtml + '</div>' +
+        '</body></html>'
+    );
+    win.document.close();
+    win.focus();
+    setTimeout(function () { win.print(); }, 400);
+};
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 
