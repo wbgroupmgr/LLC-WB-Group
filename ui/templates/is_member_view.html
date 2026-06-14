@@ -134,6 +134,43 @@
     .acct-name { font-family: monospace; font-size: 12px; color: #4b5563; }
     /* Member column headers — subtle blue accent */
     .pm-table th.member-col { background: #1e3a8a; }
+
+    /* Actions dropdown */
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none;
+        white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827;
+        min-width: 170px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300; overflow: hidden;
+    }
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .actions-menu .act-dropdown button:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+    .actions-menu .act-dropdown button.act-warning { color: #b45309; }
+
+    @media print {
+        .toolbar-row, .menu, #jsonPane { display: none !important; }
+        .title-panel { position: static; box-shadow: none; }
+        .title-toolbar { background: #1e40af; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
 </style>
 {% endblock %}
 
@@ -160,8 +197,16 @@
                 {% endfor %}
             </select>
             {% endif %}
-            <button class="btn btn-secondary" onclick="window.location.href=_scriptRoot+'/view/'+OBJ_TYPE+'?viewBy=PerMember'">Refresh</button>
-            <button class="btn btn-warning" onclick="toggleJsonPane()">JSON</button>
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.location.href=_scriptRoot+'/view/'+OBJ_TYPE+'?viewBy=PerMember'">🔄 Refresh</button>
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.print()">🖨️ Print</button>
+                        <button class="act-warning" onclick="document.getElementById('actionsMenu').removeAttribute('open'); toggleJsonPane()">{ } JSON</button>
+                    </div>
+                </details>
+            </div>
         </div>
     </div>
 
