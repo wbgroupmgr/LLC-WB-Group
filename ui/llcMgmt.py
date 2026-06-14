@@ -3205,6 +3205,69 @@ class llcMgmt:
             return send_from_directory(str(forms_dir), fname,
                                        mimetype='application/pdf')
 
+        @app.route("/forms/pkg/<int:year>/<path:filename>")
+        def serve_submission_pkg_file(year, filename):
+            """Serve a file from the IRS_Submission_{year}/ snapshot directory."""
+            from flask import send_from_directory
+            forms_dir = self._get_forms_dir()
+            if forms_dir is None:
+                return ('Forms directory not found', 404)
+            pkg_dir = str(forms_dir / f'IRS_Submission_{year}')
+            safe_name = Path(filename).name  # prevent path traversal
+            return send_from_directory(pkg_dir, safe_name, mimetype='application/pdf')
+
+        @app.route("/api/tax/package/download")
+        def api_tax_package_download():
+            """Stream IRS_Submission_{year}/ as a ZIP archive for download."""
+            import io
+            import zipfile
+            forms_dir = self._get_forms_dir()
+            if forms_dir is None:
+                return jsonify({'ok': False, 'error': 'Forms directory not found'}), 404
+            try:
+                agent   = _tax_agent()
+                year    = agent.tax_year
+                pkg_dir = forms_dir / f'IRS_Submission_{year}'
+                if not pkg_dir.exists():
+                    return jsonify({'ok': False, 'error': 'Package not assembled yet'}), 404
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for f in sorted(pkg_dir.iterdir()):
+                        if f.is_file():
+                            zf.write(f, f.name)
+                buf.seek(0)
+                return send_file(
+                    buf,
+                    mimetype='application/zip',
+                    as_attachment=True,
+                    download_name=f'WBGroupLLC_{year}_IRS_Package.zip',
+                )
+            except Exception as err:
+                app.logger.exception("api_tax_package_download failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/yefr/generate", methods=["POST"])
+        def api_tax_yefr_generate():
+            """Generate (or regenerate) the YE Financial Report PDF."""
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                out = YEFinancialReportAgent(self.eSession).generate()
+                return jsonify({'ok': True, 'filename': out.name, 'path': str(out)})
+            except Exception as err:
+                app.logger.exception("api_tax_yefr_generate failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/yefr/view")
+        def api_tax_yefr_view():
+            """Serve the existing YE Financial Report PDF for inline viewing."""
+            from ledger import setup_paths
+            data_nm = getattr(self.eSession.llc, 'objName', 'LLC')
+            yr      = getattr(self.eSession.llc, 'yr', '')
+            out     = setup_paths.IRS_FORMS_DIR / f'{data_nm}_{yr}_YEFinancialReport.pdf'
+            if not out.exists():
+                abort(404)
+            return send_file(str(out), mimetype='application/pdf')
+
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)
 

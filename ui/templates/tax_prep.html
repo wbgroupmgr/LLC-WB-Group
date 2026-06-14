@@ -183,6 +183,28 @@ async function assemblePackage() {
     }
 }
 
+function downloadPackage() {
+    window.location.href = '/api/tax/package/download';
+}
+
+async function generateYEFR() {
+    document.getElementById('yefr-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/yefr/generate', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+            notify(`✓ YE Financial Report generated: ${d.filename}. Refreshing…`, false);
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            notify('✗ ' + (d.error || 'YEFR generation failed'), true);
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('yefr-spinner').style.display = 'none';
+    }
+}
+
 async function generateLetter() {
     document.getElementById('letter-spinner').style.display = '';
     try {
@@ -322,6 +344,9 @@ async function saveK1(oid) {
             <div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btn-primary" onclick="runTaxAgent()">▶ Run Tax Agent (Phase 1+2)</button>
                 <button class="btn btn-secondary" onclick="assemblePackage()">📦 Assemble Submission Package</button>
+                {% if manifest %}
+                <button class="btn btn-success" onclick="downloadPackage()">⬇ Download Package (ZIP)</button>
+                {% endif %}
                 <span id="agent-spinner" style="display:none; font-size:13px; color:#6b7280;">⏳ Running…</span>
             </div>
 
@@ -361,7 +386,7 @@ async function saveK1(oid) {
                 &nbsp;<span style="font-size:11px; color:#9ca3af; font-weight:400;">Assembled: {{ manifest.get('assembled_at','')[:10] }}</span>
             </h4>
             <table class="art-table">
-                <thead><tr><th>File</th><th>Required</th><th>Present</th><th>SHA-256 (first 12)</th></tr></thead>
+                <thead><tr><th>File</th><th>Required</th><th>Present</th><th>SHA-256 (first 12)</th><th>View</th></tr></thead>
                 <tbody>
                 {% for art in manifest.get('artifacts', []) %}
                 <tr>
@@ -376,6 +401,13 @@ async function saveK1(oid) {
                     </td>
                     <td style="font-family:monospace; font-size:11px; color:#9ca3af;">
                         {{ (art.get('sha256') or '')[:12] }}{% if art.get('sha256') %}…{% endif %}
+                    </td>
+                    <td>
+                        {% if art.get('present') %}
+                        <a href="/forms/pkg/{{ tax_year }}/{{ art.get('file','') }}"
+                           target="_blank"
+                           style="font-size:12px; color:#2563eb; text-decoration:none; font-weight:600;">↗ View</a>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -409,6 +441,56 @@ async function saveK1(oid) {
             {% endfor %}
             </ul>
 
+        </div>
+    </details>
+
+    {# ── Frame 1b: YE Financial Report ─────────────────────────────────── #}
+    {% set yefr_name = entity.get('entity_name', 'WBGroupLLC') | replace(' ', '') | replace('&','') | replace(',','') %}
+    {% set yefr_file = 'WBGroupLLC_' ~ tax_year ~ '_YEFinancialReport.pdf' %}
+    {% set yefr_pkg_exists = manifest and manifest.get('artifacts', []) | selectattr('file', 'equalto', yefr_file) | list | length > 0 %}
+    <details class="tp-frame" open>
+        <summary>
+            <span class="frame-title">📊 Year-End Financial Report</span>
+            {% if yefr_pkg_exists %}
+                <span class="badge badge-go">✓ In Package</span>
+            {% else %}
+                <span class="badge badge-none">Not in package</span>
+            {% endif %}
+            <span class="collapse-chevron">▾</span>
+        </summary>
+        <div class="frame-body">
+            <p style="font-size:13px; color:#374151; margin:0 0 12px;">
+                A professionally formatted PDF consolidating the LLC's full-year accounting:
+                Balance Sheet, Income Statement, depreciation schedule, member capital analysis,
+                and CPA flags. Included in the IRS submission package for CPA review support.
+            </p>
+
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+                <button class="btn btn-primary" onclick="generateYEFR()">
+                    🔄 Generate / Regenerate Report
+                </button>
+                {% if yefr_pkg_exists %}
+                <a href="/forms/pkg/{{ tax_year }}/{{ yefr_file }}"
+                   target="_blank" class="btn btn-success">👁 View PDF</a>
+                <a href="/api/stmtGeneralLedger/ye_report/view"
+                   target="_blank" class="btn btn-secondary" style="font-size:12px;">↗ Live PDF</a>
+                {% else %}
+                <a href="/api/stmtGeneralLedger/ye_report/view"
+                   target="_blank" class="btn btn-secondary">👁 View Current PDF</a>
+                {% endif %}
+                <span id="yefr-spinner" style="display:none; font-size:13px; color:#6b7280;">⏳ Generating…</span>
+            </div>
+
+            {% if yefr_pkg_exists %}
+            <div style="padding:8px 12px; background:#dcfce7; border-radius:6px; font-size:12px; color:#15803d;">
+                ✓ {{ yefr_file }} — included in submission package (SHA-256 verified).
+                After regenerating, re-assemble the package to update the snapshot.
+            </div>
+            {% else %}
+            <div style="padding:8px 12px; background:#fef9c3; border-radius:6px; font-size:12px; color:#92400e;">
+                ⚠ YEFR not yet in submission package. Generate and then re-assemble the package.
+            </div>
+            {% endif %}
         </div>
     </details>
 
