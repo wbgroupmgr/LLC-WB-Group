@@ -22,6 +22,53 @@ defined in `FormSchK1Agent._SectionAgent` Golden Rule §2.
 
 ---
 
+## [1.5.0] — 2026-06-14  **K-1 Header Field Fix + Unified Action Menu**
+
+### Fixed
+- **K-1 f12/f13 wrong field mapping** — The 2024+ IRS Schedule K-1 PDF has no
+  AcroForm fields for Partnership CSZ (Line B city/state/zip) or IRS Service
+  Center (Line C).  The namespace incorrectly assigned `K1_PshipCSZ` and
+  `K1_IRSCtr` to f12/f13, which are physically Part II partner fields (Partner
+  SSN Line E, Partner Name Line F).  Fixed: `K1_PshipCSZ` and `K1_IRSCtr`
+  removed from `_FILL_MAP_K1`; f12 → `K1_PtEIN`, f13 → `K1_PtName`.
+  `irsRefAgent.py` SECTIONS updated: F012/F013 moved from
+  `_SCHK1_PARTNERSHIPINFO_FIDS` to `_SCHK1_PARTNERCAPITAL_FIDS`.
+  `bookNS_Profile.json` Sch_K1 section: stale F012/F013 profile entries removed.
+- **K-1 f13 merged identity block** — Added `name_addr_info` derived key in
+  `partner_src` (name + address + status via `"\n".join(filter(None, [...]))`).
+  `K1_PtName` FILL_MAP path changed to `name_addr_info` so Line F fills the
+  full partner identity block, not just the name.
+- **K-1 f19 forced blank** — f19 has no valid AcroForm meaning in this PDF
+  revision.  Cleared logicalKey in `Sch_K1_namespace.json`; removed `K1_PtAddr`
+  from `_FILL_MAP_K1` entirely.  FILL.pdf no longer shows partner address at f19.
+- **Sections tab empty on startup / tab switch** — extracted `sectionsRefresh()`
+  helper in `irs_form_view.html`.  Called from: `leftTabSwitch` (Sections tab),
+  `k1MemberChanged` (member dropdown), and DOMContentLoaded (`{%- else %}`
+  non-generate branch).  All three paths now re-fetch agent status consistently.
+
+### Added
+- **Action Menu** — replaced individual header buttons with a `<details>/<summary>`
+  dropdown (⚡ Actions ▾).  Items: Generate Form, Download, Print Form,
+  Print Summary, Aid — Book→IRS Map, CPA Review Fields, Logoff.
+  `printForm()`: tries `iframe.contentWindow.print()`, falls back to new tab.
+  `printSummary()`: lazy-fetches Diagnosis pane if not yet loaded; opens a
+  print-optimised popup combining both Sections accordion and Diagnosis table.
+- **`Sch_K1_namespace.json` force-tracked in BUS repo** — manually-maintained
+  logicalKey assignments not purely auto-generated; force-added via `git add -f`
+  to survive `*_namespace.json` gitignore.
+
+### Technical Notes
+- `_FILL_MAP_K1` in `Sch_K1.py`: keys `K1_PshipCSZ`, `K1_IRSCtr`, `K1_PtAddr`
+  removed.  `K1_PtName.path` changed to `name_addr_info`.  `K1_PtEIN.path`
+  unchanged (`ein`).
+- `partner_src` dict in `_buildFillDict`: new `"name_addr_info"` entry added
+  after `"address"`.
+- f19 (`f1_11`), f20 (`f1_12`), f21 (`f1_13`) logicalKeys cleared in namespace.
+- `sectionsRefresh()` pattern: single helper calling `agentUrl(_AGENT_STATUS_URL)`
+  and delegating to `renderSections()`/`renderEmpty()`; stale-badge logic included.
+
+---
+
 ## [1.4.0] — 2026-06-14  **SchK1 Box L Capital Account + Form 8825 Forensic Clusters**
 
 ### Added
