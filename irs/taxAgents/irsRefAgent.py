@@ -504,20 +504,23 @@ _F1065_REFERENCES = {
 # IRC §704(d) basis limitation: partners can only deduct loss up to their basis.
 
 # Sch K-1 fid ranges mirror sequential namespace (Sch_K1_namespace.json):
-#   f1-f13  → F001-F013  Part I   Partnership Identification
-#   f14-f48 → F014-F048  Part II  Partner Identity, Box J/K/L
+#   f1-f11  → F001-F011  Part I   Partnership Identification (EIN/name/addr/PTP)
+#   f12-f48 → F012-F048  Part II  Partner Identity (SSN/name/addr), Box J/K/L
 #   f49-f77 → F049-F077  Part III Income/Deduction boxes 1-14
 #   f98     → F098        Part III Box 19 (distributions)
+# NOTE: f12 (f1_9) = Partner SSN (Line E); f13 (f1_10) = Partner Name (Line F).
+#   The K-1 PDF has NO separate AcroForm fields for Partnership CSZ or IRS Center.
 _SCHK1_PARTNERSHIPINFO_FIDS = [
     "F001", "F002", "F003", "F004", "F005",   # tax year begin/end month+day + 2-digit year
     "F006", "F007",                            # Final/Amended K-1 checkboxes
     "F008",                                    # Partnership EIN
-    "F009", "F010", "F011", "F012", "F013",   # name / addr / PTP / CSZ / IRSCtr
+    "F009", "F010", "F011",                   # name / addr / PTP checkbox
 ]
 _SCHK1_PARTNERCAPITAL_FIDS = [
-    "F014", "F015",                            # Box H partner type GP/LP checkboxes
-    "F016", "F017", "F018",                    # Domestic/Foreign/DE checkboxes
-    "F019", "F020", "F021", "F022",            # partner SSN/EIN, name, addr, ret plan
+    "F012", "F013",                            # partner SSN (Line E) / partner name (Line F)
+    "F014", "F015",                            # Line G partner type GP/LP checkboxes
+    "F016", "F017", "F018",                    # H1 Domestic/Foreign / H2 DE checkboxes
+    "F019", "F020", "F021", "F022",            # partner addr (Line F) / unknown / unknown / Line I ret plan
     "F023", "F024", "F025", "F026", "F027", "F028",  # Box J profit/loss/cap % beg+end
     "F029", "F030",                            # Box K1 method checkboxes (GP/LP)
     "F031", "F032", "F033", "F034", "F035", "F036",  # Box K1 liabilities beg+end (nonrec/QNR/rec)
@@ -577,15 +580,13 @@ _SCHK1_REFERENCES = {
         "fields": _SCHK1_PARTNERSHIPINFO_FIDS,
         "cite":   "Form 1065 Schedule K-1 Instructions, Parts I–II; IRC §6031; IRC §6109",
         "reason": [
-            "Part I — Partnership EIN (F008), name (F009), address (F010/F012), and IRS Center (F013) "
-            "from llcProfile. Required so partners can cross-reference this K-1 to Form 1065 (IRC §6031).",
-            "Address field split (Line B): F010 (f1_8) = STREET only "
-            "(e.g. '177 Kingsway Dr'). F012 (f1_9) = CITY/STATE/ZIP "
-            "(e.g. 'Wimberley, TX 78676'). Together they form the full partnership mailing address. "
-            "Both are sourced from llcProfile.entity. F013 (f1_10) = IRS Service Center — "
-            "a SEPARATE field that must be set to 'E-File' (e-filers) or 'Ogden, UT 84201' "
-            "(paper-filed Texas LLC). Do not confuse F010/F012 (LLC mailing address) with "
-            "F021 (partner's address in Part II).",
+            "Part I — Partnership EIN (F008), name (F009), address (F010) from llcProfile. "
+            "Required so partners can cross-reference this K-1 to Form 1065 (IRC §6031).",
+            "F010 (f1_8) = Partnership mailing address (street + city/state/zip combined). "
+            "The 2024+ K-1 PDF has NO separate AcroForm fields for Line B CSZ or Line C IRS Center "
+            "— those visual positions share the address field or are pre-printed. "
+            "F012 (f1_9) and F013 (f1_10) are Part II partner identity fields (Lines E/F), "
+            "NOT Part I partnership fields. Do not fill F012/F013 from profile data.",
             "Tax year header (F001-F005): begin/end month+day plus 2-digit year. "
             "Must match the Form 1065 tax year exactly.",
             "Final K-1 checkbox (F006): check only in the year the partner exits or LLC dissolves. "
@@ -601,13 +602,14 @@ _SCHK1_REFERENCES = {
             "Partner type (F014/F015): for a rental LLC with member-managers, members are "
             "typically 'LLC member-manager' (GP checkbox F014). Designation affects SE tax treatment "
             "(IRC §1402(a)(13)). Check with CPA — wrong type mis-classifies SE exposure.",
-            "Partner SSN/EIN (F019, Line E): required by IRC §6109. "
+            "Partner SSN/EIN (F012, f1_9, Line E): required by IRC §6109. "
             "The IRS K-1 matching system links this K-1 to the partner's Form 1040 by TIN. "
             "Wrong or missing TIN → IRS CP2000 automated underreporter notices, "
             "unmatched income assessments, and §6721/§6722 information-return penalties "
             "($310 per unfiled/incorrect K-1, 2025 rates). "
             "Action: confirm the SSN in llcOwners matches exactly what the partner "
-            "uses on their Form 1040. Format: XXX-XX-XXXX from llcOwners[partner].SSN.",
+            "uses on their Form 1040. Format: XXX-XX-XXXX from llcOwners[partner].SSN. "
+            "Partner name (F013, f1_10, Line F) and address (F019, f1_11) follow immediately.",
             "Box J ownership percentages (F023-F028): profit/loss/capital %, beginning and end of year. "
             "Must sum to exactly 100% across all partners (IRC §704(b)). "
             "Use figures from the LLC Operating Agreement.",

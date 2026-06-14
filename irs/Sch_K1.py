@@ -106,10 +106,8 @@ _FILL_MAP_K1: Dict[str, Dict] = {
                      "note": "Partnership name (Line B)"},
     "K1_PshipAddr": {"source": "entity",  "path": "address",
                      "note": "Partnership street address (Line B)"},
-    "K1_PshipCSZ":  {"source": "entity",  "path": "city_state_zip",
-                     "note": "Partnership city/state/ZIP (Line B)"},
-    "K1_IRSCtr":    {"source": "F1065",   "path": "irs_center",
-                     "note": "IRS Service Center (Line C)"},
+    # K1_PshipCSZ / K1_IRSCtr removed — the 2024+ K-1 PDF has no separate AcroForm
+    # fields for Partnership CSZ or IRS Center; those positions are Part II partner fields.
     "K1_PTP":       {"source": "F1065",   "path": "is_ptp",
                      "note": "PTP flag (Line D) — always False for private LLC"},
 
