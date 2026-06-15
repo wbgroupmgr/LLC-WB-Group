@@ -265,11 +265,11 @@ class YEFinancialReportAgent:
         income = self._is_agg.get('total_income', 0)
         exp    = self._is_agg.get('total_expenses', 0)
 
-        # Cash balance from BS Acct.Cash.Bank accounts
+        # BS normalizes acct to top-2 nodes (e.g. 'Acct.Cash'); match on 'Cash'.
         cash = round(sum(
             float(r.get('Balance', 0) or 0)
             for r in self._bs_rows
-            if 'Cash.Bank' in str(r.get('acct', '')) and r.get('acctType') != 'TOTAL'
+            if 'Cash' in str(r.get('acct', '')) and r.get('acctType') != 'TOTAL'
         ), 2)
 
         # Member list uses oID only (no personal names)

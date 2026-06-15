@@ -716,6 +716,25 @@ class LLCTaxAgent(IRSFormsAgent):
         with open(manifest_path, 'w') as f:
             json.dump(manifest, f, indent=2)
 
+        # ── Accountant Letter — generate then include in package ───────────────
+        # generate_accountant_letter() reads manifest for filing deadline,
+        # so it runs AFTER the manifest is written above.
+        try:
+            letter_path = self.generate_accountant_letter()
+            if letter_path and letter_path.exists():
+                sha = _copy_and_hash(letter_path, pkg_dir / letter_path.name)
+                manifest['artifacts'].append({
+                    'file':     letter_path.name,
+                    'sha256':   sha,
+                    'source':   'auto',
+                    'required': False,
+                    'present':  True,
+                })
+                with open(manifest_path, 'w') as f:
+                    json.dump(manifest, f, indent=2)
+        except Exception:
+            pass  # letter failure must not block package assembly
+
         return manifest
 
     def load_manifest(self) -> Optional[Dict[str, Any]]:
@@ -903,9 +922,8 @@ class LLCTaxAgent(IRSFormsAgent):
             ('Form 4562',    'Depreciation and Amortization',              'Form4562_FILL.pdf'),
         ]
         for i, o in enumerate(owners, 1):
-            nm_raw = o.get('nm', f'Partner {i}')
-            nm     = nm_raw[0] if isinstance(nm_raw, list) and nm_raw else str(nm_raw)
-            form_lines.append((f'Schedule K-1 ({nm})', "Partner's Share of Income, Deductions, Credits", ''))
+            oID_val = o.get('oID', f'Member{i}')
+            form_lines.append(('Schedule K-1', f'Member {i} ({oID_val}) — Income, Deduction, Credits', ''))
 
         styles  = getSampleStyleSheet()
         normal  = styles['Normal']
@@ -1001,6 +1019,8 @@ class LLCTaxAgent(IRSFormsAgent):
         story.append(Spacer(1, 0.08*inch))
         story.append(Paragraph('<b>CONTACT</b>', heading))
         story.append(Paragraph(f'{prep_nm}<br/>{address}, {city_st_zip}', body))
+        contact_email = entity.get('email', 'wbgroupmgr@gmail.com')
+        story.append(Paragraph(f'Email: {contact_email}', body))
         if prep_ph:
             story.append(Paragraph(f'Phone: {prep_ph}', body))
         story.append(Spacer(1, 0.2*inch))
