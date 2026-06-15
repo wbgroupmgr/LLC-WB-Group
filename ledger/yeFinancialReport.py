@@ -147,7 +147,7 @@ class YEFinancialReportAgent:
             canvas.setFillColor(C_WHITE)
             canvas.setFont('Helvetica-Bold', 9)
             ent = self._entity_name()
-            canvas.drawString(_M + 6, ph - _M - 0.22 * inch, f'{ent}  ·  {self.year} Year-End Financial Report')
+            canvas.drawString(_M + 6, ph - _M - 0.22 * inch, f'{ent}  ·  {self.year} Fiscal Period Financial Report')
             # footer
             canvas.setFillColor(C_MUTED)
             canvas.setFont('Helvetica', 7)
@@ -213,11 +213,11 @@ class YEFinancialReportAgent:
         items = [
             Spacer(1, 1.8 * inch),
             Paragraph(ent, ParagraphStyle('ct', fontSize=28, textColor=C_HEADER,
-                                          fontName='Helvetica-Bold', spaceAfter=0)),
-            Spacer(1, 10),
+                                          fontName='Helvetica-Bold', spaceAfter=6)),
+            Spacer(1, 0.2 * inch),
             HRFlowable(width='100%', thickness=2, color=C_HEADER, spaceAfter=0),
-            Spacer(1, 10),
-            Paragraph('Year-End Financial Report', ParagraphStyle('cs', fontSize=18,
+            Spacer(1, 0.15 * inch),
+            Paragraph('Fiscal Period Financial Report', ParagraphStyle('cs', fontSize=18,
                       textColor=C_SUBHDR, fontName='Helvetica', spaceAfter=4)),
             Paragraph(f'For the Year Ended December 31, {self.year}',
                       ParagraphStyle('cy', fontSize=13, textColor=C_MUTED,
@@ -250,6 +250,7 @@ class YEFinancialReportAgent:
     # ── Section 1: Financial Summary ──────────────────────────────────────────
 
     def _section1_summary(self) -> list:
+        ss   = getSampleStyleSheet()
         st   = self._styles()
         eq   = self._eq
         ent  = self._entity_name()
@@ -258,26 +259,29 @@ class YEFinancialReportAgent:
         addr = self._profile.get('entity', {}).get('address', '')
         csz  = self._profile.get('entity', {}).get('city_state_zip', '')
         began = self._profile.get('entity', {}).get('date_business_began', '')
+        email = self._profile.get('entity', {}).get('email', 'wbgroupmgr@gmail.com')
 
-        ni     = eq.get('net_income', 0)
-        assets = eq.get('assets', 0)
-        income = eq.get('income', 0)
-        exp    = eq.get('expenses', 0)
+        ni     = self._is_agg.get('net_income', 0)
+        income = self._is_agg.get('total_income', 0)
+        exp    = self._is_agg.get('total_expenses', 0)
 
-        owner_lines = '  '.join(
-            f"{self._owner_name(o)} ({_pct(float(o.get('pct',0))*100)})"
-            for o in self._owners
+        # Cash balance from BS Acct.Cash.Bank accounts
+        cash = round(sum(
+            float(r.get('Balance', 0) or 0)
+            for r in self._bs_rows
+            if 'Cash.Bank' in str(r.get('acct', '')) and r.get('acctType') != 'TOTAL'
+        ), 2)
+
+        # Member list uses oID only (no personal names)
+        owner_lines = '  |  '.join(
+            f"Member {i+1} ({o.get('oID','')}) — {_pct(float(o.get('pct', 0) or 0) * 100)}"
+            for i, o in enumerate(self._owners)
         )
         active_props = self._props.get('active', [])
         const_props  = self._props.get('construction', [])
-        active_text  = '; '.join(
-            f"{p['name']}{(' — ' + p['addr']) if p['addr'] else ''}"
-            for p in active_props
-        ) or 'None'
-        const_text   = '; '.join(
-            f"{p['name']} (capitalized basis {_fmt(p['basis'])})"
-            for p in const_props
-        ) or 'None'
+
+        _blt = ParagraphStyle('blt1', parent=ss['Normal'], fontSize=9,
+                              leftIndent=14, spaceAfter=2, leading=13)
 
         ni_word = f"net loss of {_fmt(abs(ni))}" if ni < 0 else f"net income of {_fmt(ni)}"
         depr = abs(sum(r.get('Balance', 0) or 0 for r in self._bs_rows
@@ -292,27 +296,28 @@ class YEFinancialReportAgent:
                 f'{ent} (EIN {ein}) is a multi-member limited liability company organized '
                 f'under Texas law, engaged in {prod.lower()}. The LLC was organized on '
                 f'{began}. It is treated as a partnership for federal income tax purposes '
-                f'and files Form 1065. Members and ownership percentages: {owner_lines}.',
+                f'and files Form 1065. Members and ownership percentages: {owner_lines}. '
+                f'Contact: {email}.',
                 st['body']),
 
             Paragraph('<b>Active Rental Properties</b>', st['h2']),
-            Paragraph(
-                f'The following properties were placed in service and generating rental '
-                f'income as of December 31, {self.year}: {active_text}.',
-                st['body']),
         ]
+        if active_props:
+            for p in active_props:
+                label = p['name'] + (f' — {p["addr"]}' if p['addr'] else '')
+                items.append(Paragraph(f'• {label}', _blt))
+        else:
+            items.append(Paragraph('None', st['body']))
 
         if const_props:
-            items += [
-                Paragraph('<b>Assets Under Development (Not Yet In Service)</b>', st['h2']),
-                Paragraph(
-                    f'The following assets are under preparation and have not been placed '
-                    f'in service as of December 31, {self.year}. No depreciation may be '
-                    f'claimed until each asset is available for rental use: {const_text}. '
-                    f'Note: pre-service costs expensed against these assets may need to be '
-                    f'reclassified as capitalized basis — see Section 6 (CPA Flags).',
-                    st['body']),
-            ]
+            items.append(Paragraph('<b>Assets Under Development (Not Yet In Service)</b>', st['h2']))
+            for p in const_props:
+                label = f'{p["name"]} — capitalized basis {_fmt(p["basis"])}'
+                items.append(Paragraph(f'• {label}', _blt))
+            items.append(Paragraph(
+                'No depreciation may be claimed until each asset is placed in service. '
+                'Pre-service costs may need reclassification — see Section 6 (CPA Flags).',
+                st['note']))
 
         items += [
             Paragraph('<b>Year in Review</b>', st['h2']),
@@ -326,9 +331,8 @@ class YEFinancialReportAgent:
 
             Paragraph('<b>Cash Position</b>', st['h2']),
             Paragraph(
-                f'Total assets as of December 31, {self.year} were {_fmt(assets)}, '
-                f'consisting primarily of fixed real estate assets and operating cash. '
-                f'See Section 2 (Balance Sheet) for full detail.',
+                f'Cash on hand (Acct.Cash.Bank) as of December 31, {self.year}: {_fmt(cash)}. '
+                f'See Section 2 (Balance Sheet) for all asset and liability detail.',
                 st['body']),
 
             Paragraph('<b>Member Capital</b>', st['h2']),
@@ -520,8 +524,7 @@ class YEFinancialReportAgent:
             oID = m.get('oID', '')
             attributed, _ = gl_contributions(self.llc, oID)
             cont_vals.append(attributed)
-            dist_att, _   = gl_distributions(self.llc, oID)
-            dist_vals.append(dist_att)
+            dist_vals.append(gl_distributions(self.llc, oID))  # returns float
 
         ni_vals  = [round(ni * pcts[i] / 100, 2) for i in range(len(members))]
         end_vals = [beg_vals[i] + cont_vals[i] + ni_vals[i] - dist_vals[i]
