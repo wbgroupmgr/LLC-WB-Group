@@ -924,7 +924,7 @@ class LLCTaxAgent(IRSFormsAgent):
         ]
         for i, o in enumerate(owners, 1):
             oID_val = o.get('oID', f'Member{i}')
-            form_lines.append(('Schedule K-1', f'Member {i} ({oID_val}) — Income, Deduction, Credits', ''))
+            form_lines.append(('Schedule K-1', f'Member {i} ({oID_val}) — Sch K-1', ''))
 
         styles  = getSampleStyleSheet()
         normal  = styles['Normal']

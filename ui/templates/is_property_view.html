@@ -180,7 +180,7 @@
                     <summary>Actions ▾</summary>
                     <div class="act-dropdown">
                         <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.location.href=_scriptRoot+'/view/'+OBJ_TYPE+'?viewBy='+CURRENT_VIEW_BY">🔄 Refresh</button>
-                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.print()">🖨️ Print</button>
+                        <button class="act-primary" onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.open(_scriptRoot+'/api/stmtIncomeStmt/print_pdf','_blank')">🖨️ Print PDF (Section 3)</button>
                         <button class="act-warning" onclick="document.getElementById('actionsMenu').removeAttribute('open'); toggleJsonPane()">{ } JSON</button>
                     </div>
                 </details>

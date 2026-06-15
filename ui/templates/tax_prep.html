@@ -145,6 +145,12 @@
 </style>
 
 <script>
+// ── Notification bar ──────────────────────────────────────────────────────────
+// Messages persist until dismissed (✕ button). Post-reload messages survive via
+// localStorage so reload-based flows don't lose their result.
+
+const _TP_MSG_KEY = 'tp_pending_msg';
+
 function notify(msg, isErr) {
     const el = document.getElementById('tp-notify');
     el.className = isErr ? 'notify-err' : 'notify-ok';
@@ -153,14 +159,34 @@ function notify(msg, isErr) {
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// Save msg to localStorage so it survives a location.reload(), then show it.
+function notifyQueued(msg, isErr) {
+    try { localStorage.setItem(_TP_MSG_KEY, JSON.stringify({msg, isErr})); } catch(e) {}
+    notify(msg, isErr);
+}
+
+// On load: restore any queued post-reload message.
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const saved = localStorage.getItem(_TP_MSG_KEY);
+        if (saved) {
+            const {msg, isErr} = JSON.parse(saved);
+            localStorage.removeItem(_TP_MSG_KEY);
+            notify(msg, isErr);
+        }
+    } catch(e) {}
+});
+
+// ── Action functions ──────────────────────────────────────────────────────────
+
 async function runTaxAgent() {
     document.getElementById('agent-spinner').style.display = '';
     try {
         const r = await fetch('/api/tax/prepare', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
-            notify('✓ Tax Agent completed. Refreshing…', false);
-            setTimeout(() => location.reload(), 1200);
+            notifyQueued('✓ Tax Agent completed successfully.', false);
+            setTimeout(() => location.reload(), 2000);
         } else {
             notify('✗ ' + (d.error || 'Tax Agent failed'), true);
         }
@@ -178,8 +204,8 @@ async function assemblePackage() {
         const d = await r.json();
         if (d.ok) {
             const status = d.manifest?.status || 'DONE';
-            notify(`✓ Package assembled — status: ${status}. Refreshing…`, false);
-            setTimeout(() => location.reload(), 1200);
+            notifyQueued(`✓ Submission Package assembled — status: ${status}`, false);
+            setTimeout(() => location.reload(), 2000);
         } else {
             notify('✗ ' + (d.error || 'Package assembly failed'), true);
         }
@@ -191,7 +217,8 @@ async function assemblePackage() {
 }
 
 function downloadPackage() {
-    window.location.href = '/api/tax/package/download';
+    notify('✓ Downloading IRS Submission Package ZIP…', false);
+    setTimeout(() => { window.location.href = '/api/tax/package/download'; }, 400);
 }
 
 async function generateYEFR() {
@@ -200,8 +227,8 @@ async function generateYEFR() {
         const r = await fetch('/api/tax/yefr/generate', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
-            notify(`✓ YE Financial Report generated: ${d.filename}. Refreshing…`, false);
-            setTimeout(() => location.reload(), 1200);
+            notifyQueued(`✓ YE Financial Report generated: ${d.filename}`, false);
+            setTimeout(() => location.reload(), 2000);
         } else {
             notify('✗ ' + (d.error || 'YEFR generation failed'), true);
         }
@@ -218,8 +245,8 @@ async function generateLetter() {
         const r = await fetch('/api/tax/accountant_letter', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
-            notify(`✓ Letter generated: ${d.filename}. Refreshing…`, false);
-            setTimeout(() => location.reload(), 1200);
+            notifyQueued(`✓ Notification Letter generated: ${d.filename}`, false);
+            setTimeout(() => location.reload(), 2000);
         } else {
             notify('✗ ' + (d.error || 'Letter generation failed'), true);
         }
@@ -243,7 +270,7 @@ async function saveStatus() {
             body: JSON.stringify(body),
         });
         const d = await r.json();
-        if (d.ok) { notify('✓ Status saved.', false); }
+        if (d.ok) { notify('✓ Filing status saved.', false); }
         else       { notify('✗ ' + (d.error || 'Save failed'), true); }
     } catch(e) {
         notify('✗ Network error: ' + e, true);
@@ -262,8 +289,8 @@ async function saveK1(oid) {
         });
         const d = await r.json();
         if (d.ok) {
-            notify(`✓ K-1 delivery recorded for ${oid}.`, false);
-            setTimeout(() => location.reload(), 1000);
+            notifyQueued(`✓ K-1 delivery recorded for ${oid}.`, false);
+            setTimeout(() => location.reload(), 1500);
         } else {
             notify('✗ ' + (d.error || 'Save failed'), true);
         }
@@ -276,7 +303,7 @@ async function notifyReviewerEmail() {
     const toEmail = prompt('Send notification to (recipient email):', 'wbgroupmgr@gmail.com');
     if (!toEmail) return;
     try {
-        const r = await fetch(`${_scriptRoot}/api/tax/submission/notify_email`, {
+        const r = await fetch('/api/tax/submission/notify_email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ to_email: toEmail })
@@ -285,7 +312,7 @@ async function notifyReviewerEmail() {
         if (d.ok) {
             if (d.mailto_url) {
                 window.open(d.mailto_url, '_blank');
-                notify(`✓ Email client opened. Recipient: ${toEmail}  CC: wbgroupmgr@gmail.com`, false);
+                notify(`✓ Email client opened — To: ${toEmail} | CC: wbgroupmgr@gmail.com`, false);
             } else {
                 notify('✓ ' + d.message, false);
             }
@@ -310,7 +337,7 @@ async function testIRSEfile() {
 }
 
 function irsEfile() {
-    notify('IRS MeF e-File integration is not yet configured. File manually at IRS.gov or via a certified ERO.', true);
+    notify('ℹ IRS MeF e-File: integration not yet configured. File manually at IRS.gov or through a certified ERO/software provider.', false);
 }
 </script>
 {% endblock %}
