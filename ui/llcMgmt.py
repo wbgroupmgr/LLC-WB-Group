@@ -3248,16 +3248,21 @@ class llcMgmt:
 
         @app.route("/api/tax/submission/notify_email", methods=["POST"])
         def api_tax_submission_notify_email():
-            """Send reviewer notification via SMTP (falls back to mailto: if SMTP not configured)."""
+            """Send reviewer notification via SMTP with optional package attachments."""
             try:
                 import urllib.parse, smtplib, os as _os
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
+                from email.mime.text        import MIMEText
+                from email.mime.multipart   import MIMEMultipart
+                from email.mime.base        import MIMEBase
+                from email                  import encoders
 
-                body_data  = request.get_json(silent=True) or {}
-                to_email   = body_data.get('to_email', 'wbgroupmgr@gmail.com').strip()
-                from_email = _os.environ.get('SMTP_FROM', 'wbgroupmgr@gmail.com')
-                smtp_pass  = _os.environ.get('SMTP_APP_PASSWORD', '')
+                body_data    = request.get_json(silent=True) or {}
+                # Accept comma-separated list or single address
+                raw_to       = body_data.get('to_email', 'wbgroupmgr@gmail.com')
+                to_list      = [e.strip() for e in raw_to.split(',') if e.strip()]
+                attach_files = bool(body_data.get('attach_files', False))
+                from_email   = _os.environ.get('SMTP_FROM', 'wbgroupmgr@gmail.com')
+                smtp_pass    = _os.environ.get('SMTP_APP_PASSWORD', '')
 
                 agent      = _tax_agent()
                 year       = agent.tax_year
@@ -3267,12 +3272,23 @@ class llcMgmt:
                 letter_name = f'AccountantLetter_{year}.pdf'
                 letter_exists = forms_dir is not None and (forms_dir / letter_name).exists()
 
+                # Collect package files for attachment
+                pkg_files = []
+                if attach_files and forms_dir is not None:
+                    pkg_dir = forms_dir / f'IRS_Submission_{year}'
+                    if pkg_dir.exists():
+                        pkg_files = sorted(f for f in pkg_dir.iterdir() if f.is_file() and f.suffix.lower() == '.pdf')
+
+                attach_note = (
+                    f'{len(pkg_files)} package file(s) attached.' if pkg_files
+                    else ('Package files requested but IRS_Submission directory not found — assemble package first.' if attach_files else '')
+                )
+
                 subject = f'Notification Letter — Review Financial Report | {entity_nm} | Tax Year {year}'
                 body_lines = [
                     'Dear Tax Professional,',
                     '',
                     f'Please review the IRS Form 1065 submission package for {entity_nm} (Tax Year {year}).',
-                    'The Notification Letter and all supporting documents are attached.',
                     '',
                     'Package contents:',
                     '  • Form 1065 — U.S. Return of Partnership Income',
@@ -3281,8 +3297,16 @@ class llcMgmt:
                     '  • Schedule K-1 — Per-partner income/deduction/credits',
                     '  • YE Financial Report — Balance Sheet, IS, Depreciation Schedule, Capital Analysis',
                     '',
-                    f'Letter file: {letter_name} — {"ready for attachment" if letter_exists else "not yet generated — generate before sending"}',
-                    '',
+                ]
+                if pkg_files:
+                    body_lines.append('Attached files:')
+                    for f in pkg_files:
+                        body_lines.append(f'  • {f.name}')
+                    body_lines.append('')
+                elif not letter_exists:
+                    body_lines.append('Note: Accountant Letter not yet generated — generate before sending.')
+                    body_lines.append('')
+                body_lines += [
                     'Please advise on any required adjustments prior to filing.',
                     '',
                     'Regards,',
@@ -3290,35 +3314,46 @@ class llcMgmt:
                     from_email,
                 ]
                 body_text = '\n'.join(body_lines)
+                to_header = ', '.join(to_list)
 
                 if smtp_pass:
-                    # Server-side send via Gmail SMTP
                     msg = MIMEMultipart()
                     msg['From']    = from_email
-                    msg['To']      = to_email
+                    msg['To']      = to_header
                     msg['Cc']      = from_email
                     msg['Subject'] = subject
                     msg.attach(MIMEText(body_text, 'plain'))
 
+                    for pdf in pkg_files:
+                        part = MIMEBase('application', 'octet-stream')
+                        part.set_payload(pdf.read_bytes())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', 'attachment', filename=pdf.name)
+                        msg.attach(part)
+
+                    recipients = list(set(to_list + [from_email]))
                     with smtplib.SMTP('smtp.gmail.com', 587) as s:
                         s.ehlo()
                         s.starttls()
                         s.login(from_email, smtp_pass)
-                        recipients = list({to_email, from_email})
                         s.sendmail(from_email, recipients, msg.as_string())
 
-                    app.logger.info("notify_email sent to %s (CC: %s)", to_email, from_email)
+                    app.logger.info("notify_email sent to %s CC:%s files:%d", to_header, from_email, len(pkg_files))
+                    msg_out = f'Email sent to {to_header} (CC: {from_email}).'
+                    if attach_note:
+                        msg_out += f' {attach_note}'
                     return jsonify({
                         'ok':           True,
-                        'to_email':     to_email,
+                        'to_email':     to_header,
                         'cc_email':     from_email,
                         'letter_ready': letter_exists,
-                        'message':      f'Email sent to {to_email} (CC: {from_email}).',
+                        'files_sent':   len(pkg_files),
+                        'message':      msg_out,
                     })
                 else:
-                    # Fallback: return mailto: URL for client to open
+                    # Fallback: mailto: URL (no attachment support in mailto)
                     mailto_url = (
-                        f'mailto:{urllib.parse.quote(to_email)}'
+                        f'mailto:{urllib.parse.quote(to_list[0] if to_list else from_email)}'
                         f'?cc={urllib.parse.quote(from_email)}'
                         f'&subject={urllib.parse.quote(subject)}'
                         f'&body={urllib.parse.quote(body_text)}'
@@ -3326,10 +3361,11 @@ class llcMgmt:
                     return jsonify({
                         'ok':           True,
                         'mailto_url':   mailto_url,
-                        'to_email':     to_email,
+                        'to_email':     to_header,
                         'cc_email':     from_email,
                         'letter_ready': letter_exists,
-                        'message':      f'Email client opened for {to_email} (CC: {from_email}).',
+                        'files_sent':   0,
+                        'message':      f'Email client opened for {to_header} (CC: {from_email}). Note: attachments not supported via mailto.',
                     })
             except Exception as err:
                 app.logger.exception("api_tax_submission_notify_email failed")

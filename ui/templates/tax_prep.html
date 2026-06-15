@@ -301,23 +301,29 @@ async function saveK1(oid) {
     }
 }
 
-async function notifyReviewerEmail() {
-    const toEmail = prompt('Send notification to (recipient email):', 'wbgroupmgr@gmail.com');
-    if (!toEmail) return;
+function notifyReviewerEmail() {
+    document.getElementById('notify-email-modal').style.display = 'flex';
+}
+function _closeNotifyModal() {
+    document.getElementById('notify-email-modal').style.display = 'none';
+}
+async function _sendNotifyEmail() {
+    const toEmail     = document.getElementById('notify-to-emails').value.trim();
+    const attachFiles = document.getElementById('notify-attach').checked;
+    if (!toEmail) { notify('Enter at least one recipient email.', true); return; }
+    _closeNotifyModal();
     try {
         const r = await fetch(_scriptRoot + '/api/tax/submission/notify_email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to_email: toEmail })
+            body: JSON.stringify({ to_email: toEmail, attach_files: attachFiles })
         });
         const d = await r.json();
         if (d.ok) {
             if (d.mailto_url) {
                 window.open(d.mailto_url, '_blank');
-                notify(`✓ Email client opened — To: ${toEmail} | CC: wbgroupmgr@gmail.com`, false);
-            } else {
-                notify('✓ ' + d.message, false);
             }
+            notify('✓ ' + d.message, false);
         } else {
             notify('✗ ' + (d.error || 'Email action failed'), true);
         }
@@ -349,6 +355,26 @@ function irsEfile() {
 
     {# ── Notification bar ───────────────────────────────────────────── #}
     <div id="tp-notify"></div>
+
+    {# ── Notify Reviewer modal ──────────────────────────────────────── #}
+    <div id="notify-email-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:200; align-items:center; justify-content:center;">
+        <div style="background:white; border-radius:10px; padding:24px 28px; max-width:460px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,.25);">
+            <h3 style="margin:0 0 16px; font-size:15px; color:#1f2937;">📧 Notify Reviewer</h3>
+            <label style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:4px;">
+                Recipient email(s) <span style="font-weight:400; color:#6b7280;">(comma-separated for multiple)</span>
+            </label>
+            <input id="notify-to-emails" type="text" placeholder="cpa@example.com, partner@example.com"
+                style="width:100%; padding:7px 10px; font-size:13px; border:1px solid #d1d5db; border-radius:6px; box-sizing:border-box; margin-bottom:14px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#374151; cursor:pointer; margin-bottom:20px;">
+                <input id="notify-attach" type="checkbox" style="width:15px; height:15px;">
+                Attach IRS Package Files (PDFs from IRS_Submission folder)
+            </label>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="_closeNotifyModal()">Cancel</button>
+                <button class="btn btn-warn" onclick="_sendNotifyEmail()">Send Email</button>
+            </div>
+        </div>
+    </div>
 
     {# ── Title panel ────────────────────────────────────────────────── #}
     <div class="tp-title-panel card" style="padding:14px 18px; background:#1f2937; color:white; display:flex; align-items:center; gap:12px;">
