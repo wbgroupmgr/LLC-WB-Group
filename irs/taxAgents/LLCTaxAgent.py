@@ -30,6 +30,7 @@ Session state stored at:
 from __future__ import annotations
 
 import hashlib
+import html as _html
 import json
 import re
 import shutil
@@ -937,8 +938,10 @@ class LLCTaxAgent(IRSFormsAgent):
                                    topMargin=1.0*inch,  bottomMargin=1.0*inch)
         story  = []
 
+        ent_safe = _html.escape(entity_name)
+
         # ── Letterhead ────────────────────────────────────────────────────────
-        story.append(Paragraph(f'<b>{entity_name}</b>', styles['Heading1']))
+        story.append(Paragraph(f'<b>{ent_safe}</b>', styles['Heading1']))
         story.append(Paragraph(f'{address}', body))
         story.append(Paragraph(f'{city_st_zip}', body))
         story.append(Paragraph(f'EIN: {ein}', body))
@@ -952,13 +955,13 @@ class LLCTaxAgent(IRSFormsAgent):
         story.append(Paragraph('<b>Re: Notification Letter — Review Financial Report</b>', heading))
         story.append(Paragraph(
             f'Tax Year: <b>{year}</b> &nbsp;&nbsp;|&nbsp;&nbsp; '
-            f'Entity: <b>{entity_name}</b> &nbsp;&nbsp;|&nbsp;&nbsp; EIN: <b>{ein}</b>', body))
+            f'Entity: <b>{ent_safe}</b> &nbsp;&nbsp;|&nbsp;&nbsp; EIN: <b>{ein}</b>', body))
         story.append(Spacer(1, 0.1*inch))
 
         story.append(Paragraph(
             f'Dear Tax Professional,', body))
         story.append(Paragraph(
-            f'Please find the IRS Form 1065 submission package for <b>{entity_name}</b> for tax '
+            f'Please find the IRS Form 1065 submission package for <b>{ent_safe}</b> for tax '
             f'year <b>{year}</b> attached for review. This package was prepared using a '
             f'double-entry accounting system following the Books-First methodology (IRC §446, §703). '
             f'All internal cross-form audit checks have been completed.', body))
@@ -1026,7 +1029,7 @@ class LLCTaxAgent(IRSFormsAgent):
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph(f'Sincerely,', body))
         story.append(Spacer(1, 0.3*inch))
-        story.append(Paragraph(f'<b>{prep_nm}</b><br/>Principal Officer, {entity_name}', body))
+        story.append(Paragraph(f'<b>{_html.escape(prep_nm)}</b><br/>Principal Officer, {ent_safe}', body))
 
         doc.build(story)
         return out_path

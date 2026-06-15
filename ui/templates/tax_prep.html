@@ -132,7 +132,14 @@
     #tp-notify {
         display: none; padding: 10px 16px; border-radius: 7px;
         font-size: 13px; font-weight: 600; margin-bottom: 14px;
+        position: relative;
     }
+    #tp-notify .notify-dismiss {
+        position: absolute; right: 10px; top: 8px;
+        background: none; border: none; cursor: pointer;
+        font-size: 15px; line-height: 1; color: inherit; opacity: 0.6;
+    }
+    #tp-notify .notify-dismiss:hover { opacity: 1; }
     .notify-ok  { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
     .notify-err { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 </style>
@@ -140,10 +147,10 @@
 <script>
 function notify(msg, isErr) {
     const el = document.getElementById('tp-notify');
-    el.textContent = msg;
     el.className = isErr ? 'notify-err' : 'notify-ok';
+    el.innerHTML = msg + '<button class="notify-dismiss" onclick="this.parentElement.style.display=\'none\'" title="Dismiss">✕</button>';
     el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function runTaxAgent() {
@@ -266,11 +273,25 @@ async function saveK1(oid) {
 }
 
 async function notifyReviewerEmail() {
+    const toEmail = prompt('Send notification to (recipient email):', 'wbgroupmgr@gmail.com');
+    if (!toEmail) return;
     try {
-        const r = await fetch('/api/tax/submission/notify_email', { method: 'POST' });
+        const r = await fetch(`${_scriptRoot}/api/tax/submission/notify_email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to_email: toEmail })
+        });
         const d = await r.json();
-        if (d.ok) { notify('✓ ' + d.message, false); }
-        else       { notify('✗ ' + (d.error || 'Email action failed'), true); }
+        if (d.ok) {
+            if (d.mailto_url) {
+                window.open(d.mailto_url, '_blank');
+                notify(`✓ Email client opened. Recipient: ${toEmail}  CC: wbgroupmgr@gmail.com`, false);
+            } else {
+                notify('✓ ' + d.message, false);
+            }
+        } else {
+            notify('✗ ' + (d.error || 'Email action failed'), true);
+        }
     } catch(e) { notify('✗ Network error: ' + e, true); }
 }
 

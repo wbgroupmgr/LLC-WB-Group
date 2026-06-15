@@ -3224,24 +3224,56 @@ class llcMgmt:
 
         @app.route("/api/tax/submission/notify_email", methods=["POST"])
         def api_tax_submission_notify_email():
-            """Return reviewer email info and the letter path; actual send requires SMTP config."""
+            """Build a mailto: URL pre-filled with reviewer notification content."""
             try:
-                from ledger import setup_paths
-                agent   = _tax_agent()
-                year    = agent.tax_year
-                entity, _ = agent._load_profile_data()
-                reviewer_email = entity.get('email', 'wbgroupmgr@gmail.com')
-                forms_dir      = self._get_forms_dir()
-                letter_name    = f'AccountantLetter_{year}.pdf'
-                letter_exists  = forms_dir is not None and (forms_dir / letter_name).exists()
-                msg = (
-                    f'Reviewer email: {reviewer_email}. '
-                    f'Letter: {letter_name} — {"ready" if letter_exists else "not yet generated"}. '
-                    'SMTP delivery requires server-side email configuration.'
+                import urllib.parse
+                body_data  = request.get_json(silent=True) or {}
+                to_email   = body_data.get('to_email', 'wbgroupmgr@gmail.com').strip()
+                cc_email   = 'wbgroupmgr@gmail.com'
+                agent      = _tax_agent()
+                year       = agent.tax_year
+                entity, _  = agent._load_profile_data()
+                entity_nm  = entity.get('entity_name', 'W&B Group, LLC')
+                forms_dir  = self._get_forms_dir()
+                letter_name = f'AccountantLetter_{year}.pdf'
+                letter_exists = forms_dir is not None and (forms_dir / letter_name).exists()
+
+                subject = f'Notification Letter — Review Financial Report | {entity_nm} | Tax Year {year}'
+                body_lines = [
+                    f'Dear Tax Professional,',
+                    '',
+                    f'Please review the IRS Form 1065 submission package for {entity_nm} (Tax Year {year}).',
+                    f'The Notification Letter and all supporting documents are attached.',
+                    '',
+                    f'Package contents:',
+                    f'  • Form 1065 — U.S. Return of Partnership Income',
+                    f'  • Form 8825 — Rental Real Estate Income and Expenses',
+                    f'  • Form 4562 — Depreciation and Amortization',
+                    f'  • Schedule K-1 — Per-partner income/deduction/credits',
+                    f'  • YE Financial Report — Balance Sheet, IS, Depreciation Schedule, Capital Analysis',
+                    '',
+                    f'Letter file: {letter_name} — {"ready for attachment" if letter_exists else "not yet generated — generate before sending"}',
+                    '',
+                    f'Please advise on any required adjustments prior to filing.',
+                    '',
+                    f'Regards,',
+                    f'{entity_nm}',
+                    f'wbgroupmgr@gmail.com',
+                ]
+                mailto_url = (
+                    f'mailto:{urllib.parse.quote(to_email)}'
+                    f'?cc={urllib.parse.quote(cc_email)}'
+                    f'&subject={urllib.parse.quote(subject)}'
+                    f'&body={urllib.parse.quote(chr(10).join(body_lines))}'
                 )
-                return jsonify({'ok': True, 'message': msg,
-                                'reviewer_email': reviewer_email,
-                                'letter_ready': letter_exists})
+                return jsonify({
+                    'ok':            True,
+                    'mailto_url':    mailto_url,
+                    'to_email':      to_email,
+                    'cc_email':      cc_email,
+                    'letter_ready':  letter_exists,
+                    'message':       f'Email client opened for {to_email} (CC: {cc_email}).',
+                })
             except Exception as err:
                 app.logger.exception("api_tax_submission_notify_email failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500

@@ -12,6 +12,7 @@ Usage:
 
 import datetime
 import hashlib
+import html as _html
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -151,8 +152,9 @@ class YEFinancialReportAgent:
             # footer
             canvas.setFillColor(C_MUTED)
             canvas.setFont('Helvetica', 7)
+            ye_date = f'December 31, {self.year}'
             canvas.drawRightString(pw - _M, 0.45 * inch,
-                f'Prepared by llcRentalTracker v{self.VERSION}  ·  Page {doc.page}')
+                f'{self._entity_name()} Financial Report — {ye_date}  ·  Page {doc.page}')
             canvas.restoreState()
 
         doc.addPageTemplates([
@@ -212,8 +214,8 @@ class YEFinancialReportAgent:
 
         items = [
             Spacer(1, 1.8 * inch),
-            Paragraph(ent, ParagraphStyle('ct', fontSize=28, textColor=C_HEADER,
-                                          fontName='Helvetica-Bold', spaceAfter=6)),
+            Paragraph(self._ent_safe(), ParagraphStyle('ct', fontSize=28, textColor=C_HEADER,
+                                                       fontName='Helvetica-Bold', spaceAfter=6)),
             Spacer(1, 0.2 * inch),
             HRFlowable(width='100%', thickness=2, color=C_HEADER, spaceAfter=0),
             Spacer(1, 0.15 * inch),
@@ -289,8 +291,8 @@ class YEFinancialReportAgent:
 
             Paragraph('<b>Entity Overview</b>', st['h2']),
             Paragraph(
-                f'{ent} (EIN {ein}) is a multi-member limited liability company organized '
-                f'under Texas law, engaged in {prod.lower()}. The LLC was organized on '
+                f'{self._ent_safe()} (EIN {ein}) is a multi-member limited liability company organized '
+                f'under Texas law, engaged in {_html.escape(prod.lower())}. The LLC was organized on '
                 f'{began}. It is treated as a partnership for federal income tax purposes '
                 f'and files Form 1065. Members and ownership percentages: {owner_lines}. '
                 f'Contact: {email}.',
@@ -664,6 +666,10 @@ class YEFinancialReportAgent:
     def _entity_name(self) -> str:
         return self._profile.get('entity', {}).get('entity_name', str(self.llc.objName))
 
+    def _ent_safe(self) -> str:
+        """HTML-escaped entity name for use inside ReportLab Paragraph XML."""
+        return _html.escape(self._entity_name())
+
     def _owner_name(self, o: dict) -> str:
         nm = o.get('nm', o.get('oID', ''))
         return nm[0] if isinstance(nm, list) and nm else str(nm)
@@ -866,8 +872,9 @@ class YEFinancialReportAgent:
                               f'{ent}  ·  {self.year} Financial Report')
             canvas.setFillColor(C_MUTED)
             canvas.setFont('Helvetica', 7)
+            ye_date = f'December 31, {self.year}'
             canvas.drawRightString(pw - _M, 0.45 * inch,
-                                   f'llcRentalTracker v{self.VERSION}  ·  Page {doc.page}')
+                                   f'{self._entity_name()} Financial Report — {ye_date}  ·  Page {doc.page}')
             canvas.restoreState()
 
         doc.addPageTemplates([
