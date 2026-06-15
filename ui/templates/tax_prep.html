@@ -182,7 +182,7 @@ document.addEventListener('DOMContentLoaded', function() {
 async function runTaxAgent() {
     document.getElementById('agent-spinner').style.display = '';
     try {
-        const r = await fetch('/api/tax/prepare', { method: 'POST' });
+        const r = await fetch(_scriptRoot + '/api/tax/prepare', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
             notifyQueued('✓ Tax Agent completed successfully.', false);
@@ -200,7 +200,7 @@ async function runTaxAgent() {
 async function assemblePackage() {
     document.getElementById('agent-spinner').style.display = '';
     try {
-        const r = await fetch('/api/tax/package', { method: 'POST' });
+        const r = await fetch(_scriptRoot + '/api/tax/package', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
             const status = d.manifest?.status || 'DONE';
@@ -218,13 +218,13 @@ async function assemblePackage() {
 
 function downloadPackage() {
     notify('✓ Downloading IRS Submission Package ZIP…', false);
-    setTimeout(() => { window.location.href = '/api/tax/package/download'; }, 400);
+    setTimeout(() => { window.location.href = _scriptRoot + '/api/tax/package/download'; }, 400);
 }
 
 async function generateYEFR() {
     document.getElementById('yefr-spinner').style.display = '';
     try {
-        const r = await fetch('/api/tax/yefr/generate', { method: 'POST' });
+        const r = await fetch(_scriptRoot + '/api/tax/yefr/generate', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
             notifyQueued(`✓ YE Financial Report generated: ${d.filename}`, false);
@@ -242,7 +242,7 @@ async function generateYEFR() {
 async function generateLetter() {
     document.getElementById('letter-spinner').style.display = '';
     try {
-        const r = await fetch('/api/tax/accountant_letter', { method: 'POST' });
+        const r = await fetch(_scriptRoot + '/api/tax/accountant_letter', { method: 'POST' });
         const d = await r.json();
         if (d.ok) {
             notifyQueued(`✓ Notification Letter generated: ${d.filename}`, false);
@@ -264,7 +264,7 @@ async function saveStatus() {
         tracking_number: document.getElementById('sf-tracking').value,
     };
     try {
-        const r = await fetch('/api/tax/submission/update', {
+        const r = await fetch(_scriptRoot + '/api/tax/submission/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -282,7 +282,7 @@ async function saveK1(oid) {
     const dateVal = dateEl ? dateEl.value : '';
     if (!dateVal) { notify('Enter a date before saving.', true); return; }
     try {
-        const r = await fetch('/api/tax/submission/update', {
+        const r = await fetch(_scriptRoot + '/api/tax/submission/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ k1_delivered: { [oid]: dateVal } }),
@@ -325,7 +325,7 @@ async function notifyReviewerEmail() {
 async function testIRSEfile() {
     document.getElementById('agent-spinner').style.display = '';
     try {
-        const r = await fetch('/api/tax/submission/test_efile', { method: 'POST' });
+        const r = await fetch(_scriptRoot + '/api/tax/submission/test_efile', { method: 'POST' });
         const d = await r.json();
         if (d.ok) { notify('✓ ' + d.message, false); }
         else       { notify('✗ ' + (d.error || 'Test eFile failed'), true); }
