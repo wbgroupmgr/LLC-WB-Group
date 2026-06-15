@@ -3248,12 +3248,17 @@ class llcMgmt:
 
         @app.route("/api/tax/submission/notify_email", methods=["POST"])
         def api_tax_submission_notify_email():
-            """Build a mailto: URL pre-filled with reviewer notification content."""
+            """Send reviewer notification via SMTP (falls back to mailto: if SMTP not configured)."""
             try:
-                import urllib.parse
+                import urllib.parse, smtplib, os as _os
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
                 body_data  = request.get_json(silent=True) or {}
                 to_email   = body_data.get('to_email', 'wbgroupmgr@gmail.com').strip()
-                cc_email   = 'wbgroupmgr@gmail.com'
+                from_email = _os.environ.get('SMTP_FROM', 'wbgroupmgr@gmail.com')
+                smtp_pass  = _os.environ.get('SMTP_APP_PASSWORD', '')
+
                 agent      = _tax_agent()
                 year       = agent.tax_year
                 entity, _  = agent._load_profile_data()
@@ -3264,40 +3269,68 @@ class llcMgmt:
 
                 subject = f'Notification Letter — Review Financial Report | {entity_nm} | Tax Year {year}'
                 body_lines = [
-                    f'Dear Tax Professional,',
+                    'Dear Tax Professional,',
                     '',
                     f'Please review the IRS Form 1065 submission package for {entity_nm} (Tax Year {year}).',
-                    f'The Notification Letter and all supporting documents are attached.',
+                    'The Notification Letter and all supporting documents are attached.',
                     '',
-                    f'Package contents:',
-                    f'  • Form 1065 — U.S. Return of Partnership Income',
-                    f'  • Form 8825 — Rental Real Estate Income and Expenses',
-                    f'  • Form 4562 — Depreciation and Amortization',
-                    f'  • Schedule K-1 — Per-partner income/deduction/credits',
-                    f'  • YE Financial Report — Balance Sheet, IS, Depreciation Schedule, Capital Analysis',
+                    'Package contents:',
+                    '  • Form 1065 — U.S. Return of Partnership Income',
+                    '  • Form 8825 — Rental Real Estate Income and Expenses',
+                    '  • Form 4562 — Depreciation and Amortization',
+                    '  • Schedule K-1 — Per-partner income/deduction/credits',
+                    '  • YE Financial Report — Balance Sheet, IS, Depreciation Schedule, Capital Analysis',
                     '',
                     f'Letter file: {letter_name} — {"ready for attachment" if letter_exists else "not yet generated — generate before sending"}',
                     '',
-                    f'Please advise on any required adjustments prior to filing.',
+                    'Please advise on any required adjustments prior to filing.',
                     '',
-                    f'Regards,',
-                    f'{entity_nm}',
-                    f'wbgroupmgr@gmail.com',
+                    'Regards,',
+                    entity_nm,
+                    from_email,
                 ]
-                mailto_url = (
-                    f'mailto:{urllib.parse.quote(to_email)}'
-                    f'?cc={urllib.parse.quote(cc_email)}'
-                    f'&subject={urllib.parse.quote(subject)}'
-                    f'&body={urllib.parse.quote(chr(10).join(body_lines))}'
-                )
-                return jsonify({
-                    'ok':            True,
-                    'mailto_url':    mailto_url,
-                    'to_email':      to_email,
-                    'cc_email':      cc_email,
-                    'letter_ready':  letter_exists,
-                    'message':       f'Email client opened for {to_email} (CC: {cc_email}).',
-                })
+                body_text = '\n'.join(body_lines)
+
+                if smtp_pass:
+                    # Server-side send via Gmail SMTP
+                    msg = MIMEMultipart()
+                    msg['From']    = from_email
+                    msg['To']      = to_email
+                    msg['Cc']      = from_email
+                    msg['Subject'] = subject
+                    msg.attach(MIMEText(body_text, 'plain'))
+
+                    with smtplib.SMTP('smtp.gmail.com', 587) as s:
+                        s.ehlo()
+                        s.starttls()
+                        s.login(from_email, smtp_pass)
+                        recipients = list({to_email, from_email})
+                        s.sendmail(from_email, recipients, msg.as_string())
+
+                    app.logger.info("notify_email sent to %s (CC: %s)", to_email, from_email)
+                    return jsonify({
+                        'ok':           True,
+                        'to_email':     to_email,
+                        'cc_email':     from_email,
+                        'letter_ready': letter_exists,
+                        'message':      f'Email sent to {to_email} (CC: {from_email}).',
+                    })
+                else:
+                    # Fallback: return mailto: URL for client to open
+                    mailto_url = (
+                        f'mailto:{urllib.parse.quote(to_email)}'
+                        f'?cc={urllib.parse.quote(from_email)}'
+                        f'&subject={urllib.parse.quote(subject)}'
+                        f'&body={urllib.parse.quote(body_text)}'
+                    )
+                    return jsonify({
+                        'ok':           True,
+                        'mailto_url':   mailto_url,
+                        'to_email':     to_email,
+                        'cc_email':     from_email,
+                        'letter_ready': letter_exists,
+                        'message':      f'Email client opened for {to_email} (CC: {from_email}).',
+                    })
             except Exception as err:
                 app.logger.exception("api_tax_submission_notify_email failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500

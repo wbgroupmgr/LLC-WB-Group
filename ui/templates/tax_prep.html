@@ -303,7 +303,7 @@ async function notifyReviewerEmail() {
     const toEmail = prompt('Send notification to (recipient email):', 'wbgroupmgr@gmail.com');
     if (!toEmail) return;
     try {
-        const r = await fetch('/api/tax/submission/notify_email', {
+        const r = await fetch(_scriptRoot + '/api/tax/submission/notify_email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ to_email: toEmail })
