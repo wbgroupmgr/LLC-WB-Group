@@ -6,6 +6,67 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.0] — 2026-06-15  **PA Migration + Gmail SMTP Email Service**
+
+### Fixed
+- **IS View Print PDF** — `is_member_view.html` and `is_property_view.html` print
+  buttons were calling `window.print()` (prints the whole browser page). Changed
+  to `window.open(_scriptRoot + '/api/stmtIncomeStmt/print_pdf', '_blank')`.
+- **Info messages disappearing on reload** — `tax_prep.html` reload-based actions
+  (`runTaxAgent`, `assemblePackage`, `generateYEFR`, `generateLetter`, `saveK1`)
+  cleared the DOM notification before the user could read it. Added `notifyQueued()`
+  pattern: saves to `localStorage('tp_pending_msg')` before reload; `DOMContentLoaded`
+  handler restores it on the next page load.
+- **`_scriptRoot` missing in `tax_prep.html`** — all 8 fetch/href calls used bare
+  `/api/...` paths; on PA (mounted at `/rentalTracker`) these 404'd and returned
+  an HTML error page, causing `SyntaxError: Unexpected token '<'`. Added
+  `const _scriptRoot = {{ request.script_root | tojson }}` and prefixed all calls.
+- **Sch K-1 letter description** — shortened from "Income, Deduction, Credits" to
+  `Member N (oID) — Sch K-1` in `LLCTaxAgent.py` line 927.
+
+### PA Migration (issue #31)
+- **`wsCmd.py --sync`** — rewritten to handle PA fresh-clone BUS: detects unrelated
+  histories (`git merge-base` exit code) and uses `reset --hard` instead of rebase.
+  Also clears stale `.pyc`/`__pycache__` after LLC reset and removes stale
+  `.agent_work/*.json` files.
+- **`_AGENT_REGISTRY` empty → 404 "Unknown form key"** — added `_AGENT_REGISTRY_ERR`
+  capture and `_registry_404()` returning 503 with full traceback in JSON body.
+  Added `/api/debug/status` diagnostic endpoint (registry state, bus_repo, accts_dir,
+  forms_dir, accts_exists, forms_exists).
+- **Python ≤3.11 f-string SyntaxError** — `FormSchK1Agent.py` line 1687 used a
+  backslash escape inside an f-string `{}` expression (illegal before Python 3.12).
+  Fixed by hoisting `_mgr_note` variable before the f-string.
+- **HOME FS empty (404 on `/api/home/snapshot`)** — `home.html` had no `_scriptRoot`
+  and used bare `/api/...` fetch paths. Added `_scriptRoot` and prefixed all three
+  API calls (`/api/home/snapshot`, `/api/session/new`, redirect to `/`).
+- **Wrong BUS repo at PA** — PA's `LLC-WBGroup/` folder was the APP repo
+  (contained `CLAUDE.md`, `DiagnoseBooks.ipynb`). Fixed by `rm -rf LLC-WBGroup &&
+  git clone git@github.com:wbgroupmgr/LLC-WBGroup.git`.
+
+### Added
+- **Server-side SMTP email via Gmail** (issue #33) — `notify_reviewer_email` route
+  now sends directly via `smtplib` (port 587 STARTTLS) when `SMTP_APP_PASSWORD` is
+  set in the environment. Falls back to `mailto:` URL when not configured (local dev
+  behavior unchanged). Credentials stored in `wsgi.py` on PA (`SMTP_FROM`,
+  `SMTP_APP_PASSWORD`).
+- **Multi-recipient Notify Reviewer** — replaced bare `prompt()` with a modal dialog
+  collecting: (1) comma-separated recipient email list, (2) "Attach IRS Package Files"
+  checkbox. When checked, attaches all PDFs from `IRS_Submission_{year}/` as MIME
+  attachments. Server accepts list, sends one email to all recipients with CC to
+  `SMTP_FROM`.
+- **`tests/testsmtp.py`** — standalone SMTP connectivity test for PA setup.
+  Prompts for App Password and tests `smtp.gmail.com:587` login. Documents
+  App Password creation steps in docstring.
+
+### Technical Notes
+- PA plan must support outbound port 587 (Hacker plan or above); port 465 is blocked.
+- App Password must be created in incognito with only `wbgroupmgr@gmail.com` active;
+  creating while another Google account is active silently binds it to the wrong account.
+- `wsgi.py` (PA local file, not in git) is the correct place for `SMTP_APP_PASSWORD`;
+  the PA Web tab "Environment variables" section does not inject into the WSGI process.
+
+---
+
 ## [BACKLOG — Pending Work Items]
 
 ### TODO-1: Form 1065 Schedule B — Checkbox Review (tackle after SchK1 complete)
