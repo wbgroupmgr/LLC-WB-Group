@@ -19,6 +19,38 @@
     .yfr-placeholder .big-icon { font-size: 48px; }
     .yfr-placeholder p { font-size: 14px; text-align: center; max-width: 380px; }
     #yfrGenStatus { font-size: 13px; }
+
+    /* CPA Flag Review */
+    .cpa-panel { margin-top: 16px; }
+    .cpa-panel h3 { font-size: 13px; font-weight: 700; color: #1e3a8a; margin-bottom: 8px; }
+    .cpa-flag-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .cpa-flag-table th {
+        background: #1e3a8a; color: #fff; text-align: left;
+        padding: 6px 8px; font-size: 11px;
+    }
+    .cpa-flag-table td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    .cpa-flag-table tr:nth-child(even) td { background: #f9fafb; }
+    .cpa-flag-table .col-cat   { color: #6b7280; width: 90px; }
+    .cpa-flag-table .col-flag  { max-width: 260px; }
+    .cpa-flag-table .col-btn   { white-space: nowrap; }
+    .cpa-badge {
+        display: inline-block; padding: 2px 7px; border-radius: 10px;
+        font-size: 10px; font-weight: 600; margin-bottom: 4px;
+    }
+    .cpa-badge.pending    { background: #f3f4f6; color: #6b7280; }
+    .cpa-badge.no_action  { background: #d1fae5; color: #065f46; }
+    .cpa-badge.unresolved { background: #fee2e2; color: #991b1b; }
+    .cpa-disp-btn {
+        font-size: 10px; padding: 3px 8px; border: 1px solid #d1d5db;
+        border-radius: 4px; cursor: pointer; background: #fff; margin-right: 4px;
+    }
+    .cpa-disp-btn:hover { background: #f3f4f6; }
+    .cpa-disp-btn.active-no  { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+    .cpa-disp-btn.active-unr { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+    .cpa-note-input {
+        font-size: 11px; border: 1px solid #d1d5db; border-radius: 4px;
+        padding: 2px 6px; width: 160px; margin-right: 4px;
+    }
 </style>
 {% endblock %}
 
@@ -82,6 +114,25 @@
     </div>
 </div>
 
+<!-- ── CPA Flag Review ────────────────────────────────────────────────── -->
+<div class="panel cpa-panel" style="padding: 14px;">
+    <h3>Section 6 — CPA Flag Review
+        <span id="cpaFlagCount" style="font-weight:400;color:#6b7280;font-size:11px;margin-left:8px;"></span>
+        <button onclick="loadFlags()" style="float:right;font-size:11px;padding:3px 10px;
+                border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">
+            ↺ Refresh
+        </button>
+    </h3>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">
+        Disposition each flag before filing. Dispositions are saved to
+        <code>YE_CPA_flags.json</code> and appear as a "CPA Status" column when
+        the Financial Report PDF is regenerated.
+    </p>
+    <div id="cpaFlagBody">
+        <p style="font-size:12px;color:#9ca3af;">Loading flags…</p>
+    </div>
+</div>
+
 <script>
 (function(){
     const _root = (typeof _scriptRoot !== 'undefined' ? _scriptRoot : '');
@@ -115,12 +166,10 @@
             btn.disabled   = false;
             btn.textContent = '🔄 Refresh / Generate';
 
-            // Wire download link
             const dl = document.getElementById('yfrDownloadLink');
             dl.href  = `${_root}/api/stmtGeneralLedger/ye_report/download`;
             dl.style.color = '#1d4ed8';
 
-            // Reload iframe (or swap in)
             const content = document.getElementById('yfrContent');
             content.innerHTML =
                 `<iframe id="yfrFrame"
@@ -135,6 +184,81 @@
             btn.textContent = '🔄 Refresh / Generate';
         }
     };
+
+    // ── CPA Flag Review ────────────────────────────────────────────────────
+    const STATUS_LABEL = { pending: 'Pending', no_action: 'No Action', unresolved: 'Unresolved' };
+
+    window.loadFlags = async function() {
+        const body = document.getElementById('cpaFlagBody');
+        body.innerHTML = '<p style="font-size:12px;color:#9ca3af;">Loading…</p>';
+        try {
+            const res  = await fetch(`${_root}/api/tax/yefr/flags`);
+            const data = await res.json();
+            if (!data.ok) { body.innerHTML = `<p style="color:#dc2626">Error: ${data.error}</p>`; return; }
+            const flags = data.flags || [];
+            const count = document.getElementById('cpaFlagCount');
+            const pending = flags.filter(f => f.status === 'pending').length;
+            count.textContent = `${flags.length} flags · ${pending} pending`;
+            if (!flags.length) { body.innerHTML = '<p style="font-size:12px;color:#9ca3af;">No flags.</p>'; return; }
+
+            let html = `<table class="cpa-flag-table"><thead><tr>
+                <th>#</th><th>Category</th><th>Flag</th><th>CPA Status</th><th>Actions</th>
+                </tr></thead><tbody>`;
+            flags.forEach((f, i) => {
+                const s   = f.status || 'pending';
+                const lbl = STATUS_LABEL[s] || s;
+                const cls = s === 'no_action' ? 'no_action' : (s === 'unresolved' ? 'unresolved' : 'pending');
+                const noA = s === 'no_action'  ? 'active-no'  : '';
+                const unA = s === 'unresolved' ? 'active-unr' : '';
+                html += `<tr>
+                    <td style="color:#9ca3af">${i+1}</td>
+                    <td class="col-cat">${_esc(f.cat)}</td>
+                    <td class="col-flag">
+                        <div style="font-weight:600;margin-bottom:2px">${_esc(f.flag)}</div>
+                        <div style="font-size:11px;color:#6b7280">${_esc(f.action)}</div>
+                        ${f.date ? `<div style="font-size:10px;color:#9ca3af;margin-top:2px">Set ${f.date}</div>` : ''}
+                    </td>
+                    <td><span class="cpa-badge ${cls}">${lbl}</span></td>
+                    <td class="col-btn">
+                        <input class="cpa-note-input" id="note_${f.id}" placeholder="Note (optional)" value="${_esc(f.note || '')}">
+                        <br style="margin-bottom:4px">
+                        <button class="cpa-disp-btn ${noA}"
+                                onclick="setDisp('${f.id}','no_action')">No Action</button>
+                        <button class="cpa-disp-btn ${unA}"
+                                onclick="setDisp('${f.id}','unresolved')">Unresolved</button>
+                        <button class="cpa-disp-btn"
+                                onclick="setDisp('${f.id}','pending')" style="color:#6b7280">Clear</button>
+                    </td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            body.innerHTML = html;
+        } catch(err) {
+            body.innerHTML = `<p style="color:#dc2626">Network error: ${err}</p>`;
+        }
+    };
+
+    window.setDisp = async function(flagId, status) {
+        const note = (document.getElementById('note_' + flagId) || {}).value || '';
+        try {
+            const res  = await fetch(`${_root}/api/tax/yefr/flags/${flagId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status, note })
+            });
+            const data = await res.json();
+            if (data.ok) loadFlags();
+            else alert('Error: ' + data.error);
+        } catch(err) { alert('Network error: ' + err); }
+    };
+
+    function _esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Auto-load flags on page load
+    window.addEventListener('DOMContentLoaded', function() { loadFlags(); });
+    if (document.readyState !== 'loading') loadFlags();
 })();
 </script>
 {% endblock %}

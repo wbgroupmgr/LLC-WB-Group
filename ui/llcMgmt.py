@@ -3268,6 +3268,54 @@ class llcMgmt:
                 abort(404)
             return send_file(str(out), mimetype='application/pdf')
 
+        @app.route("/api/tax/yefr/flags", methods=["GET"])
+        def api_tax_yefr_flags_get():
+            """Return all current CPA flags with their dispositions."""
+            try:
+                from ledger import setup_paths as sp
+                from ledger.stmtGL import stmtGL
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                agent         = YEFinancialReportAgent(self.eSession)
+                agent._profile = agent._load_profile(sp)
+                agent._owners  = []
+                agent._assets  = agent._load_assets(sp)
+                agent._gl      = list(stmtGL(self.eSession.llc).load())
+                agent._props   = agent._classify_props()
+                flags  = agent._build_flags()
+                disps  = agent._load_dispositions()
+                result = []
+                for f in flags:
+                    fid  = f.get('id', '')
+                    disp = disps.get(fid, {})
+                    result.append({
+                        'id':     fid,
+                        'cat':    f['cat'],
+                        'flag':   f['flag'],
+                        'action': f['action'],
+                        'status': disp.get('status', 'pending'),
+                        'note':   disp.get('note', ''),
+                        'date':   disp.get('date', ''),
+                    })
+                return jsonify({'ok': True, 'flags': result})
+            except Exception as err:
+                app.logger.exception("api_tax_yefr_flags_get failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/yefr/flags/<flag_id>", methods=["POST"])
+        def api_tax_yefr_flags_post(flag_id):
+            """Update the CPA disposition for a single flag."""
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                body   = request.get_json(force=True) or {}
+                status = body.get('status', 'pending')
+                note   = body.get('note', '')
+                agent  = YEFinancialReportAgent(self.eSession)
+                agent.save_disposition(flag_id, status, note)
+                return jsonify({'ok': True, 'id': flag_id, 'status': status})
+            except Exception as err:
+                app.logger.exception("api_tax_yefr_flags_post failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)
 

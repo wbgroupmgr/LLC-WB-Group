@@ -11,6 +11,7 @@ Usage:
 """
 
 import datetime
+import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -103,14 +104,16 @@ class YEFinancialReportAgent:
         gl_records = engine.getGLList(resolve_dups=True, force=True)
         auditor    = GLAuditor(self.llc, gl_records)
 
-        self._eq       = auditor.equation_summary()
-        self._gl       = gl_records
-        self._profile  = self._load_profile(setup_paths)
-        self._owners   = engine.load_owners()
-        self._bs_rows  = stmtBS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=False)
-        self._is_rows  = stmtIS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=True)
-        self._assets   = self._load_assets(setup_paths)
-        self._props    = self._classify_props()   # {active:[...], construction:[...]}
+        self._eq      = auditor.equation_summary()
+        self._gl      = gl_records
+        self._profile = self._load_profile(setup_paths)
+        self._owners  = engine.load_owners()
+        self._bs_rows = stmtBS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=False)
+        is_view       = stmtIS_View(self.llc, gl_records=gl_records)
+        self._is_rows = is_view.view(view_by='All', with_totals=True)
+        self._is_agg  = is_view.taxAggregates()   # authoritative income/expense totals
+        self._assets  = self._load_assets(setup_paths)
+        self._props   = self._classify_props()   # {active:[...], construction:[...]}
 
         out_dir  = Path(str(setup_paths.IRS_FORMS_DIR))
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -399,7 +402,8 @@ class YEFinancialReportAgent:
         ]
 
         col_w = [3.5*inch, 1.2*inch, 1.2*inch, 1.2*inch]
-        rows, inc_total, exp_total, ni = self._is_section_rows()
+        rows = self._is_section_rows()
+        ni   = self._is_agg.get('net_income', 0)   # authoritative from taxAggregates
         hdr  = [['Account', 'Debit', 'Credit', 'Balance']]
         data = hdr + rows
         tbl  = Table(data, colWidths=col_w, repeatRows=1)
@@ -489,8 +493,9 @@ class YEFinancialReportAgent:
     # ── Section 5: Member Capital ─────────────────────────────────────────────
 
     def _section5_capital(self) -> list:
+        from irs.taxAgents.FormSchK1Agent import gl_contributions, gl_distributions
         st  = self._styles()
-        ni  = self._eq.get('net_income', 0)
+        ni  = self._is_agg.get('net_income', 0)   # authoritative IS net income
         items = [
             Spacer(1, 0.1 * inch),
             Paragraph('Section 5 — Member Capital Account Analysis (K-1 Item L)', st['h1']),
@@ -502,36 +507,33 @@ class YEFinancialReportAgent:
                     for m in members]
         pcts     = [float(m.get('pct', 0) or 0) * 100 for m in members]
 
-        # Compute per-member capital from acctOwner-tagged GL rows
-        contrib = defaultdict(float)
-        for r in self._assets:
-            oid  = r.get('acctOwner', '')
-            acct = r.get('acct', '')
-            if 'Capital' in acct and oid:
-                amt  = float(r.get('amt', 0) or 0)
-                atyp = (r.get('aType', '') or '').lower()
-                # Credit = contribution increases capital
-                contrib[oid] += amt if 'credit' in atyp else -amt
-
-        hdr    = ['Item L'] + col_lbls + ['Total']
-        rows_d = []
-        totals = [0.0] * len(members)
-
+        # Use gl_contributions/distributions — same source as Schedule K-1 Box L.
+        # gl_contributions scans stmtGL(llc) for Capital.Funds/Reinvestment credits per owner.
         def _row(label, vals):
             tot = sum(vals)
             return [label] + [_fmt(v) for v in vals] + [_fmt(tot)]
 
         beg_vals  = [0.0] * len(members)
-        cont_vals = [contrib.get(m.get('oID',''), 0.0) for m in members]
-        ni_vals   = [round(ni * pcts[i] / 100, 2) for i in range(len(members))]
-        end_vals  = [beg_vals[i] + cont_vals[i] + ni_vals[i] for i in range(len(members))]
+        cont_vals = []
+        dist_vals = []
+        for m in members:
+            oID = m.get('oID', '')
+            attributed, _ = gl_contributions(self.llc, oID)
+            cont_vals.append(attributed)
+            dist_att, _   = gl_distributions(self.llc, oID)
+            dist_vals.append(dist_att)
 
+        ni_vals  = [round(ni * pcts[i] / 100, 2) for i in range(len(members))]
+        end_vals = [beg_vals[i] + cont_vals[i] + ni_vals[i] - dist_vals[i]
+                    for i in range(len(members))]
+
+        hdr   = ['Item L'] + col_lbls + ['Total']
         tdata = [hdr,
                  _row('(a) Beginning Capital', beg_vals),
                  _row('(b) Contributions', cont_vals),
                  _row('(c) Net Income/(Loss) Share', ni_vals),
                  _row('(d) Other Increases', [0.0]*len(members)),
-                 _row('(e) Withdrawals/Distributions', [0.0]*len(members)),
+                 _row('(e) Withdrawals/Distributions', dist_vals),
                  _row('(f) Ending Capital', end_vals)]
 
         ncols = len(members) + 2
@@ -545,9 +547,32 @@ class YEFinancialReportAgent:
 
     # ── Section 6: CPA Flags ──────────────────────────────────────────────────
 
+    def _flag_id(self, cat: str, flag: str) -> str:
+        return hashlib.md5(f'{cat}|{flag}'.encode()).hexdigest()[:8]
+
+    def _load_dispositions(self) -> dict:
+        from ledger import setup_paths
+        fp = Path(str(setup_paths.IRS_FORMS_DIR)) / 'YE_CPA_flags.json'
+        try:
+            return json.loads(fp.read_text(encoding='utf-8')) if fp.exists() else {}
+        except Exception:
+            return {}
+
+    def save_disposition(self, flag_id: str, status: str, note: str = '') -> None:
+        from ledger import setup_paths
+        fp = Path(str(setup_paths.IRS_FORMS_DIR)) / 'YE_CPA_flags.json'
+        data = self._load_dispositions()
+        data[flag_id] = {
+            'status': status,
+            'note':   note,
+            'date':   datetime.date.today().isoformat(),
+        }
+        fp.write_text(json.dumps(data, indent=2), encoding='utf-8')
+
     def _section6_flags(self) -> list:
         st    = self._styles()
         flags = self._build_flags()
+        disps = self._load_dispositions()
         items = [
             Paragraph('Section 6 — Outstanding Items & CPA Notes', st['h1']),
             Paragraph('The following items require accountant or IRS attention before Form 1065 is filed.',
@@ -555,33 +580,50 @@ class YEFinancialReportAgent:
             HRFlowable(width='100%', thickness=1, color=C_BORDER, spaceAfter=8),
         ]
 
-        # Cell styles — plain strings don't wrap in reportlab Tables;
-        # every data cell must be a Paragraph for text to flow across lines.
         from reportlab.lib.styles import getSampleStyleSheet as _gss
-        _base = _gss()['Normal']
-        _cell = ParagraphStyle('flagCell',  parent=_base, fontSize=8,
-                               leading=11, wordWrap='LTR')
-        _cat  = ParagraphStyle('flagCat',   parent=_base, fontSize=8,
-                               leading=11, textColor=C_MUTED, wordWrap='LTR')
-        _hdr_s = ParagraphStyle('flagHdr',  parent=_base, fontSize=8,
-                                leading=10, textColor=C_WHITE,
-                                fontName='Helvetica-Bold', wordWrap='LTR')
+        _base  = _gss()['Normal']
+        _cell  = ParagraphStyle('flagCell',  parent=_base, fontSize=8, leading=11, wordWrap='LTR')
+        _cat   = ParagraphStyle('flagCat',   parent=_base, fontSize=8, leading=11,
+                                textColor=C_MUTED, wordWrap='LTR')
+        _stat  = ParagraphStyle('flagStat',  parent=_base, fontSize=7, leading=10, wordWrap='LTR')
+        _hdr_s = ParagraphStyle('flagHdr',   parent=_base, fontSize=8, leading=10,
+                                textColor=C_WHITE, fontName='Helvetica-Bold', wordWrap='LTR')
 
-        hdr_row = [Paragraph(t, _hdr_s) for t in ['#', 'Category', 'Flag', 'Action Required']]
-        rows = []
+        STATUS_LABEL = {
+            'no_action':  'No Action',
+            'unresolved': 'Unresolved',
+        }
+        C_NO_ACTION   = colors.HexColor('#d1fae5')
+        C_UNRESOLVED  = colors.HexColor('#fee2e2')
+
+        hdr_row = [Paragraph(t, _hdr_s)
+                   for t in ['#', 'Category', 'Flag', 'Action Required', 'CPA Status']]
+        rows   = []
+        styles = []
         for i, f in enumerate(flags):
-            bg = C_WHITE if i % 2 == 0 else C_WARN_BG
+            fid    = f.get('id', '')
+            disp   = disps.get(fid, {})
+            status = disp.get('status', 'pending')
+            note   = disp.get('note', '')
+            label  = STATUS_LABEL.get(status, 'Pending')
+            stat_cell_txt = label + (f'\n{note}' if note else '')
             rows.append([
                 Paragraph(str(i + 1), _cell),
                 Paragraph(f['cat'],    _cat),
                 Paragraph(f['flag'],   _cell),
                 Paragraph(f['action'], _cell),
+                Paragraph(stat_cell_txt, _stat),
             ])
+            row_idx = i + 1  # +1 for header
+            if status == 'no_action':
+                styles.append(('BACKGROUND', (4, row_idx), (4, row_idx), C_NO_ACTION))
+            elif status == 'unresolved':
+                styles.append(('BACKGROUND', (4, row_idx), (4, row_idx), C_UNRESOLVED))
 
         data = [hdr_row] + rows
-        cw   = [0.3*inch, 0.95*inch, 2.55*inch, 3.3*inch]
+        cw   = [0.3*inch, 0.9*inch, 2.2*inch, 2.8*inch, 0.9*inch]
         tbl  = Table(data, colWidths=cw, repeatRows=1)
-        tbl.setStyle(TableStyle([
+        base_style = [
             ('BACKGROUND',    (0,0), (-1,0),  C_HEADER),
             ('ROWBACKGROUNDS',(0,1), (-1,-1), [C_WHITE, C_WARN_BG]),
             ('GRID',          (0,0), (-1,-1), 0.5, C_BORDER),
@@ -590,7 +632,8 @@ class YEFinancialReportAgent:
             ('BOTTOMPADDING', (0,0), (-1,-1), 5),
             ('LEFTPADDING',   (0,0), (-1,-1), 5),
             ('RIGHTPADDING',  (0,0), (-1,-1), 5),
-        ]))
+        ]
+        tbl.setStyle(TableStyle(base_style + styles))
         items.append(tbl)
         return items
 
@@ -686,16 +729,16 @@ class YEFinancialReportAgent:
         rows.append(['TOTAL', _fmt(td), _fmt(tc), _fmt(tb, parens=True)])
         return rows
 
-    def _is_section_rows(self):
-        rows, inc_total, exp_total = [], 0.0, 0.0
-        cur_type = ''
+    def _is_section_rows(self) -> list:
+        # Income accounts: Balance = Debit - Credit → negative for credit-normal income.
+        # Flip sign for display so income shows as a positive value.
+        rows, cur_type = [], ''
         for r in self._is_rows:
             at = r.get('acctType', '')
             rt = r.get('row_type', '')
             if at == 'TOTAL' and rt not in ('total-net',):
                 continue
             if at == 'TOTAL':
-                # Grand total row
                 b = r.get('Balance', 0) or 0
                 rows.append(['NET INCOME / (LOSS)', '', '', _fmt(b, parens=True)])
                 continue
@@ -703,65 +746,86 @@ class YEFinancialReportAgent:
                 rows.append([f'── {at} ──', '', '', ''])
                 cur_type = at
             acct = r.get('acct', '') or r.get('acctMinor', '')
-            # simplify acct display
             parts = str(acct).split('.')
             label = '.'.join(parts[-2:]) if len(parts) > 2 else acct
             d = r.get('Debit', 0) or 0
             c = r.get('Credit', 0) or 0
             b = r.get('Balance', 0) or 0
-            if at == 'Income':
-                inc_total += b
-            elif at == 'Expense':
-                exp_total += b
+            # Income balance is credit-normal (stored as Debit-Credit = negative).
+            # Flip sign so the Balance column shows a positive income amount.
+            display_b = -b if at == 'Income' else b
             rows.append([f'  {label}',
                          _fmt(d) if d else '',
                          _fmt(c) if c else '',
-                         _fmt(b, parens=True)])
-        ni = round(inc_total - exp_total, 2)
-        return rows, inc_total, exp_total, ni
+                         _fmt(display_b, parens=True)])
+        return rows
+
+    def _prop_inservice_basis(self) -> dict:
+        """Sum all InService debit entries per propNm across ALL years (not year-filtered)."""
+        try:
+            wk = self.eSession.oDict.get('llcAssets')
+            fn = Path(wk.o.FN())
+            all_data = json.loads(fn.read_text(encoding='utf-8'))
+        except Exception:
+            return {}
+        basis = defaultdict(float)
+        for r in all_data:
+            if 'Tangible.InService' not in (r.get('acct', '') or ''):
+                continue
+            pnm = r.get('propNm', '') or ''
+            if not pnm:
+                continue
+            basis[pnm] += float(r.get('amt', 0) or 0)
+        return {k: round(v, 2) for k, v in basis.items()}
 
     def _depr_rows(self) -> list:
+        basis_by_prop = self._prop_inservice_basis()
         rows = []
         for r in self._assets:
             if not r.get('_is_depr'):
                 continue
-            pnm  = r.get('propNm', '')
-            dt   = r.get('dt', '')
-            atyp = r.get('assetType', 'Residential')
-            amt  = float(r.get('amt', 0) or 0)
-            life = 39.0 if atyp == 'Commercial' else 27.5
-            rows.append([pnm, dt, atyp, '—', 'MACRS', f'{life}yr', _fmt(amt)])
+            pnm   = r.get('propNm', '')
+            dt    = r.get('dt', '')
+            atyp  = r.get('assetType', 'Residential')
+            amt   = float(r.get('amt', 0) or 0)
+            life  = 39.0 if atyp == 'Commercial' else 27.5
+            basis = basis_by_prop.get(pnm, 0)
+            basis_str = _fmt(basis) if basis else '—'
+            rows.append([pnm, dt, atyp, basis_str, 'MACRS', f'{life}yr', _fmt(amt)])
         if not rows:
             rows = [['No depreciation posted', '', '', '', '', '', '']]
         return rows
 
     def _build_flags(self) -> list:
+        def _f(cat, flag, action):
+            return {'id': self._flag_id(cat, flag), 'cat': cat, 'flag': flag, 'action': action}
+
         flags = [
-            {'cat': 'Accounting', 'flag': 'Form 1065 Line F — accounting method not recorded in profile',
-             'action': 'Confirm Cash or Accrual with CPA; update llcProfile F1065 field.'},
-            {'cat': 'Liabilities', 'flag': 'No mortgage payable recorded in llcPayables',
-             'action': 'If property was financed, add mortgage principal balance as of 12/31. If cash purchase, document.'},
-            {'cat': 'Liabilities', 'flag': 'No security deposit liability recorded',
-             'action': 'If deposits are held, add to llcPayables as Acct.Liab.Customer.Security.'},
-            {'cat': 'Tax', 'flag': 'Passive activity loss (IRC §469) — net loss carries forward',
-             'action': 'Members must track carryforward on Form 8582. Loss deductible when property sold or passive income earned.'},
-            {'cat': 'Tax', 'flag': 'At-risk rules (IRC §465) — verify each member\'s at-risk amount',
-             'action': 'Loss deductible only to extent member is at-risk. CPA must calculate outside basis.'},
-            {'cat': 'Property', 'flag': 'County tax proration ($1,661) classified as InService basis reduction',
-             'action': 'CPA should verify: is this a current-year expense credit or a basis adjustment?'},
-            {'cat': 'K-1', 'flag': 'K-1s must be delivered to members by March 15 (or extension date)',
-             'action': 'Generate Schedule K-1 PDFs from IS PerMember view and deliver to each member.'},
-            {'cat': 'Docs', 'flag': 'Operating Agreement profit/loss allocation: 96% / 2% / 2%',
-             'action': 'Confirm this matches the signed Operating Agreement on file. Any discrepancy voids K-1 allocation.'},
+            _f('Accounting', 'Form 1065 Line F — accounting method not recorded in profile',
+               'Confirm Cash or Accrual with CPA; update llcProfile F1065 field.'),
+            _f('Liabilities', 'No mortgage payable recorded in llcPayables',
+               'If property was financed, add mortgage principal balance as of 12/31. If cash purchase, document.'),
+            _f('Liabilities', 'No security deposit liability recorded',
+               'If deposits are held, add to llcPayables as Acct.Liab.Customer.Security.'),
+            _f('Tax', 'Passive activity loss (IRC §469) — net loss carries forward',
+               'Members must track carryforward on Form 8582. Loss deductible when property sold or passive income earned.'),
+            _f('Tax', "At-risk rules (IRC §465) — verify each member's at-risk amount",
+               'Loss deductible only to extent member is at-risk. CPA must calculate outside basis.'),
+            _f('Property', 'County tax proration ($1,661) classified as InService basis reduction',
+               'CPA should verify: is this a current-year expense credit or a basis adjustment?'),
+            _f('K-1', 'K-1s must be delivered to members by March 15 (or extension date)',
+               'Generate Schedule K-1 PDFs from IS PerMember view and deliver to each member.'),
+            _f('Docs', 'Operating Agreement profit/loss allocation: 96% / 2% / 2%',
+               'Confirm this matches the signed Operating Agreement on file. Any discrepancy voids K-1 allocation.'),
         ]
         # Dynamic: check if depreciation is posted for InService assets
         has_depr = any(r.get('_is_depr') for r in self._assets)
         if not has_depr and self._props.get('active'):
-            flags.insert(0, {
-                'cat': 'Depreciation',
-                'flag': 'No depreciation entry found for in-service assets',
-                'action': 'Run YE Posting from llcAssets view to post MACRS depreciation before filing.',
-            })
+            flags.insert(0, _f(
+                'Depreciation',
+                'No depreciation entry found for in-service assets',
+                'Run YE Posting from llcAssets view to post MACRS depreciation before filing.',
+            ))
 
         # Dynamic: RV / InConstruction flags
         for p in self._props.get('construction', []):
@@ -771,40 +835,29 @@ class YEFinancialReportAgent:
             is_rv = 'RV' in pnm.upper()
             asset_label = f'RV ({pnm})' if is_rv else f'Asset {pnm}'
 
-            flags.append({
-                'cat': 'Asset',
-                'flag': f'{asset_label}: InConstruction — not yet placed in service as of 12/31/{self.year}',
-                'action': 'Document the date the asset first becomes available for rental. '
-                          'No depreciation until in-service date. Report in-service date on Form 4562.',
-            })
+            flags.append(_f('Asset',
+                f'{asset_label}: InConstruction — not yet placed in service as of 12/31/{self.year}',
+                'Document the date the asset first becomes available for rental. '
+                'No depreciation until in-service date. Report in-service date on Form 4562.'))
             if exp > 0:
-                flags.append({
-                    'cat': 'Capitalization',
-                    'flag': f'{asset_label}: {_fmt(exp)} expensed as repairs/other but asset is pre-service',
-                    'action': f'CPA should reclassify {_fmt(exp)} from Acct.Exp.* to '
-                              f'Acct.Fixed.Tangible.InConstruction (increasing basis to '
-                              f'{_fmt(basis + exp)}). Pre-service costs must be capitalized '
-                              f'per IRS Reg. §1.263(a)-1.',
-                })
+                flags.append(_f('Capitalization',
+                    f'{asset_label}: {_fmt(exp)} expensed as repairs/other but asset is pre-service',
+                    f'CPA should reclassify {_fmt(exp)} from Acct.Exp.* to '
+                    f'Acct.Fixed.Tangible.InConstruction (increasing basis to '
+                    f'{_fmt(basis + exp)}). Pre-service costs must be capitalized '
+                    f'per IRS Reg. §1.263(a)-1.'))
             if is_rv:
-                flags.append({
-                    'cat': 'Tax — RV',
-                    'flag': f'RV rental activity type unknown — passive vs. active determines loss deductibility',
-                    'action': 'Determine average rental period. ≤7 days avg → NOT passive (IRC §469(j)(8)); '
-                              'losses deductible against ordinary income immediately. >7 days → passive rules apply.',
-                })
-                flags.append({
-                    'cat': 'Tax — RV',
-                    'flag': 'RV listed property check (IRC §280F)',
-                    'action': 'Confirm GVWR. If >6,000 lbs → not subject to luxury-auto annual caps. '
-                              'Business-use log required regardless.',
-                })
-                flags.append({
-                    'cat': 'Tax — RV',
-                    'flag': '60% bonus depreciation election available in year RV is placed in service',
-                    'action': 'Decide with CPA whether to take 60% first-year bonus (2025 TCJA rate for '
-                              '5-year personal property). Reduces basis for subsequent years.',
-                })
+                flags.append(_f('Tax — RV',
+                    'RV rental activity type unknown — passive vs. active determines loss deductibility',
+                    'Determine average rental period. ≤7 days avg → NOT passive (IRC §469(j)(8)); '
+                    'losses deductible against ordinary income immediately. >7 days → passive rules apply.'))
+                flags.append(_f('Tax — RV', 'RV listed property check (IRC §280F)',
+                    'Confirm GVWR. If >6,000 lbs → not subject to luxury-auto annual caps. '
+                    'Business-use log required regardless.'))
+                flags.append(_f('Tax — RV',
+                    '60% bonus depreciation election available in year RV is placed in service',
+                    'Decide with CPA whether to take 60% first-year bonus (2025 TCJA rate for '
+                    '5-year personal property). Reduces basis for subsequent years.'))
         return flags
 
     # ── Table styles ──────────────────────────────────────────────────────────
