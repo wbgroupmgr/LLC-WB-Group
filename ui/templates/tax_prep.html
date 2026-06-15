@@ -145,6 +145,8 @@
 </style>
 
 <script>
+const _scriptRoot = {{ request.script_root | tojson }};
+
 // ── Notification bar ──────────────────────────────────────────────────────────
 // Messages persist until dismissed (✕ button). Post-reload messages survive via
 // localStorage so reload-based flows don't lose their result.
