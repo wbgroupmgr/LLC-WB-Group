@@ -5,13 +5,15 @@
 {% block head_extra %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
+    const _scriptRoot = {{ request.script_root | tojson }};
+
     // ── Financial Snapshot ────────────────────────────────────────────────
     const _fmt = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', maximumFractionDigits:0}).format(v);
     let _fsChart = null;
 
     async function loadFinancialSnapshot() {
         try {
-            const res  = await fetch('/api/home/snapshot');
+            const res  = await fetch(_scriptRoot + '/api/home/snapshot');
             const data = await res.json();
             if (!data.ok) return;
 
@@ -76,11 +78,11 @@
         btn.disabled = true;
         btn.textContent = "Resetting…";
         try {
-            const res  = await fetch("/api/session/new", { method: "POST" });
+            const res  = await fetch(_scriptRoot + "/api/session/new", { method: "POST" });
             const data = await res.json();
             if (data.ok) {
                 cancelNewSession();
-                window.location.href = "/";
+                window.location.href = _scriptRoot + "/";
             } else {
                 alert("New Session failed: " + (data.error || "unknown error"));
                 btn.disabled = false;
