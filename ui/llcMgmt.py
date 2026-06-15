@@ -2051,6 +2051,7 @@ class llcMgmt:
         # Without ?member the agent falls back to all-partners aggregate (for LLCTaxAgent).
 
         _AGENT_REGISTRY = {}
+        _AGENT_REGISTRY_ERR = None
         try:
             from irs.taxAgents.Form8825Agent  import Form8825Agent  as _F8825Agent
             from irs.taxAgents.Form4562Agent  import Form4562Agent  as _F4562Agent
@@ -2062,7 +2063,25 @@ class llcMgmt:
             }
             app.logger.info("Generic form agents loaded: %s", list(_AGENT_REGISTRY.keys()))
         except Exception as _ae:
-            app.logger.error("Generic form agent import failed: %s", _ae)
+            import traceback as _trc
+            _AGENT_REGISTRY_ERR = _trc.format_exc()
+            app.logger.error("Generic form agent import failed:\n%s", _AGENT_REGISTRY_ERR)
+
+        @app.route("/api/debug/status")
+        def api_debug_status():
+            """Diagnostic: config paths, agent registry, eSession state."""
+            from ledger import setup_paths as _sp
+            return jsonify({
+                'registry_loaded': bool(_AGENT_REGISTRY),
+                'registry_keys':   list(_AGENT_REGISTRY.keys()),
+                'registry_error':  _AGENT_REGISTRY_ERR,
+                'bus_repo':        str(_sp.TOP),
+                'accts_dir':       str(_sp.ACCTS_DIR),
+                'irs_forms_dir':   str(_sp.IRS_FORMS_DIR),
+                'accts_exists':    _sp.ACCTS_DIR is not None and Path(str(_sp.ACCTS_DIR)).exists(),
+                'forms_exists':    _sp.IRS_FORMS_DIR is not None and Path(str(_sp.IRS_FORMS_DIR)).exists(),
+                'llc_name':        getattr(self.eSession, 'llcName', None),
+            })
 
         def _make_agent(AgentCls, form_key: str, member: str = ""):
             """Instantiate agent; for schk1 pass oID when a member is selected."""
@@ -2217,12 +2236,17 @@ class llcMgmt:
             summary['overall_state'] = 'NEEDS_FIXING' if overall_halt > 0 else 'GO'
             return summary
 
+        def _registry_404(form_key):
+            reason = f' — import error: {_AGENT_REGISTRY_ERR.splitlines()[-1]}' if _AGENT_REGISTRY_ERR else ''
+            return jsonify({'ok': False, 'error': f'Agent registry not loaded ({form_key}){reason}',
+                            'registry_error': _AGENT_REGISTRY_ERR}), 503
+
         @app.route("/api/agent/<form_key>/status")
         def agent_generic_status(form_key):
             """Return SectionSummary for the agent status strip."""
             entry = _AGENT_REGISTRY.get(form_key)
             if not entry:
-                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+                return _registry_404(form_key)
             AgentCls, _, _ = entry
             member = request.args.get("member", "").strip()
             try:
@@ -2240,7 +2264,7 @@ class llcMgmt:
             """Run Passes 1+2 for all section agents; write session state."""
             entry = _AGENT_REGISTRY.get(form_key)
             if not entry:
-                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+                return _registry_404(form_key)
             AgentCls, _, _ = entry
             member = request.args.get("member", "").strip()
             try:
@@ -2258,7 +2282,7 @@ class llcMgmt:
             """Close (or reopen) one issue from the Guided Review — no Aid needed."""
             entry = _AGENT_REGISTRY.get(form_key)
             if not entry:
-                return jsonify({'ok': False, 'error': f'Unknown form key: {form_key}'}), 404
+                return _registry_404(form_key)
             AgentCls, _, _ = entry
             member  = request.args.get("member", "").strip()
             body    = request.get_json(silent=True) or {}
