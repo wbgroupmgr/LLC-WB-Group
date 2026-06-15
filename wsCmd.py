@@ -706,18 +706,18 @@ def _build_sync_script(llc_repo: str, bus_repos: dict) -> str:
 
     LLC repo (code only):
       git reset --hard origin/main  — PA never commits here; always safe.
+      Clears .pyc after reset so Python loads fresh bytecode.
 
     BUS repos (data + config):
       1. Auto-commit any uncommitted Accts data (bookkeeper edits not yet committed).
-      2. git pull --rebase origin main  — replays PA data commits on top of code commits.
-         No conflict expected (different file paths). On conflict: abort + report.
-      3. git push origin main  — propagate PA data commits back to GitHub.
+      2. Detect whether histories are related:
+         - Related  → git rebase origin/main + git push  (normal ongoing sync)
+         - Unrelated → git reset --hard origin/main       (fresh clone or repo reset)
+      3. Clear stale .agent_work/*.json session state so section agents run fresh.
 
-    Strategy justification:
-      rebase > merge for PA because PA's data commits should appear AFTER the
-      incoming code commits in the linear history (correct causality: "data was
-      entered after the bug was fixed"). Conflicts are rare (data files ≠ code files)
-      and surface cleanly with rebase --abort on failure.
+    Rebase justification (related case):
+      PA data commits should appear AFTER incoming code commits in the linear history.
+      Conflicts are rare (Accts/ data ≠ Python code) and surface cleanly with --abort.
     """
     bus_blocks = ""
     for llc_name, bus_path in bus_repos.items():
@@ -725,25 +725,34 @@ def _build_sync_script(llc_repo: str, bus_repos: dict) -> str:
 echo ""
 echo "=== BUS sync: {llc_name} ({bus_path}) ==="
 cd "{bus_path}"
-# Stash .pyc and generated files that don't belong in commits
-git ls-files --others --exclude-standard | grep -E '\\.pyc$|\\.pdf$' | head -20 | xargs -r git checkout -- 2>/dev/null || true
-# Auto-commit uncommitted bookkeeper data
+# Auto-commit uncommitted bookkeeper data before sync
 if ! git diff --quiet -- books/Accts/ 2>/dev/null; then
     git add books/Accts/*.json 2>/dev/null || true
     git diff --staged --quiet || git commit -m "PA data: auto-commit before sync $(date '+%Y-%m-%d %H:%M')"
     echo "  auto-committed PA bookkeeper changes"
 fi
-# pull --rebase: PA data commits land on top of incoming code commits
 git fetch origin
-if git rebase origin/main; then
-    git push origin main
-    echo "  ✓ BUS {llc_name}: $(git log --oneline -1)"
+# Check for common ancestor — determines rebase vs reset strategy
+MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+if [ -n "$MERGE_BASE" ]; then
+    # Related histories — rebase PA data commits on top of incoming code commits
+    if git rebase origin/main; then
+        git push origin main
+        echo "  ✓ BUS {llc_name} (rebase): $(git log --oneline -1)"
+    else
+        git rebase --abort
+        echo "  ✗ BUS {llc_name}: rebase conflict — run manually on PA"
+        echo "    cd {bus_path} && git rebase origin/main"
+        echo "=== sync error ==="; exit 1
+    fi
 else
-    git rebase --abort
-    echo "  ✗ BUS {llc_name}: rebase conflict — run manually on PA"
-    echo "    cd {bus_path} && git rebase origin/main"
-    echo "=== sync error ==="; exit 1
+    # Unrelated histories (fresh clone or repo reset) — safe hard reset
+    git reset --hard origin/main
+    echo "  ✓ BUS {llc_name} (fresh sync): $(git log --oneline -1)"
 fi
+# Clear stale agent session state — section agents re-read live FILL.pdf on next run
+find "{bus_path}/books" -path "*/.agent_work/*.json" -delete 2>/dev/null || true
+echo "  ✓ Cleared stale .agent_work session state"
 """
 
     return f"""#!/bin/bash
@@ -756,6 +765,10 @@ cd "{llc_repo}"
 git fetch origin
 git reset --hard origin/main
 echo "  ✓ LLC: $(git log --oneline -1)"
+# Clear stale .pyc — required after code changes so Python loads fresh bytecode
+find "{llc_repo}" -name "*.pyc" -delete 2>/dev/null || true
+find "{llc_repo}" -name "__pycache__" -type d -print0 | xargs -0 rm -rf 2>/dev/null || true
+echo "  ✓ Cleared stale .pyc"
 {bus_blocks}
 echo ""
 echo "=== sync done ==="
