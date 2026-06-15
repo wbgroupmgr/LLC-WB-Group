@@ -2609,6 +2609,34 @@ class llcMgmt:
 
         # ── Balance Sheet Audit ────────────────────────────────────────────────
 
+        @app.route("/api/stmtBalanceSheet/print_pdf")
+        def api_bs_print_pdf():
+            """Generate a standalone BS Section 2 PDF (same format as YEFR Section 2)."""
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                from flask import send_file
+                agent = YEFinancialReportAgent(self.eSession)
+                path  = agent.generate_section_pdf(2)
+                return send_file(str(path), mimetype='application/pdf',
+                                 download_name=path.name, as_attachment=False)
+            except Exception as err:
+                app.logger.exception("api_bs_print_pdf failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/stmtIncomeStmt/print_pdf")
+        def api_is_print_pdf():
+            """Generate a standalone IS Section 3 PDF (same format as YEFR Section 3)."""
+            try:
+                from ledger.yeFinancialReport import YEFinancialReportAgent
+                from flask import send_file
+                agent = YEFinancialReportAgent(self.eSession)
+                path  = agent.generate_section_pdf(3)
+                return send_file(str(path), mimetype='application/pdf',
+                                 download_name=path.name, as_attachment=False)
+            except Exception as err:
+                app.logger.exception("api_is_print_pdf failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         @app.route("/api/stmtBalanceSheet/audit")
         def bs_audit():
             '''Forensic BS audit: equation analysis + full GL audit via GLAuditor.'''

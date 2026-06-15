@@ -790,7 +790,7 @@ class LLCTaxAgent(IRSFormsAgent):
         letter_path = self._accountant_letter_path()
         checklist_items.append({
             'id':     'accountant_letter',
-            'label':  'Generate Accountant Notification Letter',
+            'label':  'Generate Notification Letter — Review Financial Report',
             'done':   letter_path.exists() if letter_path else False,
             'action': None if (letter_path and letter_path.exists()) else 'Click [Generate Letter] below',
             'type':   'letter',
@@ -949,7 +949,7 @@ class LLCTaxAgent(IRSFormsAgent):
         story.append(Paragraph(today_str, body))
         story.append(Spacer(1, 0.15*inch))
 
-        story.append(Paragraph('<b>Re: IRS Form 1065 Review Request</b>', heading))
+        story.append(Paragraph('<b>Re: Notification Letter — Review Financial Report</b>', heading))
         story.append(Paragraph(
             f'Tax Year: <b>{year}</b> &nbsp;&nbsp;|&nbsp;&nbsp; '
             f'Entity: <b>{entity_name}</b> &nbsp;&nbsp;|&nbsp;&nbsp; EIN: <b>{ein}</b>', body))
@@ -959,7 +959,7 @@ class LLCTaxAgent(IRSFormsAgent):
             f'Dear Tax Professional,', body))
         story.append(Paragraph(
             f'Please find the IRS Form 1065 submission package for <b>{entity_name}</b> for tax '
-            f'year <b>{year}</b> attached for your review. This package was prepared using a '
+            f'year <b>{year}</b> attached for review. This package was prepared using a '
             f'double-entry accounting system following the Books-First methodology (IRC §446, §703). '
             f'All internal cross-form audit checks have been completed.', body))
         story.append(Spacer(1, 0.1*inch))

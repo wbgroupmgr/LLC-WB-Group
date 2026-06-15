@@ -302,7 +302,8 @@ class YEFinancialReportAgent:
         if active_props:
             for p in active_props:
                 pnm   = p['name']
-                addr_part  = f' — {p["addr"]}' if p['addr'] else ''
+                raw_addr   = p.get('addr', '') or ''
+                addr_part  = f' — {raw_addr}' if raw_addr and str(raw_addr).lower() not in ('null', 'none', '') else ''
                 basis      = basis_by_prop.get(pnm, 0)
                 basis_part = f'  |  Depreciable Basis: {_fmt(basis)}' if basis else ''
                 items.append(Paragraph(f'• {pnm}{addr_part}{basis_part}', _blt))
@@ -719,7 +720,9 @@ class YEFinancialReportAgent:
                 cur_type = at
             acct  = r.get('acct', '') or ''
             minor = r.get('acctMinor', '') or ''
-            full_code = f'{acct}.{minor}'.rstrip('.') if minor else acct
+            full_path = f'{acct}.{minor}'.rstrip('.') if minor else acct
+            coa_id = self._coa_id(full_path)
+            full_code = f'{coa_id}  {full_path}' if coa_id else full_path
             d = r.get('Debit', 0) or 0
             c = r.get('Credit', 0) or 0
             b = r.get('Balance', 0) or 0
@@ -762,7 +765,9 @@ class YEFinancialReportAgent:
 
         def _dr(at, acct, d, c, b):
             display_b = -b if at == 'Income' else b
-            return [f'  {acct}',
+            coa_id = self._coa_id(acct)
+            label  = f'{coa_id}  {acct}' if coa_id else acct
+            return [f'  {label}',
                     _fmt(d) if d else '',
                     _fmt(c) if c else '',
                     _fmt(display_b, parens=True)]
@@ -794,6 +799,82 @@ class YEFinancialReportAgent:
         ni = _tb('total-net')
         rows.append(['NET INCOME / (LOSS)', '', '', _fmt(ni, parens=True)])
         return rows
+
+    def _coa_id(self, full_path: str) -> str:
+        """Return the COA numeric acctID for the given account path (tries progressively shorter paths)."""
+        try:
+            parts = full_path.split('.')
+            for n in range(len(parts), 1, -1):
+                key = '.'.join(parts[:n])
+                entry = self.llc.coa.get(key)
+                if entry:
+                    return entry.get('acctID', '')
+        except Exception:
+            pass
+        return ''
+
+    def generate_section_pdf(self, section: int) -> Path:
+        """Generate a standalone PDF for section 2 (BS) or section 3 (IS). Used by print actions."""
+        from ledger import setup_paths
+        from ui.llcReportEngine  import llcReportEngine
+        from ledger.auditor      import GLAuditor
+        from ledger.stmtBS       import stmtBS_View
+        from ledger.stmtIS       import stmtIS_View
+
+        engine     = llcReportEngine(self.eSession)
+        gl_records = engine.getGLList(resolve_dups=True, force=True)
+        auditor    = GLAuditor(self.llc, gl_records)
+
+        self._eq      = auditor.equation_summary()
+        self._gl      = gl_records
+        self._profile = self._load_profile(setup_paths)
+        self._owners  = engine.load_owners()
+        self._bs_rows = stmtBS_View(self.llc, gl_records=gl_records).view(view_by='All', with_totals=False)
+        is_view       = stmtIS_View(self.llc, gl_records=gl_records)
+        self._is_rows = is_view.view(view_by='All', with_totals=True)
+        self._is_agg  = is_view.taxAggregates()
+        self._assets  = self._load_assets(setup_paths)
+        self._props   = self._classify_props()
+
+        out_dir  = Path(str(setup_paths.IRS_FORMS_DIR))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        data_nm  = getattr(self.llc, 'objName', 'LLC')
+        suffix   = 'BS_Section2' if section == 2 else 'IS_Section3'
+        out_path = out_dir / f'{data_nm}_{self.year}_{suffix}.pdf'
+        self._build_section_pdf(out_path, section)
+        return out_path
+
+    def _build_section_pdf(self, path: Path, section: int):
+        """Build a single-section PDF (section 2=BS or section 3=IS)."""
+        pw, ph = LETTER
+        doc = BaseDocTemplate(
+            str(path),
+            pagesize=LETTER,
+            leftMargin=_M, rightMargin=_M,
+            topMargin=_M,  bottomMargin=_M,
+        )
+        body_frame = _make_frame('body', pw, ph, top_margin=_M + 0.4 * inch)
+
+        def _body_page(canvas, doc):
+            canvas.saveState()
+            canvas.setFillColor(C_HEADER)
+            canvas.rect(_M, ph - _M - 0.32 * inch, pw - 2 * _M, 0.32 * inch, fill=1, stroke=0)
+            canvas.setFillColor(C_WHITE)
+            canvas.setFont('Helvetica-Bold', 9)
+            ent = self._entity_name()
+            canvas.drawString(_M + 6, ph - _M - 0.22 * inch,
+                              f'{ent}  ·  {self.year} Financial Report')
+            canvas.setFillColor(C_MUTED)
+            canvas.setFont('Helvetica', 7)
+            canvas.drawRightString(pw - _M, 0.45 * inch,
+                                   f'llcRentalTracker v{self.VERSION}  ·  Page {doc.page}')
+            canvas.restoreState()
+
+        doc.addPageTemplates([
+            PageTemplate(id='Body', frames=[body_frame], onPage=_body_page),
+        ])
+        story = self._section2_balance_sheet() if section == 2 else self._section3_income_stmt()
+        doc.build(story)
 
     def _prop_inservice_basis(self) -> dict:
         """Sum all InService debit entries per propNm across ALL years (not year-filtered)."""

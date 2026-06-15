@@ -263,7 +263,13 @@
                         {% if obj_type == 'stmtBalanceSheet' %}
                         <button class="act-primary" onclick="openBSAudit()">🔍 BalSheetAudit</button>
                         {% endif %}
+                        {% if obj_type == 'stmtBalanceSheet' %}
+                        <button class="act-primary" onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.open(_scriptRoot+'/api/stmtBalanceSheet/print_pdf','_blank')">🖨️ Print PDF (Section 2)</button>
+                        {% elif obj_type == 'stmtIncomeStmt' %}
+                        <button class="act-primary" onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.open(_scriptRoot+'/api/stmtIncomeStmt/print_pdf','_blank')">🖨️ Print PDF (Section 3)</button>
+                        {% else %}
                         <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.print()">🖨️ Print</button>
+                        {% endif %}
                         <button class="act-warning" onclick="toggleJsonPane()">{ } JSON</button>
                     </div>
                 </details>
