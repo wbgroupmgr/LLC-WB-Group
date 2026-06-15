@@ -3194,6 +3194,59 @@ class llcMgmt:
                 app.logger.exception("api_tax_submission_update failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
+        @app.route("/api/tax/submission/notify_email", methods=["POST"])
+        def api_tax_submission_notify_email():
+            """Return reviewer email info and the letter path; actual send requires SMTP config."""
+            try:
+                from ledger import setup_paths
+                agent   = _tax_agent()
+                year    = agent.tax_year
+                entity, _ = agent._load_profile_data()
+                reviewer_email = entity.get('email', 'wbgroupmgr@gmail.com')
+                forms_dir      = self._get_forms_dir()
+                letter_name    = f'AccountantLetter_{year}.pdf'
+                letter_exists  = forms_dir is not None and (forms_dir / letter_name).exists()
+                msg = (
+                    f'Reviewer email: {reviewer_email}. '
+                    f'Letter: {letter_name} — {"ready" if letter_exists else "not yet generated"}. '
+                    'SMTP delivery requires server-side email configuration.'
+                )
+                return jsonify({'ok': True, 'message': msg,
+                                'reviewer_email': reviewer_email,
+                                'letter_ready': letter_exists})
+            except Exception as err:
+                app.logger.exception("api_tax_submission_notify_email failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
+        @app.route("/api/tax/submission/test_efile", methods=["POST"])
+        def api_tax_submission_test_efile():
+            """Create a test eFile folder structure under IRS_Submission_{year}/test_efile/."""
+            try:
+                from ledger import setup_paths
+                import datetime as _dt
+                agent     = _tax_agent()
+                year      = agent.tax_year
+                forms_dir = self._get_forms_dir()
+                if forms_dir is None:
+                    return jsonify({'ok': False, 'error': 'Forms directory not found'}), 404
+                test_dir = forms_dir / f'IRS_Submission_{year}' / 'test_efile'
+                test_dir.mkdir(parents=True, exist_ok=True)
+                readme = test_dir / 'TEST_EFILE_README.txt'
+                readme.write_text(
+                    f'IRS MeF Test eFile — {year}\n'
+                    f'Created: {_dt.datetime.now().isoformat()}\n\n'
+                    'This folder represents the test eFile submission structure.\n'
+                    'Actual MeF submission requires a certified ERO or software provider.\n'
+                    'Reference: IRS Publication 4163 (Modernized e-File)\n',
+                    encoding='utf-8'
+                )
+                return jsonify({'ok': True,
+                                'message': f'Test eFile folder created: {test_dir.name}/. See TEST_EFILE_README.txt.',
+                                'path': str(test_dir)})
+            except Exception as err:
+                app.logger.exception("api_tax_submission_test_efile failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         @app.route("/forms/AccountantLetter_<int:year>.pdf")
         def serve_accountant_letter(year):
             """Serve the AccountantLetter PDF from the forms directory."""

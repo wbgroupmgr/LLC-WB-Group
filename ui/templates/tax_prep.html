@@ -264,6 +264,33 @@ async function saveK1(oid) {
         notify('✗ Network error: ' + e, true);
     }
 }
+
+async function notifyReviewerEmail() {
+    try {
+        const r = await fetch('/api/tax/submission/notify_email', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) { notify('✓ ' + d.message, false); }
+        else       { notify('✗ ' + (d.error || 'Email action failed'), true); }
+    } catch(e) { notify('✗ Network error: ' + e, true); }
+}
+
+async function testIRSEfile() {
+    document.getElementById('agent-spinner').style.display = '';
+    try {
+        const r = await fetch('/api/tax/submission/test_efile', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) { notify('✓ ' + d.message, false); }
+        else       { notify('✗ ' + (d.error || 'Test eFile failed'), true); }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('agent-spinner').style.display = 'none';
+    }
+}
+
+function irsEfile() {
+    notify('IRS MeF e-File integration is not yet configured. File manually at IRS.gov or via a certified ERO.', true);
+}
 </script>
 {% endblock %}
 
@@ -346,6 +373,9 @@ async function saveK1(oid) {
                 <button class="btn btn-secondary" onclick="assemblePackage()">📦 Assemble Submission Package</button>
                 {% if manifest %}
                 <button class="btn btn-success" onclick="downloadPackage()">⬇ Download Package (ZIP)</button>
+                <button class="btn btn-warn" onclick="notifyReviewerEmail()" title="Send accountant letter to reviewer email">📧 Notify Reviewer</button>
+                <button class="btn btn-secondary" onclick="testIRSEfile()" title="Create test eFile folder structure">🧪 Test eFile</button>
+                <button class="btn btn-secondary" onclick="irsEfile()" title="IRS MeF e-File (requires certified ERO)">📡 IRS eFile</button>
                 {% endif %}
                 <span id="agent-spinner" style="display:none; font-size:13px; color:#6b7280;">⏳ Running…</span>
             </div>

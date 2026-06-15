@@ -152,7 +152,7 @@ class YEFinancialReportAgent:
             canvas.setFillColor(C_MUTED)
             canvas.setFont('Helvetica', 7)
             canvas.drawRightString(pw - _M, 0.45 * inch,
-                f'Prepared by llcRentalTracker v{self.VERSION}  ·  For Tax Review Only  ·  Page {doc.page}')
+                f'Prepared by llcRentalTracker v{self.VERSION}  ·  Page {doc.page}')
             canvas.restoreState()
 
         doc.addPageTemplates([
@@ -240,11 +240,7 @@ class YEFinancialReportAgent:
             ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ]))
         items += [tbl, Spacer(1, 0.5 * inch),
-                  HRFlowable(width='100%', thickness=1, color=C_BORDER),
-                  Spacer(1, 0.15 * inch),
-                  Paragraph('For Tax Review Only — Not a Certified Audit',
-                             ParagraphStyle('disc', fontSize=8, textColor=C_MUTED,
-                                            fontName='Helvetica-Oblique'))]
+                  HRFlowable(width='100%', thickness=1, color=C_BORDER)]
         return items
 
     # ── Section 1: Financial Summary ──────────────────────────────────────────
@@ -302,10 +298,14 @@ class YEFinancialReportAgent:
 
             Paragraph('<b>Active Rental Properties</b>', st['h2']),
         ]
+        basis_by_prop = self._prop_inservice_basis()
         if active_props:
             for p in active_props:
-                label = p['name'] + (f' — {p["addr"]}' if p['addr'] else '')
-                items.append(Paragraph(f'• {label}', _blt))
+                pnm   = p['name']
+                addr_part  = f' — {p["addr"]}' if p['addr'] else ''
+                basis      = basis_by_prop.get(pnm, 0)
+                basis_part = f'  |  Depreciable Basis: {_fmt(basis)}' if basis else ''
+                items.append(Paragraph(f'• {pnm}{addr_part}{basis_part}', _blt))
         else:
             items.append(Paragraph('None', st['body']))
 
@@ -411,7 +411,7 @@ class YEFinancialReportAgent:
         hdr  = [['Account', 'Debit', 'Credit', 'Balance']]
         data = hdr + rows
         tbl  = Table(data, colWidths=col_w, repeatRows=1)
-        tbl.setStyle(self._table_style(len(data)))
+        tbl.setStyle(self._is_table_style(data))
         items.append(tbl)
         items.append(Spacer(1, 0.15 * inch))
 
@@ -717,11 +717,13 @@ class YEFinancialReportAgent:
             if at != cur_type:
                 rows.append([f'── {at} ──', '', '', ''])
                 cur_type = at
-            minor = r.get('acctMinor', '') or r.get('acct', '')
+            acct  = r.get('acct', '') or ''
+            minor = r.get('acctMinor', '') or ''
+            full_code = f'{acct}.{minor}'.rstrip('.') if minor else acct
             d = r.get('Debit', 0) or 0
             c = r.get('Credit', 0) or 0
             b = r.get('Balance', 0) or 0
-            rows.append([f'  {minor}',
+            rows.append([f'  {full_code}',
                          _fmt(d) if d else '',
                          _fmt(c) if c else '',
                          _fmt(b, parens=True)])
@@ -733,34 +735,64 @@ class YEFinancialReportAgent:
         return rows
 
     def _is_section_rows(self) -> list:
-        # Income accounts: Balance = Debit - Credit → negative for credit-normal income.
-        # Flip sign for display so income shows as a positive value.
-        rows, cur_type = [], ''
-        for r in self._is_rows:
-            at = r.get('acctType', '')
-            rt = r.get('row_type', '')
-            if at == 'TOTAL' and rt not in ('total-net',):
-                continue
-            if at == 'TOTAL':
-                b = r.get('Balance', 0) or 0
-                rows.append(['NET INCOME / (LOSS)', '', '', _fmt(b, parens=True)])
-                continue
-            if at != cur_type:
-                rows.append([f'── {at} ──', '', '', ''])
-                cur_type = at
+        # Aggregate per-property rows into one row per account, matching the app IS View.
+        # Income is credit-normal (Balance = Debit-Credit is negative); flip for display.
+
+        data_rows  = [r for r in self._is_rows if r.get('acctType') != 'TOTAL']
+        total_idx  = {r.get('row_type', ''): r for r in self._is_rows if r.get('acctType') == 'TOTAL'}
+
+        def _tb(rt):
+            return float(total_idx.get(rt, {}).get('Balance', 0) or 0)
+
+        # Aggregate by (acctType, acct), preserving first-seen order.
+        agg = {}
+        for r in data_rows:
+            at   = r.get('acctType', '')
             acct = r.get('acct', '') or r.get('acctMinor', '')
-            parts = str(acct).split('.')
-            label = '.'.join(parts[-2:]) if len(parts) > 2 else acct
-            d = r.get('Debit', 0) or 0
-            c = r.get('Credit', 0) or 0
-            b = r.get('Balance', 0) or 0
-            # Income balance is credit-normal (stored as Debit-Credit = negative).
-            # Flip sign so the Balance column shows a positive income amount.
+            key  = (at, acct)
+            if key not in agg:
+                agg[key] = {'acctType': at, 'acct': acct,
+                            'Debit': 0.0, 'Credit': 0.0, 'Balance': 0.0}
+            agg[key]['Debit']   += float(r.get('Debit', 0) or 0)
+            agg[key]['Credit']  += float(r.get('Credit', 0) or 0)
+            agg[key]['Balance'] += float(r.get('Balance', 0) or 0)
+
+        income_rows  = [(k, v) for k, v in agg.items() if v['acctType'] == 'Income']
+        expense_rows = [(k, v) for k, v in agg.items() if v['acctType'] == 'Expense']
+
+        def _dr(at, acct, d, c, b):
             display_b = -b if at == 'Income' else b
-            rows.append([f'  {label}',
-                         _fmt(d) if d else '',
-                         _fmt(c) if c else '',
-                         _fmt(display_b, parens=True)])
+            return [f'  {acct}',
+                    _fmt(d) if d else '',
+                    _fmt(c) if c else '',
+                    _fmt(display_b, parens=True)]
+
+        rows = []
+
+        if income_rows:
+            rows.append(['── Income ──', '', '', ''])
+            for (at, acct), data in income_rows:
+                rows.append(_dr(at, acct, data['Debit'], data['Credit'], data['Balance']))
+            ri = _tb('rental-income-subtotal')
+            oi = _tb('ordinary-income-subtotal')
+            if abs(ri) > 0.01:
+                rows.append(['  SubTotal Rental Income', '', '', _fmt(ri, parens=True)])
+            if abs(oi) > 0.01:
+                rows.append(['  SubTotal Ordinary Income', '', '', _fmt(oi, parens=True)])
+
+        if expense_rows:
+            rows.append(['── Expense ──', '', '', ''])
+            for (at, acct), data in expense_rows:
+                rows.append(_dr(at, acct, data['Debit'], data['Credit'], data['Balance']))
+            re = _tb('rental-expense-subtotal')
+            oe = _tb('ordinary-expense-subtotal')
+            if abs(re) > 0.01:
+                rows.append(['  SubTotal Rental Expense', '', '', _fmt(re, parens=True)])
+            if abs(oe) > 0.01:
+                rows.append(['  SubTotal Ordinary Expense', '', '', _fmt(oe, parens=True)])
+
+        ni = _tb('total-net')
+        rows.append(['NET INCOME / (LOSS)', '', '', _fmt(ni, parens=True)])
         return rows
 
     def _prop_inservice_basis(self) -> dict:
@@ -887,6 +919,38 @@ class YEFinancialReportAgent:
             ('BACKGROUND', (0, n_rows-1), (-1, n_rows-1), colors.HexColor('#dbeafe')),
             ('LINEABOVE',  (0, n_rows-1), (-1, n_rows-1), 1.0, C_SUBHDR),
         ]
+        return TableStyle(cmds)
+
+    def _is_table_style(self, data: list) -> TableStyle:
+        """IS table: base style + bold/highlight subtotal and net rows."""
+        cmds = [
+            ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+            ('FONTSIZE',      (0,0), (-1,-1), 8),
+            ('BACKGROUND',    (0,0), (-1,0),  C_HEADER),
+            ('TEXTCOLOR',     (0,0), (-1,0),  C_WHITE),
+            ('ALIGN',         (1,0), (-1,-1), 'RIGHT'),
+            ('GRID',          (0,0), (-1,-1), 0.5, C_BORDER),
+            ('TOPPADDING',    (0,0), (-1,-1), 3),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+            ('LEFTPADDING',   (0,0), (-1,-1), 4),
+        ]
+        for i in range(1, len(data)):
+            if i % 2 == 0:
+                cmds.append(('BACKGROUND', (0,i), (-1,i), C_ROW_ALT))
+        for i, row in enumerate(data[1:], 1):
+            label = str(row[0]) if row else ''
+            if 'SubTotal' in label:
+                cmds += [
+                    ('FONTNAME',   (0,i), (-1,i), 'Helvetica-Bold'),
+                    ('BACKGROUND', (0,i), (-1,i), colors.HexColor('#e0e7ff')),
+                    ('LINEABOVE',  (0,i), (-1,i), 0.5, C_SUBHDR),
+                ]
+            elif 'NET INCOME' in label or 'NET LOSS' in label:
+                cmds += [
+                    ('FONTNAME',   (0,i), (-1,i), 'Helvetica-Bold'),
+                    ('BACKGROUND', (0,i), (-1,i), colors.HexColor('#dbeafe')),
+                    ('LINEABOVE',  (0,i), (-1,i), 1.0, C_SUBHDR),
+                ]
         return TableStyle(cmds)
 
     def _alloc_style(self, n_rows: int) -> TableStyle:
