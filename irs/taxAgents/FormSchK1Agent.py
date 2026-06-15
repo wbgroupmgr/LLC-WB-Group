@@ -1679,11 +1679,13 @@ class AgentSchK1_PassiveItems(_SectionAgent):
                 'IRC §1402(a)(1); Pub 541 (Partnerships)',
                 "Remove any IS.se_income/self_employment mapping from the K-1 pipeline. "
                 "Box 14a must be blank/$0 for ALL rental LLC partners.")
+        _mgr_note = ('• Note: managing the LLC is investment management — not the same as providing personal services that would trigger SE tax.\n  '
+                     if is_manager else '')
         return self.format_issue(
             'SK1C-R09', self.INFO,
             f"✓ K-1 for {nm} ({oID}): Box 14a (Self-Employment Income) = $0 — correct.\n"
             f"  • Rental real estate income is NOT subject to self-employment tax for any partner, including the managing member.\n"
-            f"  {'• Note: managing the LLC is investment management — not the same as providing personal services that would trigger SE tax.\n  ' if is_manager else ''}"
+            f"  {_mgr_note}"
             f"• The 'Real Estate Professional' question (50%+ time in real estate) only affects whether losses are passive — it does not create SE tax.",
             'IRC §1402(a)(1); §469(c)(7); Pub 541',
             "No action. Box 14a is correctly $0. Advisory: if Francis believes he qualifies "
