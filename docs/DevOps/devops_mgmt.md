@@ -6,18 +6,38 @@
 
 ---
 
-## 1. Why a Third Discipline
+## 1. Disciplines, Repos and Skills
 
-Two disciplines already exist in this repo, each with its own docs home and stage numbering:
+DevOps is a discipline.  It is the set of practices for unifying disciplines, data (repos) and skills to continously deliver high-quality improvements in the development of smart, AI enabled applications at high velocity. It eliminates the traditional, siloed approach where developers write code and hand it off to a separate operations team to deploy and maintain. 
+
+
+
+
+### 1.1 Core Best Practices
+
+* Continuous Integration and Continuous Delivery (CI/CD): Automatically build, test, and package code changes in a shared repository to ensure they are always ready for production release. [8, 9, 10] 
+* Infrastructure as Code (IaC): Manage, provision, and configure computing infrastructure using machine-readable definition files instead of manual setup. [8, 10] 
+* Microservices Architecture: Design large applications as a collection of small, independent services to enable rapid, isolated updates. [8, 11] 
+* Continuous Monitoring and Observability: Track real-time system performance data, application logs, and user behavior metrics to catch and diagnose incidents quickly. [8, 9] 
+* Shift-Left Security (DevSecOps): Integrate automated vulnerability scanning and compliance checks early in the delivery pipeline rather than treating security as a final gate. [9, 12] 
+* Cultural Alignment: Foster a shared responsibility mindset where the cross-functional team collectively owns the product from initial planning to production uptime. [13, 14] 
+
+### 1.2 llcRentalTracker Disciplines
+
+Development is an iterative and learning process.    The goal of this doc is to strive to improve the development cycles of the `llcRentalTracker`.  There are 3 disciplines needed to be aligned -  each with its own docs home and stage numbering:
 
 | Discipline | Docs home | Namespace (CLAUDE.md) | Concerned with |
 |---|---|---|---|
 | **AppDev** | `docs/Books/` | `LLC` — app architecture, data model, API (developer-facing) | The code itself: `ledger/`, `stmt/`, `irs/`, `F1065_K1/`, `ui/`, `util/` packages and how they fit together |
 | **AcctOps** | `docs/BUS/` | `BUS` — business/IRS/accounting rules (operator-facing) | The accounting workflow's correctness: ledger entries, financial statements, IRS form generation, tax compliance |
+| **DevOps** | `docs/DevOps/` | `DevOps` — repeatable development cycles | Prioritizing milestones and git issues to align with project and session goals.  |
 
-Both already use a `01.x–04.x` stage numbering scheme in their filenames (`design_LLC_02.5-NewPropertyAgent.md`, `design_BUS_04.6_Form1065Agent.md`, etc.). That numbering is **AcctOps's pipeline position** (core workflow → statements → IRS forms) — AppDev borrows it today but the borrow is loose; AppDev doesn't yet have a numbering scheme of its own (see §4).
 
-**DevOps did not have a home.** Session-start/close templates, PA deployment, credential/config management, server logging, and release cadence have been informally tagged with a `05.xx`-style prefix in issue titles (e.g. "05.13", "05.15") — borrowing the next available AcctOps stage number even though this work has nothing to do with the accounting pipeline. That blurs AcctOps's clean 01–04 sequence with unrelated ops bookkeeping.
+The **AcctOps** is structured around the Fiscal Year Accounting Workflow and its documentation uses a `01.x–04.x` stage numbering scheme in their filenames (`design_LLC_02.5-NewPropertyAgent.md`, `design_BUS_04.6_Form1065Agent.md`, etc.). That numbering is **AcctOps's pipeline position** (core workflow → statements → IRS forms) — AppDev borrows it today but the borrow is loose; AppDev doesn't yet have a numbering scheme of its own (see §4).
+
+The **AppDev** is focused on software and AI architectural design and service development.  It strives to adhere to **Microservices Framework** in structuring the services.   Its documentation currently uses the format "design_LLC_<AcctStage>_<ServiceComponent>.md where `Service Component` is currently aligned with folder structure of the app. 
+
+The **DevOps** has evolved during release/v0.x thru release/v1.0.  It strives to use `time` stamps to keep track of activiteis : <dateStart> and <dateEnd>, each is a prefix in the abstracto of each git issue, ie. '05.dd'.   Session-start/close templates, host(PA) deployment, credential/config management, server logging, and release cadence have been informally tagged with a <dateStart> prefix in issue titles (e.g. "05.13", "05.15") — borrowing the next available AcctOps stage number even though this work has nothing to do with the accounting pipeline. That blurs AcctOps's clean 01–04 sequence with unrelated ops bookkeeping.
 
 **This document establishes `docs/DevOps/` as DevOps's home**, with its own organizing structure — not a numbered pipeline stage (DevOps isn't a pipeline), but a **Project → Session** hierarchy (§3).
 
@@ -78,7 +98,7 @@ This is the part that needed defining. Two levels, mapped to release granularity
 
 ```
 Project  (major release, e.g. v2.0 → v3.0)
-  ├─ start / end date
+  ├─ start date
   ├─ list of deliverable goals — EXPECTED to be revised as new things surface
   └─ Sessions  (minor release; N sessions sometimes = 1 minor release)
         ├─ goals for this session
@@ -100,7 +120,7 @@ This repo has been running this layer successfully: `release/v1.0` through `rele
 ### Project = Major Release (new layer — this is the gap)
 
 A Project is a ~3-month horizon containing several Sessions, with:
-- **Start / end date**
+- **StartDate**
 - **A short list of deliverable goals** (3–6 items, not a sprint backlog) — explicitly allowed to drift as new issues surface mid-project; the goal list is a compass, not a contract
 - **A milestone in GitHub** tying together the issues that belong to it
 
@@ -168,4 +188,5 @@ Both are tracked as new issues under Project C (§4) rather than attempted insid
 2. Apply discipline labels to all 20 open issues per the table in §2
 3. Create two GitHub Milestones: `Cycle 1 — TY2025 Steady State`, `Cycle 2 — TY2026 Steady State`; attach Project A's issue list to Milestone 1
 4. File the two new AppDev issues from §5 (agent/aid inventory, relationship diagram)
-5. Consider moving `docs/design_WEB_01-webserver.md` (currently loose in `docs/` root) into `docs/DevOps/` — it's deployment/server content, a DevOps concern under the model this document defines. Not done automatically here since it touches an existing committed file path; flagging for your call.
+5. ✅ Done — `design_WEB_01-webserver.md` moved into `docs/DevOps/`.
+6. Diagram: [`docs/FlowSchematics/discipline_skills_repo.mmd`](../FlowSchematics/discipline_skills_repo.mmd) — the AcctOps/AppDev/DevOps triangle from §1.2, repeated per accounting cycle (TY2025 → 2026Q1..Q4 → TY2026) with cascading borders showing the roll-forward sequence.
