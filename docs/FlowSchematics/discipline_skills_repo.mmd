@@ -1,119 +1,26 @@
-flowchart TD
-    direction TB
-
-    %% discipline_skills_repo.mmd — three-discipline triangle (AcctOps apex /
-    %% AppDev base-left / DevOps base-right) repeated per accounting cycle,
-    %% cascading top-to-bottom: TY2025 -> 2026Q1..Q4 -> TY2026.
-    %% Companion to docs/DevOps/devops_mgmt.md.
-    %%
-    %% NOTE on edge direction: dagre (mermaid's layout engine) ranks nodes by
-    %% longest directed path. A triangle with all 3 edges present is always
-    %% transitively forced into a 3-level chain, never a clean apex+base-row,
-    %% unless the base-pair relationship is NOT a literally ranked edge. So:
-    %%   - "Session / Repos" and "Agents (Skills, Knowledge)" ARE real edges,
-    %%     drawn AcctOps --> AppDev / AcctOps --> DevOps (apex fans to base).
-    %%   - "Projects / Milestones" (base side, AppDev<->DevOps) is rendered as
-    %%     the BASE subgraph's title rather than a third ranked edge — that is
-    %%     what keeps AppDev and DevOps on the same visual row.
-
-    %% ── Cycle: TY2025 (topmost) ──────────────────────────────────────────
-    subgraph CYCLE_TY2025 ["Cycle: TY2025"]
-        direction TB
-        AcctOps_TY2025["AcctOps"]
-        subgraph BASE_TY2025 ["Projects / Milestones"]
-            direction LR
-            AppDev_TY2025["AppDev"]
-            DevOps_TY2025["DevOps"]
-        end
-        AcctOps_TY2025 -->|"Session / Repos"| AppDev_TY2025
-        AcctOps_TY2025 -->|"Agents (Skills, Knowledge)"| DevOps_TY2025
-    end
-
-    %% ── Cycle: 2026 Q1 ────────────────────────────────────────────────────
-    subgraph CYCLE_2026Q1 ["Cycle: 2026 Q1"]
-        direction TB
-        AcctOps_2026Q1["AcctOps"]
-        subgraph BASE_2026Q1 ["Projects / Milestones"]
-            direction LR
-            AppDev_2026Q1["AppDev"]
-            DevOps_2026Q1["DevOps"]
-        end
-        AcctOps_2026Q1 -->|"Session / Repos"| AppDev_2026Q1
-        AcctOps_2026Q1 -->|"Agents (Skills, Knowledge)"| DevOps_2026Q1
-    end
-
-    %% ── Cycle: 2026 Q2 ────────────────────────────────────────────────────
-    subgraph CYCLE_2026Q2 ["Cycle: 2026 Q2"]
-        direction TB
-        AcctOps_2026Q2["AcctOps"]
-        subgraph BASE_2026Q2 ["Projects / Milestones"]
-            direction LR
-            AppDev_2026Q2["AppDev"]
-            DevOps_2026Q2["DevOps"]
-        end
-        AcctOps_2026Q2 -->|"Session / Repos"| AppDev_2026Q2
-        AcctOps_2026Q2 -->|"Agents (Skills, Knowledge)"| DevOps_2026Q2
-    end
-
-    %% ── Cycle: 2026 Q3 ────────────────────────────────────────────────────
-    subgraph CYCLE_2026Q3 ["Cycle: 2026 Q3"]
-        direction TB
-        AcctOps_2026Q3["AcctOps"]
-        subgraph BASE_2026Q3 ["Projects / Milestones"]
-            direction LR
-            AppDev_2026Q3["AppDev"]
-            DevOps_2026Q3["DevOps"]
-        end
-        AcctOps_2026Q3 -->|"Session / Repos"| AppDev_2026Q3
-        AcctOps_2026Q3 -->|"Agents (Skills, Knowledge)"| DevOps_2026Q3
-    end
-
-    %% ── Cycle: 2026 Q4 ────────────────────────────────────────────────────
-    subgraph CYCLE_2026Q4 ["Cycle: 2026 Q4"]
-        direction TB
-        AcctOps_2026Q4["AcctOps"]
-        subgraph BASE_2026Q4 ["Projects / Milestones"]
-            direction LR
-            AppDev_2026Q4["AppDev"]
-            DevOps_2026Q4["DevOps"]
-        end
-        AcctOps_2026Q4 -->|"Session / Repos"| AppDev_2026Q4
-        AcctOps_2026Q4 -->|"Agents (Skills, Knowledge)"| DevOps_2026Q4
-    end
-
-    %% ── Cycle: TY2026 (bottommost) ───────────────────────────────────────
-    subgraph CYCLE_TY2026 ["Cycle: TY2026"]
-        direction TB
-        AcctOps_TY2026["AcctOps"]
-        subgraph BASE_TY2026 ["Projects / Milestones"]
-            direction LR
-            AppDev_TY2026["AppDev"]
-            DevOps_TY2026["DevOps"]
-        end
-        AcctOps_TY2026 -->|"Session / Repos"| AppDev_TY2026
-        AcctOps_TY2026 -->|"Agents (Skills, Knowledge)"| DevOps_TY2026
-    end
-
-    %% ── Cascade: roll-forward between cycles ────────────────────────────
-    DevOps_TY2025  -.->|"YE Close → Next Cycle Setup"| AcctOps_2026Q1
-    DevOps_2026Q1  -.->|"YE Close → Next Cycle Setup"| AcctOps_2026Q2
-    DevOps_2026Q2  -.->|"YE Close → Next Cycle Setup"| AcctOps_2026Q3
-    DevOps_2026Q3  -.->|"YE Close → Next Cycle Setup"| AcctOps_2026Q4
-    DevOps_2026Q4  -.->|"YE Close → Next Cycle Setup"| AcctOps_TY2026
-
-    %% ── Styling — colors match GitHub discipline labels (devops_mgmt.md) ──
-    classDef acctops fill:#f0fdf4,stroke:#0e8a16,color:#14532d,font-weight:bold;
-    classDef appdev  fill:#eff6ff,stroke:#1d76db,color:#1e3a8a,font-weight:bold;
-    classDef devops  fill:#fdf4ff,stroke:#5319e7,color:#3b0764,font-weight:bold;
-
-    class AcctOps_TY2025,AcctOps_2026Q1,AcctOps_2026Q2,AcctOps_2026Q3,AcctOps_2026Q4,AcctOps_TY2026 acctops;
-    class AppDev_TY2025,AppDev_2026Q1,AppDev_2026Q2,AppDev_2026Q3,AppDev_2026Q4,AppDev_TY2026 appdev;
-    class DevOps_TY2025,DevOps_2026Q1,DevOps_2026Q2,DevOps_2026Q3,DevOps_2026Q4,DevOps_TY2026 devops;
-
-    %% Cascading box borders — progressively darker stroke down the stack
-    style CYCLE_TY2025  stroke:#cbd5e1,stroke-width:2px
-    style CYCLE_2026Q1  stroke:#94a3b8,stroke-width:2px
-    style CYCLE_2026Q2  stroke:#64748b,stroke-width:2px
-    style CYCLE_2026Q3  stroke:#475569,stroke-width:2.5px
-    style CYCLE_2026Q4  stroke:#334155,stroke-width:2.5px
-    style CYCLE_TY2026  stroke:#1e293b,stroke-width:3px
+%% discipline_skills_repo — NOTES ONLY, not rendered via mmdc.
+%%
+%% This diagram needs a literal geometric triangle: AcctOps at the apex,
+%% AppDev / DevOps on the base corners, with edge labels rotated to follow
+%% each slanted side. Mermaid's flowchart layout (dagre) cannot produce
+%% this shape: dagre ranks nodes by longest directed path, so a triangle
+%% with all 3 edges present is always forced into a 3-level vertical chain,
+%% never a 2-level apex+base-row — confirmed empirically (multiple test
+%% renders, see session history). There is also no mermaid syntax for
+%% rotating an edge label to match an arbitrary slant angle.
+%%
+%% The actual diagram is hand-generated SVG:
+%%   docs/FlowSchematics/discipline_skills_repo_gen.py   (generator, source of truth)
+%%   docs/FlowSchematics/discipline_skills_repo.svg      (output — regenerate via the script, don't hand-edit)
+%%
+%% Structure (per cycle, repeated 6x cascading top-to-bottom: TY2025 ->
+%% 2026Q1..Q4 -> TY2026, boxes darkening down the stack):
+%%
+%%        AcctOps (apex)
+%%        /          \
+%%   "Session/Repos"  "Agents (Skills, Knowledge)"
+%%      /                  \
+%%  AppDev ---"Projects (Milestones)"--- DevOps
+%%
+%% Cycles are connected by a "YE Close -> Next Cycle Setup" arrow from one
+%% cycle's box to the next.
