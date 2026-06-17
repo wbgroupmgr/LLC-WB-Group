@@ -170,11 +170,11 @@ Each cycle = one Project. Each Project has a prioritized issue list. Priority sc
 
 | Priority | Issue | Title | Notes |
 |---|---|---|---|
+| P1 | #34 | YE member notification | K-1 delivery — compliance deliverable |
 | P1 | #35 | YE Close Books / Next Year Setup | Core workflow — gates everything else |
 | P1 | #16 | stmtBS total_equity sign bug | BS must balance before YE close |
 | P1 | #28 | Form 1065 SchB total_assets bug | IRS form must be correct before submission |
 | P2 | #19 | setup_paths M×N config | Required to open TY2026 books post-close |
-| P2 | #34 | YE member notification | K-1 delivery — compliance deliverable |
 | P3 | #11 | COA Integrity Test | Validates books correctness at cycle-close |
 | P3 | #07 | LLC Bus Health Agent | Operational integrity monitoring |
 | P4 | #12 | Recurring Entry Automation | Reduces manual work for Q12026 |
