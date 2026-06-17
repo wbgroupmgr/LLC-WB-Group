@@ -617,44 +617,73 @@ def _pa_req(username: str, token: str, method: str, path: str,
 def _pa_run_command(username: str, token: str, bash: str,
                     poll_sec: float = 2.0, timeout_sec: int = 180) -> str:
     """
-    Run a bash script on PA via the Consoles API.
-    Creates a throwaway Bash console, uploads the script as a file via the
-    Files API, then sources it so the console runs it cleanly.
-    Polls get_latest_output (which returns ALL output since console start,
-    not just the delta) until the sentinel line appears or timeout.
-    """
-    home = f"/home/{username}"
+    Run a bash script on PA via SSH (primary) with Files+Consoles API as fallback.
 
-    # Upload the script to a temp file via Files API so we avoid quoting issues
+    SSH primary: PA bash consoles created via API require browser activation before
+    send_input works (HTTP 412).  SSH avoids this entirely.  Requires the local
+    machine's public key to be registered in PA's SSH keys settings, OR the config
+    to supply an ssh_key_path.  Falls back to the Consoles API if SSH is unavailable.
+    """
+    import subprocess, shutil
+    home = f"/home/{username}"
     script_path = f"{home}/.llcRentalTracker/_sync_run.sh"
+
+    # Upload the script via Files API (works regardless of SSH)
     _pa_upload_file(username, token, script_path, bash.encode())
 
-    # Create a new Bash console
+    # ── Primary: SSH ──────────────────────────────────────────────────────────
+    if shutil.which("ssh"):
+        ssh_host = f"ssh.pythonanywhere.com"
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+               "-o", "StrictHostKeyChecking=accept-new",
+               f"{username}@{ssh_host}", f"bash {script_path}"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+            combined = result.stdout + result.stderr
+            if result.returncode != 0 and "Permission denied" in combined:
+                # No SSH key on PA — surface a clear setup message, don't silently proceed
+                raise RuntimeError(
+                    "SSH auth failed (no key registered on PA).\n"
+                    "  1. cat ~/.ssh/id_ed25519.pub  (or generate: ssh-keygen -t ed25519 -f ~/.ssh/id_pa)\n"
+                    "  2. Paste public key → pythonanywhere.com Account → SSH keys\n"
+                    "  3. Re-run --sync\n"
+                    "  Until then: run  git pull  manually in the PA Bash console."
+                )
+            try:
+                _pa_delete_file(username, token, script_path)
+            except Exception:
+                pass
+            return combined
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            pass  # fall through to Consoles API
+
+    # ── Fallback: Consoles API ────────────────────────────────────────────────
     console = _pa_req(username, token, "POST", "/consoles",
                       {"executable": "bash", "arguments": "",
                        "working_directory": home})
     cid = console["id"]
-
     try:
-        # Brief pause so the shell initialises before we send input
-        time.sleep(1.5)
-        # Source the uploaded script; the shell will echo our sentinels
+        for _ in range(20):
+            time.sleep(1.5)
+            try:
+                _pa_req(username, token, "GET", f"/consoles/{cid}/get_latest_output")
+                break
+            except RuntimeError as _e:
+                if "412" not in str(_e):
+                    raise
         _pa_req(username, token, "POST", f"/consoles/{cid}/send_input",
                 {"input": f"bash {script_path}\n"})
-
-        # Poll — get_latest_output returns ALL output since console open (not delta)
         deadline = time.time() + timeout_sec
         output   = ""
         while time.time() < deadline:
             time.sleep(poll_sec)
             latest = _pa_req(username, token, "GET",
                              f"/consoles/{cid}/get_latest_output")
-            output = latest.get("output", "")   # cumulative, not delta
+            output = latest.get("output", "")
             if "=== sync done ===" in output or "=== sync error ===" in output:
                 break
         return output
     finally:
-        # Clean up console and temp script
         try:
             _pa_req(username, token, "DELETE", f"/consoles/{cid}")
         except Exception:
@@ -666,11 +695,22 @@ def _pa_run_command(username: str, token: str, bash: str,
 
 
 def _pa_upload_file(username: str, token: str, pa_path: str, content: bytes) -> None:
-    """Upload a file to PA via the Files API (PUT /files/path/{path})."""
+    """Upload a file to PA via the Files API (POST multipart/form-data)."""
+    import uuid
+    boundary = uuid.uuid4().hex
+    # Build multipart/form-data body with field name 'content'
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="content"; filename="upload"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n"
+    ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
     url = f"https://www.pythonanywhere.com/api/v0/user/{username}/files/path{pa_path}"
     req = urllib.request.Request(
-        url, data=content,
-        headers={"Authorization": f"Token {token}", "Content-Type": "text/plain"},
+        url, data=body,
+        headers={
+            "Authorization": f"Token {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
         method="POST",
     )
     try:
