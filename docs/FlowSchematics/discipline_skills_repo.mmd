@@ -1,4 +1,4 @@
-%% discipline_skills_repo — NOTES ONLY, not rendered via mmdc.
+%%{ discipline_skills_repo — NOTES ONLY, not rendered via mmdc.
 %%
 %% This diagram needs a literal geometric triangle: AcctOps at the apex,
 %% AppDev / DevOps on the base corners, with edge labels rotated to follow
@@ -18,9 +18,31 @@
 %%
 %%        AcctOps (apex)
 %%        /          \
-%%   "Session/Repos"  "Agents (Skills, Knowledge)"
+%%   "Sessions/Repos"  "Priorities"
 %%      /                  \
 %%  AppDev ---"Projects (Milestones)"--- DevOps
 %%
-%% Cycles are connected by a "YE Close -> Next Cycle Setup" arrow from one
-%% cycle's box to the next.
+%% Center: "Smart Business Agents / Primary Mission (Acquire skills, knowledge)"
+%%
+%% Cycle progression shown as text labels (TY2025 → Q12026 → ... → TY2026).
+%% Single canonical triangle — same model repeats each cycle.
+%% Source: discipline_skills_repo_gen.py (matplotlib, updated 2026-06-16).
+}%%
+%%{init: {'theme': 'base',
+          'themeVariables': {'fontSize': '12px', 'primaryColor': '#f0f4f8', 'edgeLabelBackground': '#ffffff', 'clusterBkg': '#f9f9f9'},
+          'flowchart': { 'rankSpacing': -10, 'nodeSpacing' : 5, 'padding' : 1 }
+   }}%%
+flowchart TD
+
+    %% Define Rounded Styles
+    style box1 rx:15,ry:15,fill:#999,stroke:#777,stroke-width:2px
+    style box2 rx:15,ry:15,fill:#999,stroke:#fff,stroke-width:2px
+
+    %% Overlap achieved by grouping nodes into the exact same coordinates
+    subgraph Stack [ ]
+        direction LR
+        box1[Back Box]
+        box2[Front Box]
+    end
+
+    %% Hide the automatic layout layout spacing via 
