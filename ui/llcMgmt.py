@@ -125,7 +125,7 @@ class llcMgmt:
     # Fixed column sets for admin directory views (no COA mapping).
     # These drive the table_view EDITOR — editable fields only.
     ADMIN_COLUMNS = {
-        "llcOwners":     ["oID", "nm", "addr", "status", "memType", "pct", "SSN", "kw"],
+        "llcOwners":     ["oID", "nm", "addr", "email", "status", "memType", "pct", "SSN", "kw"],
         "llcCustomers":  ["oID", "nm", "addr", "rent", "start", "kwList"],
         "llcMilestones": ["dueDate", "agency", "form", "Milestone", "status", "notes"],
     }
@@ -133,7 +133,7 @@ class llcMgmt:
     # Admin VIEW display columns — may include computed fields not stored in JSON.
     # SSN masked; RetainedEarning injected by /admin route from IS.
     ADMIN_DISPLAY_COLUMNS = {
-        "llcOwners":     ["oID", "nm", "status", "pct", "SSN", "RetainedEarning"],
+        "llcOwners":     ["oID", "nm", "email", "status", "pct", "SSN", "RetainedEarning"],
         "llcCustomers":  ["oID", "nm", "addr", "rent", "start"],
         "llcMilestones": ["dueDate", "agency", "form", "Milestone", "status", "notes"],
     }
