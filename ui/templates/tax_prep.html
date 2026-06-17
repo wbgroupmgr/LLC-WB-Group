@@ -301,6 +301,21 @@ async function saveK1(oid) {
     }
 }
 
+async function sendK1Email(oid, nm) {
+    if (!confirm(`Send K-1 email to ${nm}?\n\nIncludes:\n• Schedule K-1 PDF\n• YE Financial Report (if available)\n• Cover letter with 10-day correction notice\n\nCC'd to manager.`)) return;
+    notify(`⏳ Sending K-1 to ${nm}…`, false);
+    try {
+        const r = await fetch(_scriptRoot + '/api/tax/k1/send_email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ oID: oid }),
+        });
+        const d = await r.json();
+        if (d.ok) notify('✓ ' + d.message, false);
+        else      notify('✗ ' + (d.error || 'Send failed'), true);
+    } catch(e) { notify('✗ Network error: ' + e, true); }
+}
+
 function notifyReviewerEmail() {
     document.getElementById('notify-email-modal').style.display = 'flex';
 }
@@ -712,9 +727,17 @@ function irsEfile() {
             {% set nm_raw = o.get('nm', oid) %}
             {% if nm_raw is iterable and nm_raw is not string %}{% set nm = nm_raw[0] if nm_raw else oid %}{% else %}{% set nm = nm_raw %}{% endif %}
             {% set k1_del = (sub.get('k1_delivered') or {}).get(oid, '') %}
+            {% set member_email = o.get('email') or '' %}
             <div class="k1-card">
                 <div class="k1-name">{{ nm }}</div>
                 <div class="k1-addr">{{ o.get('addr','') }}</div>
+                <div style="font-size:11px; margin-bottom:6px;">
+                    {% if member_email %}
+                        <span style="color:#2563eb;">✉ {{ member_email }}</span>
+                    {% else %}
+                        <span style="color:#dc2626;" title="Add email in LLC Admin → Members">⚠ No email on file</span>
+                    {% endif %}
+                </div>
                 <div class="k1-date">
                     {% if k1_del %}
                         <span style="color:#15803d; font-weight:600;">✓ Delivered {{ k1_del }}</span>
@@ -722,13 +745,22 @@ function irsEfile() {
                         <span style="color:#d97706;">⬜ Not yet delivered</span>
                     {% endif %}
                 </div>
-                <div style="margin-top:8px; display:flex; gap:6px; align-items:center;">
+                <div style="margin-top:8px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                     <input type="date" id="k1-date-{{ oid }}"
                            value="{{ k1_del }}"
                            style="font-size:12px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px;">
                     <button class="btn btn-success"
                             style="padding:4px 10px; font-size:12px;"
                             onclick="saveK1('{{ oid }}')">Save</button>
+                    {% if member_email %}
+                    <button class="btn btn-primary"
+                            style="padding:4px 10px; font-size:12px;"
+                            onclick="sendK1Email('{{ oid }}', '{{ nm }}')">📧 Send K-1</button>
+                    {% else %}
+                    <button class="btn btn-secondary"
+                            style="padding:4px 10px; font-size:12px; opacity:0.5; cursor:not-allowed;"
+                            disabled title="Add email in LLC Admin → Members">📧 Send K-1</button>
+                    {% endif %}
                 </div>
             </div>
             {% endfor %}

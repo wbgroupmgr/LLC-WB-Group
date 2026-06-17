@@ -3371,6 +3371,145 @@ class llcMgmt:
                 app.logger.exception("api_tax_submission_notify_email failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
 
+        @app.route("/api/tax/k1/send_email", methods=["POST"])
+        def api_tax_k1_send_email():
+            """Send K-1 cover letter + K-1 PDF + YE Financial Report to one member."""
+            try:
+                import smtplib, os as _os
+                from email.mime.text      import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                from email.mime.base      import MIMEBase
+                from email                import encoders
+
+                body_data  = request.get_json(silent=True) or {}
+                oid        = body_data.get('oID', '').strip()
+                if not oid:
+                    return jsonify({'ok': False, 'error': 'oID required'}), 400
+
+                agent      = _tax_agent()
+                year       = agent.tax_year
+                entity, _  = agent._load_profile_data()
+                entity_nm  = entity.get('entity_name', 'W&B Group, LLC')
+                forms_dir  = self._get_forms_dir()
+                from_email = _os.environ.get('SMTP_FROM', 'wbgroupmgr@gmail.com')
+                smtp_pass  = _os.environ.get('SMTP_APP_PASSWORD', '')
+
+                # Locate the owner record
+                owners = agent._get_owners()
+                owner  = next((o for o in owners if o.get('oID') == oid), None)
+                if owner is None:
+                    return jsonify({'ok': False, 'error': f'Owner {oid} not found'}), 404
+
+                nm_raw  = owner.get('nm', oid)
+                nm      = nm_raw[0] if isinstance(nm_raw, list) and nm_raw else str(nm_raw)
+                to_email = (owner.get('email') or '').strip()
+                if not to_email:
+                    return jsonify({'ok': False,
+                                    'error': f'No email on file for {nm}. '
+                                             'Update in LLC Admin → Members.'}), 400
+
+                pct_str = f"{float(owner.get('pct', 0)) * 100:.0f}%"
+
+                # K-1 PDF: prefer IRS_Submission copy, fall back to Forms/
+                k1_pdf = None
+                if forms_dir:
+                    candidates = [
+                        forms_dir / f'IRS_Submission_{year}' / f'Sch_K1_{oid}_FILL.pdf',
+                        forms_dir / f'Sch_K1_{oid}_FILL.pdf',
+                    ]
+                    k1_pdf = next((p for p in candidates if p.exists()), None)
+
+                # YE Financial Report
+                ye_pdf = None
+                if forms_dir:
+                    from ledger import setup_paths as _sp
+                    data_nm  = getattr(_sp, 'DATA_NAME', entity_nm.replace(' ', '_'))
+                    ye_name  = f'{data_nm}_{year}_YEFinancialReport.pdf'
+                    ye_path  = forms_dir / ye_name
+                    if ye_path.exists():
+                        ye_pdf = ye_path
+
+                cover = '\n'.join([
+                    f'Dear {nm},',
+                    '',
+                    f'Enclosed is your Schedule K-1 for {entity_nm} (Tax Year {year}).',
+                    '',
+                    'WHAT IS A SCHEDULE K-1?',
+                    'Schedule K-1 reports your share of the LLC\'s income, deductions, credits,',
+                    f'and other items for the tax year. Your ownership interest is {pct_str}.',
+                    '',
+                    '10-DAY CORRECTION WINDOW',
+                    'Please review the enclosed K-1 carefully. If you believe any figures are',
+                    'incorrect, notify us within 10 days of receipt so we can issue a corrected',
+                    'K-1 before the filing deadline.',
+                    '',
+                    'HOW TO REPORT THIS ON YOUR PERSONAL RETURN',
+                    'The information on your K-1 should be reported on your federal Form 1040,',
+                    'Schedule E (Supplemental Income and Loss). Please provide the K-1 to your',
+                    'personal tax preparer.',
+                    '',
+                    'Attachments:',
+                    f'  • Schedule K-1 ({year}) — {entity_nm}',
+                ])
+                if ye_pdf:
+                    cover += f'\n  • YE Financial Report ({year})'
+                cover += '\n\n' + '\n'.join([
+                    f'Regards,',
+                    entity_nm,
+                    from_email,
+                ])
+
+                subject = f'Schedule K-1 ({year}) — {entity_nm}'
+
+                if smtp_pass:
+                    msg = MIMEMultipart()
+                    msg['From']    = from_email
+                    msg['To']      = to_email
+                    msg['Cc']      = from_email
+                    msg['Subject'] = subject
+                    msg.attach(MIMEText(cover, 'plain'))
+
+                    for pdf, label in [(k1_pdf, f'Sch_K1_{oid}_{year}.pdf'),
+                                       (ye_pdf, f'YE_Financial_Report_{year}.pdf')]:
+                        if pdf is None:
+                            continue
+                        part = MIMEBase('application', 'octet-stream')
+                        part.set_payload(pdf.read_bytes())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', 'attachment', filename=label)
+                        msg.attach(part)
+
+                    with smtplib.SMTP('smtp.gmail.com', 587) as s:
+                        s.ehlo(); s.starttls()
+                        s.login(from_email, smtp_pass)
+                        s.sendmail(from_email, list({to_email, from_email}), msg.as_string())
+
+                    app.logger.info("k1_send_email: sent %s to %s CC:%s k1=%s ye=%s",
+                                    oid, to_email, from_email,
+                                    bool(k1_pdf), bool(ye_pdf))
+                    attached = ([f'Sch_K1_{oid}_{year}.pdf'] if k1_pdf else []) + \
+                               ([f'YE_Financial_Report_{year}.pdf'] if ye_pdf else [])
+                    return jsonify({
+                        'ok':       True,
+                        'message':  f'K-1 email sent to {to_email} (CC: {from_email}). '
+                                    f'Attachments: {", ".join(attached) or "none"}',
+                    })
+                else:
+                    # No SMTP — fallback info only
+                    missing = []
+                    if not k1_pdf:
+                        missing.append('K-1 PDF not found — generate forms first')
+                    return jsonify({
+                        'ok':      False,
+                        'error':   'SMTP not configured (SMTP_APP_PASSWORD not set). '
+                                   + ('; '.join(missing) if missing else
+                                      f'Would send to {to_email}.'),
+                    }), 503
+
+            except Exception as err:
+                app.logger.exception("api_tax_k1_send_email failed")
+                return jsonify({'ok': False, 'error': str(err)}), 500
+
         @app.route("/api/tax/submission/test_efile", methods=["POST"])
         def api_tax_submission_test_efile():
             """Create a test eFile folder structure under IRS_Submission_{year}/test_efile/."""
