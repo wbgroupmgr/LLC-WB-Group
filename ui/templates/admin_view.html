@@ -134,6 +134,89 @@ document.addEventListener("DOMContentLoaded", () => {
     </div>
 </div>
 
+<!-- ── Year Management panel ────────────────────────────────────────── -->
+<div id="admin-notify" style="display:none;padding:10px 16px;border-radius:7px;font-size:13px;font-weight:600;margin-bottom:14px;position:relative;"></div>
+
+<script>
+const _adminRoot = {{ request.script_root | tojson }};
+function adminNotify(msg, isErr) {
+    const el = document.getElementById('admin-notify');
+    el.style.background = isErr ? '#fee2e2' : '#dcfce7';
+    el.style.color = isErr ? '#b91c1c' : '#15803d';
+    el.style.border = isErr ? '1px solid #fca5a5' : '1px solid #86efac';
+    el.innerHTML = msg;
+    el.style.display = 'block';
+}
+async function doYearStart(year) {
+    if (!confirm(`Create ${year} directory structure and add year to config.json?`)) return;
+    try {
+        const r = await fetch(_adminRoot + '/api/admin/year_start', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({year}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            adminNotify(`✓ Year ${d.year} started — ${d.dirs_created.length} dirs created${d.config_updated ? ', config updated' : ''}.`, false);
+        } else {
+            adminNotify('✗ ' + (d.error || 'Year start failed'), true);
+        }
+    } catch(e) { adminNotify('✗ Network error: ' + e, true); }
+}
+async function doUnlock(year) {
+    if (!confirm(`Unlock year ${year}?\n\nThis deletes the YE lock file and allows editing.\nAn audit log entry will be written.\n\nContinue?`)) return;
+    try {
+        const r = await fetch(_adminRoot + '/api/admin/ye_unlock', {
+            method: 'DELETE',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({year}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            adminNotify(`✓ Year ${d.year} unlocked at ${d.unlocked_at.slice(0,19).replace('T',' ')}.`, false);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            adminNotify('✗ ' + (d.error || 'Unlock failed'), true);
+        }
+    } catch(e) { adminNotify('✗ Network error: ' + e, true); }
+}
+</script>
+
+{% if current_year %}
+<details class="admin-frame" open>
+    <summary>
+        <span class="collapse-chevron">▼</span>
+        <span class="frame-title">📅 Year Management</span>
+        <span class="frame-count">
+            Year {{ current_year }}
+            {% if year_locked %}<span style="color:#15803d;font-weight:700;">✓ Locked</span>{% else %}<span style="color:#d97706;font-weight:700;">Open</span>{% endif %}
+        </span>
+    </summary>
+    <div class="admin-table-wrap" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;padding:18px;">
+        <div style="flex:1;min-width:220px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">Current Year: {{ current_year }}</div>
+            <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
+                Status: {% if year_locked %}<span style="color:#15803d;font-weight:600;">Locked (YE Close applied)</span>{% else %}<span style="color:#d97706;font-weight:600;">Open (editable)</span>{% endif %}
+            </div>
+            {% if year_locked %}
+            <button class="frame-edit-btn" style="background:#d97706;" onclick="doUnlock({{ current_year }})">🔓 Unlock {{ current_year }}</button>
+            {% else %}
+            <a href="/view/tax_prep" class="frame-edit-btn" style="background:#16a34a;text-decoration:none;">🔒 YE Close {{ current_year }}</a>
+            {% endif %}
+        </div>
+        {% if next_year %}
+        <div style="flex:1;min-width:220px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">Next Year: {{ next_year }}</div>
+            <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
+                Creates Forms/, BankStmts/, Expenses/ directories and registers year in config.json.
+            </div>
+            <button class="frame-edit-btn" style="background:#2563eb;" onclick="doYearStart({{ next_year }})">🆕 Start {{ next_year }}</button>
+        </div>
+        {% endif %}
+    </div>
+</details>
+{% endif %}
+
 <!-- ── Collapsible frames ──────────────────────────────────────────── -->
 {% for frame in frames %}
 {% set computed = frame.computed_cols | default([]) %}

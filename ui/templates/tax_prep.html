@@ -362,6 +362,98 @@ async function testIRSEfile() {
 function irsEfile() {
     notify('ℹ IRS MeF e-File: integration not yet configured. File manually at IRS.gov or through a certified ERO/software provider.', false);
 }
+
+// ── YE Close ─────────────────────────────────────────────────────────────────
+let _yePreviewData = null;
+
+async function yePreviewLoad() {
+    document.getElementById('ye-preview-spinner').style.display = '';
+    document.getElementById('ye-preview-area').innerHTML = '<p style="color:#6b7280;font-size:13px;">Loading preview…</p>';
+    document.getElementById('ye-apply-btn').disabled = true;
+    try {
+        const r = await fetch(_scriptRoot + '/api/llcAssets/ye/preview');
+        const d = await r.json();
+        if (!d.ok) { notify('✗ Preview failed: ' + (d.error || 'unknown'), true); return; }
+        _yePreviewData = d;
+        _yeRenderPreview(d);
+        document.getElementById('ye-apply-btn').disabled = false;
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('ye-preview-spinner').style.display = 'none';
+    }
+}
+
+function _yeRenderPreview(d) {
+    const year = d.year;
+    let html = `<div style="font-size:13px;margin-bottom:10px;color:#374151;">
+        <b>Year:</b> ${year} &nbsp;|&nbsp; <b>Net Income:</b> $${d.net_income.toFixed(2)}</div>`;
+    for (const prop of (d.properties || [])) {
+        html += `<div style="margin-bottom:12px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${prop.propNm}</div>`;
+        for (const item of (prop.items || [])) {
+            const statusColor = item.status === 'exists' ? '#15803d' : item.status === 'new' ? '#1d4ed8' : '#d97706';
+            html += `<div style="font-size:12px;margin-bottom:4px;">
+                <span style="color:${statusColor};font-weight:600;">[${item.status.toUpperCase()}]</span>
+                <b>${item.label}</b>`;
+            if (item.amount != null) html += ` — $${Math.abs(item.amount).toFixed(2)}`;
+            if (item.note)           html += `<br><span style="color:#6b7280;margin-left:16px;">${item.note}</span>`;
+            if (item.members) {
+                for (const m of item.members) {
+                    const mc = m.status === 'exists' ? '#15803d' : '#1d4ed8';
+                    html += `<br><span style="margin-left:16px;color:${mc};">[${m.status.toUpperCase()}] ${m.name} (${m.pct}%) — $${m.amount.toFixed(2)}</span>`;
+                }
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+    document.getElementById('ye-preview-area').innerHTML = html;
+}
+
+function _yeCollectRecords(d) {
+    const recs = [];
+    for (const prop of (d.properties || [])) {
+        for (const item of (prop.items || [])) {
+            if (item.record) recs.push(item.record);
+            if (item.members) {
+                for (const m of item.members) {
+                    if (m.record) recs.push(m.record);
+                }
+            }
+        }
+    }
+    return recs;
+}
+
+async function yeApply() {
+    if (!_yePreviewData) { notify('Load preview first.', true); return; }
+    const records = _yeCollectRecords(_yePreviewData);
+    if (!records.length) { notify('No new records to post.', false); return; }
+    if (!confirm(`Apply ${records.length} YE closing record(s) and lock year ${_yePreviewData.year}?\n\nThis will:\n• Remove existing ${_yePreviewData.year}.12.31 depr/RE entries\n• Post updated depr + retained-earnings entries\n• Lock the year against further edits\n\nContinue?`)) return;
+    document.getElementById('ye-close-spinner').style.display = '';
+    document.getElementById('ye-apply-btn').disabled = true;
+    try {
+        const r = await fetch(_scriptRoot + '/api/tax/ye_close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: _yePreviewData.year, records }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            notifyQueued(`✓ YE Close applied — added ${d.added}, removed ${d.removed}. Year ${d.year} locked.`, false);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            notify('✗ ' + (d.error || 'YE Close failed'), true);
+            document.getElementById('ye-apply-btn').disabled = false;
+        }
+    } catch(e) {
+        notify('✗ Network error: ' + e, true);
+        document.getElementById('ye-apply-btn').disabled = false;
+    } finally {
+        document.getElementById('ye-close-spinner').style.display = 'none';
+    }
+}
 </script>
 {% endblock %}
 
@@ -418,6 +510,71 @@ function irsEfile() {
             <span class="badge badge-none">○ NOT STARTED</span>
         {% endif %}
     </div>
+
+    {# ── Frame 0: YE Close ─────────────────────────────────────────── #}
+    {% set ye_locked = ye_locked | default(false) %}
+    <details class="tp-frame" open>
+        <summary>
+            <span class="frame-title">🔒 Year-End Close — {{ tax_year }}</span>
+            {% if ye_locked %}
+                <span class="badge badge-go">✓ Locked</span>
+            {% else %}
+                <span class="badge badge-none">Open</span>
+            {% endif %}
+            <span class="collapse-chevron">▾</span>
+        </summary>
+        <div class="frame-body">
+            {% if ye_locked %}
+            <div style="padding:8px 12px;background:#dcfce7;border-radius:6px;font-size:13px;color:#15803d;margin-bottom:14px;">
+                ✓ Year {{ tax_year }} is locked. YE closing entries are posted. To reopen, use Admin → Unlock {{ tax_year }}.
+            </div>
+            {% else %}
+            <div style="padding:8px 12px;background:#fef9c3;border-radius:6px;font-size:13px;color:#92400e;margin-bottom:14px;">
+                ⚠ Year {{ tax_year }} is open. Complete all transactions before applying YE Close.
+            </div>
+            {% endif %}
+
+            <ul class="chk-list" style="margin-bottom:14px;">
+                <li class="chk-item">
+                    <span class="chk-icon">{% if ye_locked %}✅{% else %}⬜{% endif %}</span>
+                    <div>
+                        <div class="chk-label">All transactions entered and reconciled</div>
+                        <div class="chk-action">Verify llcAssets, llcExpRev, llcPayables, llcReceivables</div>
+                    </div>
+                </li>
+                <li class="chk-item">
+                    <span class="chk-icon">{% if ye_locked %}✅{% else %}⬜{% endif %}</span>
+                    <div>
+                        <div class="chk-label">Depreciation schedule confirmed (PropAgent / Form 4562)</div>
+                        <div class="chk-action">Preview will compute MACRS from GL basis</div>
+                    </div>
+                </li>
+                <li class="chk-item">
+                    <span class="chk-icon">{% if ye_locked %}✅{% else %}⬜{% endif %}</span>
+                    <div>
+                        <div class="chk-label">Net Income verified on Income Statement</div>
+                        <div class="chk-action">BS equation_diff should equal NI before close</div>
+                    </div>
+                </li>
+            </ul>
+
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                {% if not ye_locked %}
+                <button class="btn btn-secondary" onclick="yePreviewLoad()">🔍 Preview Closing Entries</button>
+                <button class="btn btn-primary" id="ye-apply-btn" disabled onclick="yeApply()">✔ Apply YE Close &amp; Lock</button>
+                <span id="ye-preview-spinner" style="display:none;font-size:13px;color:#6b7280;">⏳ Loading…</span>
+                <span id="ye-close-spinner" style="display:none;font-size:13px;color:#6b7280;">⏳ Applying…</span>
+                {% else %}
+                <span id="ye-preview-spinner" style="display:none;"></span>
+                <span id="ye-close-spinner" style="display:none;"></span>
+                <span id="ye-apply-btn" style="display:none;"></span>
+                <a href="/admin" class="btn btn-secondary">🔓 Unlock (Admin)</a>
+                {% endif %}
+            </div>
+
+            <div id="ye-preview-area"></div>
+        </div>
+    </details>
 
     {# ── Frame 1: Submission Checklist ──────────────────────────────── #}
     <details class="tp-frame" open>

@@ -64,6 +64,15 @@ class SessionPaths:
     year:          int
 
 
+# ── Lock file helpers ─────────────────────────────────────────────────────────
+
+def ye_lock_path(year: int) -> Path | None:
+    """Return path to yeClose_{year}.json lock file, or None if TOP not set."""
+    if TOP is None:
+        return None
+    return TOP / (BOOKS_DIR or "books") / str(year) / "Forms" / f"yeClose_{year}.json"
+
+
 # ── Config I/O ────────────────────────────────────────────────────────────────
 
 def read_config() -> dict:

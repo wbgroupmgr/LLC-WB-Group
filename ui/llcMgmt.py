@@ -914,10 +914,17 @@ class llcMgmt:
                 _frame("llcCustomers"),
                 _frame("llcMilestones"),
             ]
+            cur_year  = getattr(getattr(self.eSession, 'llc', None), 'yr', None)
+            from util.utilEditSession import utilEditSession as _UES
+            year_locked = _UES.is_locked(int(cur_year)) if cur_year else False
             return render_template(
                 "admin_view.html",
                 title=self.title,
+                app_title=self.app.config.get("_llc_name", "LLC Editor"),
                 frames=frames,
+                current_year=cur_year,
+                next_year=(int(cur_year) + 1) if cur_year else None,
+                year_locked=year_locked,
             )
 
         # ── View ──────────────────────────────────────────────────────────────
@@ -1297,6 +1304,13 @@ class llcMgmt:
 
             if cmd == "meta":
                 return jsonify({"ok": True, "data": s(manager.meta())})
+
+            if cmd in ("save", "save_object"):
+                yr = getattr(getattr(self.eSession, 'llc', None), 'yr', None)
+                if yr:
+                    from util.utilEditSession import utilEditSession as _UES
+                    if _UES.is_locked(int(yr)):
+                        return jsonify({"ok": False, "error": f"Year {yr} is locked (YE Close applied). Use Admin → Unlock to edit."}), 423
 
             if cmd == "save":
                 payload = self._parse_payload(request.values.get("payload", "[]"), [])
@@ -3145,6 +3159,7 @@ class llcMgmt:
                 entity, f1065_data = agent._load_profile_data()
                 letter_path = agent._accountant_letter_path()
                 year = agent.tax_year
+                from util.utilEditSession import utilEditSession as _UES
                 return render_template(
                     "tax_prep.html",
                     app_title=self.app.config.get("_llc_name", "LLC Editor"),
@@ -3159,6 +3174,7 @@ class llcMgmt:
                     letter_exists=bool(letter_path and letter_path.exists()),
                     letter_filename=letter_path.name if letter_path else '',
                     filing_deadline=f'{year + 1}-03-15',
+                    ye_locked=_UES.is_locked(year),
                 )
             except Exception as err:
                 app.logger.exception("view_tax_prep failed")
@@ -3660,6 +3676,173 @@ class llcMgmt:
             except Exception as err:
                 app.logger.exception("api_tax_yefr_flags_post failed")
                 return jsonify({'ok': False, 'error': str(err)}), 500
+
+        # ── YE Close + Admin year management ─────────────────────────────────
+
+        @app.route("/api/tax/ye_close", methods=["POST"])
+        def api_tax_ye_close():
+            """Apply YE closing entries (depr + RE) wholesale and lock the year."""
+            try:
+                import datetime as _dt, json as _json
+                from ledger import setup_paths as _sp
+
+                data     = request.get_json(force=True) or {}
+                new_recs = data.get("records", [])
+                year     = int(data.get("year", getattr(getattr(self.eSession, 'llc', None), 'yr',
+                                                          _dt.date.today().year)))
+
+                mgr = self.objects.get('llcAssets')
+                if mgr is None:
+                    return jsonify({"ok": False, "error": "llcAssets not available"}), 500
+
+                existing = mgr.load() or []
+                ye_dt    = f"{year}.12.31"
+
+                # Remove all prior YE closing entries for this year
+                def _is_ye_closing(r):
+                    tid = r.get('tID', '') or ''
+                    return (tid.startswith(f"{ye_dt}_depr_") or
+                            tid.startswith(f"{ye_dt}_re_"))
+                removed = [r for r in existing if _is_ye_closing(r)]
+                kept    = [r for r in existing if not _is_ye_closing(r)]
+
+                seen_tids = {r.get('tID') for r in kept if r.get('tID')}
+                to_add    = []
+                for r in new_recs:
+                    if not r or not isinstance(r, dict):
+                        continue
+                    r.pop('_replace_tID', None)
+                    tid = r.get('tID')
+                    if tid and tid not in seen_tids:
+                        to_add.append(r)
+                        seen_tids.add(tid)
+
+                mgr.save(kept + to_add)
+
+                try:
+                    self.eSession.books.invalidate()
+                except Exception:
+                    pass
+
+                lock_path = _sp.ye_lock_path(year)
+                if lock_path is not None:
+                    lock_path.parent.mkdir(parents=True, exist_ok=True)
+                    lock_data = {
+                        "locked_at":       _dt.datetime.now().isoformat(),
+                        "year":            year,
+                        "records_added":   len(to_add),
+                        "records_removed": len(removed),
+                    }
+                    lock_path.write_text(_json.dumps(lock_data, indent=2), encoding="utf-8")
+                    app.logger.info("ye_close: locked %s — added %d, removed %d",
+                                    lock_path, len(to_add), len(removed))
+
+                return jsonify({
+                    "ok":        True,
+                    "year":      year,
+                    "added":     len(to_add),
+                    "removed":   len(removed),
+                    "locked":    lock_path is not None,
+                    "lock_path": str(lock_path) if lock_path else None,
+                })
+            except Exception as err:
+                app.logger.exception("api_tax_ye_close failed")
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/admin/ye_unlock", methods=["DELETE"])
+        def api_admin_ye_unlock():
+            """Delete the YE lock file and append an audit log entry."""
+            try:
+                import datetime as _dt, json as _json
+                from ledger import setup_paths as _sp
+
+                data = request.get_json(force=True, silent=True) or {}
+                year = int(data.get("year", getattr(getattr(self.eSession, 'llc', None), 'yr',
+                                                     _dt.date.today().year)))
+
+                lock_path = _sp.ye_lock_path(year)
+                if lock_path is None:
+                    return jsonify({"ok": False, "error": "Lock path not configured"}), 500
+
+                if not lock_path.exists():
+                    return jsonify({"ok": False, "error": f"Year {year} is not locked"}), 404
+
+                try:
+                    lock_data = _json.loads(lock_path.read_text())
+                except Exception:
+                    lock_data = {}
+
+                audit_path = lock_path.parent / f"yeClose_{year}_audit.log"
+                entry = {
+                    "action":      "unlock",
+                    "year":        year,
+                    "unlocked_at": _dt.datetime.now().isoformat(),
+                    "prior_lock":  lock_data,
+                }
+                try:
+                    audit_lines = _json.loads(audit_path.read_text()) if audit_path.exists() else []
+                except Exception:
+                    audit_lines = []
+                audit_lines.append(entry)
+                audit_path.write_text(_json.dumps(audit_lines, indent=2), encoding="utf-8")
+
+                lock_path.unlink()
+                app.logger.info("ye_unlock: year %s unlocked", year)
+
+                return jsonify({"ok": True, "year": year, "unlocked_at": entry["unlocked_at"]})
+            except Exception as err:
+                app.logger.exception("api_admin_ye_unlock failed")
+                return jsonify({"ok": False, "error": str(err)}), 500
+
+        @app.route("/api/admin/year_start", methods=["POST"])
+        def api_admin_year_start():
+            """Create directory structure for a new year and register it in config.json."""
+            try:
+                import datetime as _dt
+                from ledger import setup_paths as _sp
+
+                data     = request.get_json(force=True, silent=True) or {}
+                new_year = int(data.get("year", _dt.date.today().year + 1))
+
+                if _sp.TOP is None:
+                    return jsonify({"ok": False, "error": "TOP path not configured"}), 500
+
+                books_root = _sp.TOP / (_sp.BOOKS_DIR or "books")
+                created    = []
+                for subdir in ("Forms", "BankStmts", "Expenses"):
+                    d = books_root / str(new_year) / subdir
+                    if not d.exists():
+                        d.mkdir(parents=True, exist_ok=True)
+                        created.append(str(d.relative_to(_sp.TOP)))
+
+                llc_name       = getattr(getattr(self.eSession, 'llc', None), 'objName', None) or _sp.DATA_NAME
+                cfg            = _sp.read_config()
+                updated_config = False
+                for stanza in cfg.get("llcList", []):
+                    if stanza.get("llcName") == llc_name:
+                        years = stanza.get("years")
+                        if years is None:
+                            old = stanza.get("year")
+                            stanza["years"] = sorted(y for y in [old, new_year] if y)
+                            updated_config = True
+                        elif new_year not in years:
+                            stanza["years"] = sorted(years + [new_year])
+                            updated_config = True
+                        break
+
+                if updated_config:
+                    _sp.write_config(cfg)
+
+                app.logger.info("year_start: created %d dirs for year %s", len(created), new_year)
+                return jsonify({
+                    "ok":             True,
+                    "year":           new_year,
+                    "dirs_created":   created,
+                    "config_updated": updated_config,
+                })
+            except Exception as err:
+                app.logger.exception("api_admin_year_start failed")
+                return jsonify({"ok": False, "error": str(err)}), 500
 
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)

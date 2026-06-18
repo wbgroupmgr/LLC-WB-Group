@@ -225,6 +225,13 @@ class utilEditSession():
             except Exception as err:
                 print(f"{self.wk.oID} ERROR: **** pop failed on Working file ({wk.FN()}) - error:{err}")
 
+    @staticmethod
+    def is_locked(year: int) -> bool:
+        """Return True if yeClose_{year}.json exists (year is locked for editing)."""
+        from ledger.setup_paths import ye_lock_path
+        p = ye_lock_path(year)
+        return p is not None and p.exists()
+
     def __repr__(self):
         s = f"llcEditSession Status:"
         for wkID, wk in self.wkDict.items():
