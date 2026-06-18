@@ -35,20 +35,17 @@ class ChartOfAccounts(ledgerDB):
         return super().load()
 
     def get(self, acct):
-
-        # Access local copy
         try:
             d = self.coaDict
-        except:
+        except AttributeError:
             self.coaDict = self.load()
             d = self.coaDict
 
-        # Look for acct
-        try:
+        if acct in d:
             return d[acct]
-        except:
-            #print(f"{self.oID} ERROR: acct:{acct} was not found in ChartOfAccounts DB")
-            return None
+        # Cache miss — reload once in case COA file was updated since server start
+        self.coaDict = self.load()
+        return self.coaDict.get(acct)
 
 
     ## -------------- Util to get Category, ID, acctType
