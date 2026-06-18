@@ -24,8 +24,21 @@ The openning balance is based on the previous Fiscal Financial Report
 - Section 1, Financial Summary: 'Cash Position'
 - Section 5, Member Capital - `Ending Capital`
 - YearStart
-    - `Acct.Exp.Depreciation` must start fiscal year zero'd out — **Answer:** Handled automatically by the year filter on stmtIS. The 2025 depreciation entry is dated `2025.12.31`; when stmtIS filters IS accounts (4xxx/5xxx) to `dt` starting with `2026.`, that entry is excluded. No explicit zeroing entry is needed or correct. The year filter implementation is the blocking code task.
-    - `Acct.Equity.Earnings.PnL` must start year zero'd out — **Answer:** PnL (3100) is a permanent equity account — its balance carries forward. The "zero at year start" is conceptual: the YE closing entries transfer NI into Owner.Capital.Funds (Dr PnL / Cr Capital for profit), so the running PnL balance reflects cumulative allocations. The 2026 stmtIS starts at $0 NI because the year filter excludes 2025 IS entries — not because PnL is zeroed in the DB. The 2025 YE close posted the wrong direction (Credit for a profitable year); that data bug is fixed in BUS repo commit `9ed301e`.
+    - `Acct.Exp.Depreciation` must start fiscal year zero'd out — **Answer:**
+         - Expense Depreciation (5075) is a per period account
+             - Acct.Fixed.Depreciation.Accum (1460) is a permanent account to track depreciation over the life of a fixed asset
+         - Handled automatically by the year filter on stmtIS.
+         - The 2025 depreciation entry is dated `2025.12.31`;
+         - On Jan 1, <YearStart> a zeroing entry is needed
+         - done within llcAssets DB via a manual journal entry:  acct: Acct.Exp.Depreciation (Credit),  Ledger: nan
+    - `Acct.Equity.Earnings.PnL` must start year zero'd out — **Answer:**
+         - PnL (3100) is a permanent equity account
+         - its balance carries forward.
+         - The "zero at year start" is conceptual: the YE closing entries transfer NI into Owner.
+         - Capital.Funds (Dr PnL / Cr Capital for profit), so the running PnL balance reflects cumulative allocations.
+         - The 2026 stmtIS starts at $0 NI because the year filter excludes 2025 IS entries
+         - not because PnL is zeroed in the DB.
+         - The 2025 YE close posted the wrong direction (Credit for a profitable year); that data bug is fixed in BUS repo commit `9ed301e`.
 
 No opening balance entries are needed for permanent accounts either; balances carry forward as the running
 sum of all prior transactions.
@@ -85,6 +98,27 @@ year filter). They DO adjust each member's capital balance in the BS.
 | YE Close dialog in IRS Submission view | ❌ Not implemented | New feature |
 
 ---
+
+
+### 2.1 Missing acctOwner per GL record
+
+acctOwner in toRecDict() is already there (line 168) — task 1.1 is done/stale. But here's the problem it was written to solve:
+
+The _unknown trap. toRecDict() is the canonical schema for every GL record. When you call it with a kwarg that isn't in the schema, that kwarg silently lands in _unknown:
+
+uList = set(recDict.keys()) ^ set(kwargs.keys())
+recDict['_unknown'] = {k:v for k,v in kwargs.items() if k in uList}
+Without acctOwner in the schema, calling toRecDict(acctOwner='o20250801_1', ...) would produce:
+
+''''
+{ "_unknown": {"acctOwner": "o20250801_1"} }
+''''
+
+instead of a top-level field. Any downstream code doing record.get('acctOwner') gets None — the member association is silently lost.
+
+Why the downstream code needs it. gl_contributions() in irs/taxAgents/FormSchK1Agent.py walks GL rows to compute K-1 Item L Box L2 (capital contributed). It uses r.get('propOwners') to attribute ownership contributions. The complementary per-member NI allocation (the RE entries) uses acctOwner instead of propOwners — because an RE entry belongs to exactly one member, not a property ownership split. Phase 2's per-member capital view in stmtBS needs acctOwner accessible as a top-level field to filter by member.
+
+Summary: acctOwner must be in toRecDict() so YE closing entries (and equity entries like earnest money) can be attributed to specific members for K-1 Item L capital account tracking. Without it, member tagging silently disappears into _unknown. Since it's already at line 168, task 1.1 can be struck from the Phase 1 list — it was already done before the design doc was written.
 
 ## 3. YE Close Workflow (UI — IRS Submission View)
 
@@ -167,6 +201,23 @@ Once `books/{YEAR}/Forms/yeClose_{YEAR}.json` exists, the edit session enforces:
 
 Lock check location: `util/utilEditSession.py` → `is_locked(year)` reads `yeClose_{YEAR}.json`.
 
+### 3.5 Period Unlock (Amend / Re-Close)
+
+**When needed:** A correction is discovered after close — a misclassified entry, a missing transaction, or an IRS amendment. The operator must unlock to edit {YEAR} records, make the correction, then re-run YE Close.
+
+**Entry point:** LLC Admin view → System section → **"🔓 Unlock {YEAR}"** button.  
+Trigger: Only shown when `yeClose_{YEAR}.json` exists (i.e., year is currently locked).
+
+**Unlock steps (on Confirm):**
+1. Delete `books/{YEAR}/Forms/yeClose_{YEAR}.json` — removes the lock
+2. Log the unlock event to `books/{YEAR}/Forms/yeClose_{YEAR}_audit.log` (timestamp + reason entered by operator)
+3. Show: "✅ {YEAR} unlocked — records are editable. Re-run YE Close after corrections."
+
+**Re-running YE Close after unlock:**  
+The YE Close API (`POST /api/tax/ye_close`) must detect existing RE entries for the year and remove them before re-posting, to prevent duplicates. It checks for tIDs matching `{YEAR}.12.31_re_*` in `llcAssets` and deletes them at the start of Apply.
+
+**Access:** Admin-only action in LLC Admin. Not exposed in the regular editor. Operator must enter a reason (free text) before the Confirm button is enabled — creates an audit trail.
+
 ---
 
 ## 4. YearStart Workflow (UI — LLC Admin)
@@ -239,9 +290,10 @@ The YE Close dialog links directly to this check via `?autoAudit=1`.
 |---|---|---|
 | `tax_prep.html` | Add "📅 YE Close — {YEAR}" button + YE Close dialog | `ui/templates/tax_prep.html` |
 | `tax_prep.html` | Pre-close checklist with auto-checks + manual confirms | `ui/templates/tax_prep.html` |
-| `llcMgmt.py` | `POST /api/tax/ye_close` — preview + apply closing entries | `ui/llcMgmt.py` |
-| `llcAdmin.html` | "🆕 Start {YEAR+1}" button in System section | `ui/templates/llcAdmin.html` |
+| `llcMgmt.py` | `POST /api/tax/ye_close` — preview + apply closing entries; removes prior RE entries if re-closing | `ui/llcMgmt.py` |
+| `llcAdmin.html` | "🆕 Start {YEAR+1}" + "🔓 Unlock {YEAR}" buttons in System section | `ui/templates/llcAdmin.html` |
 | `llcMgmt.py` | `POST /api/admin/year_start` — create dirs, update config | `ui/llcMgmt.py` |
+| `llcMgmt.py` | `DELETE /api/admin/ye_unlock` — delete lock file, write audit log | `ui/llcMgmt.py` |
 | `utilEditSession.py` | `is_locked(year)` — reads `yeClose_{YEAR}.json` | `util/utilEditSession.py` |
 | `table_view.html` | Lock badge on locked-year rows; 423 handling | `ui/templates/table_view.html` |
 
@@ -252,17 +304,32 @@ The YE Close dialog links directly to this check via `?autoAudit=1`.
 Phases map to `design_BUS_01.9_YEClosing.md` Phase numbering.
 
 ### Phase 1 — YE 2025 Close (current cycle — P1)
-Minimum viable: post RE closing entries with per-member split, create lock file, add year 2026 to config.
 
-| # | Task | File | Effort |
+> **Two distinct sub-phases:** "Enable" builds and deploys the machinery once. "Execute" is the operator running it for TY2025. Execute cannot happen until Enable is complete and tested.
+
+#### Phase 1-E — Enable Mechanism (code + UI work, done once)
+
+| # | Task | File | Effort | Status |
+|---|---|---|---|---|
+| 1.1 | ~~Add `acctOwner` field to `toRecDict()`~~ | `ledger/llcCOA.py` | — | ✅ Already present (line 168) |
+| 1.2 | `POST /api/tax/ye_close` — preview NI, detect+remove prior RE entries, post 3 per-member RE entries | `ui/llcMgmt.py` | Medium | ⬜ |
+| 1.3 | Write `yeClose_{YEAR}.json` lock file on Apply | `ui/llcMgmt.py` | Small | ⬜ |
+| 1.4 | YE Close dialog in `tax_prep.html` (pre-close checklist, preview table, Apply) | `ui/templates/tax_prep.html` | Medium | ⬜ |
+| 1.5 | `POST /api/admin/year_start` — create dirs, update config.json, set active year | `ui/llcMgmt.py` | Small | ⬜ |
+| 1.6 | "🆕 Start 2026" + "🔓 Unlock {YEAR}" buttons in LLC Admin view | `ui/templates/llcAdmin.html` | Small | ⬜ |
+| 1.7 | `utilEditSession.is_locked(year)` + read-only enforcement in editor | `util/utilEditSession.py` | Small | ⬜ |
+| 1.8 | `DELETE /api/admin/ye_unlock` — delete lock file, log audit entry | `ui/llcMgmt.py` | Small | ⬜ |
+
+#### Phase 1-X — Execute TY2025 Close (operator actions, run once after 1-E)
+
+| Step | Action | Where | Prerequisite |
 |---|---|---|---|
-| 1.1 | Add `acctOwner` field to `toRecDict()` | `ledger/llcCOA.py` | 1 line |
-| 1.2 | `POST /api/tax/ye_close` — preview + post 3 per-member RE entries | `ui/llcMgmt.py` | Medium |
-| 1.3 | Write `yeClose_{YEAR}.json` lock file on Apply | `ui/llcMgmt.py` | Small |
-| 1.4 | YE Close dialog in `tax_prep.html` (pre-close checklist, preview table, Apply) | `ui/templates/tax_prep.html` | Medium |
-| 1.5 | `POST /api/admin/year_start` — create dirs, update config.json, set active year | `ui/llcMgmt.py` | Small |
-| 1.6 | "🆕 Start 2026" button in LLC Admin view | `ui/templates/llcAdmin.html` | Small |
-| 1.7 | `utilEditSession.is_locked(year)` + read-only enforcement in editor | `util/utilEditSession.py` | Small |
+| X1 | Verify BSAuditAgent verdict = `open_period_ni` | BS view → Actions | Phase 1-E complete |
+| X2 | Run "📅 YE Close — 2025" → review NI preview → Apply | IRS Submission view | X1 passing |
+| X3 | Verify lock file created: `books/2025/Forms/yeClose_2025.json` | LLC Admin or file check | X2 complete |
+| X4 | Run "🆕 Start 2026" in LLC Admin | LLC Admin | X3 complete |
+| X5 | Verify 2026 is active year; `books/2026/Forms/` exists | Home page + file check | X4 complete |
+| X6 | Commit BUS repo + sync to PA (`wsCmd --sync WBGroupLLC`) | Terminal | X5 complete |
 
 ### Phase 2 — Per-Member Capital in BS (before 2026 YE)
 See `design_BUS_01.9_YEClosing.md` §Phase 2 — 7 file changes.
@@ -276,10 +343,12 @@ See `design_BUS_01.9_YEClosing.md` §Phase 4.
 
 | Action | Path | When |
 |---|---|---|
-| Create | `books/2026/Forms/` | YearStart Step 1 |
-| Create | `books/2026/BankStmts/` | YearStart Step 1 |
-| Create | `books/2025/Forms/yeClose_2025.json` | YE Close Step 3 |
-| Append | `books/Accts/llcAssets_WBGroupLLC.json` | YE Close Step 2 (3 RE records) |
+| Create | `books/2026/Forms/` | YearStart Step 1 (Execute X4) |
+| Create | `books/2026/BankStmts/` | YearStart Step 1 (Execute X4) |
+| Create | `books/2025/Forms/yeClose_2025.json` | YE Close Step 3 (Execute X2) |
+| Append | `books/Accts/llcAssets_WBGroupLLC.json` | YE Close Step 2 — 3 RE records (Execute X2) |
+| Delete | `books/{YEAR}/Forms/yeClose_{YEAR}.json` | Unlock (if amendment needed) |
+| Create | `books/{YEAR}/Forms/yeClose_{YEAR}_audit.log` | Unlock — records reason + timestamp |
 
 After YearStart runs, commit `LLC-WBGroup` repo and sync to PA (`wsCmd.py --sync WBGroupLLC`).
 
