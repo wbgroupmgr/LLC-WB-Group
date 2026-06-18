@@ -10,14 +10,26 @@
 
 ### 1.1 Single-DB Decision (already in production)
 
-`books/Accts/*.json` is a **shared, all-years ledger** — no per-year Accts directories exist.
-`setup_paths.py` sets `ACCTS_DIR = books / "Accts"` regardless of the active year.
+The business `Books` are located in `books/Accts/*.json` and use a **shared, all-years ledger** — so there are no per-year Accts directories.  The config service `setup_paths.py` sets `ACCTS_DIR = books / "Accts"` regardless of the active year.
 
 Consequence: temporary accounts (Revenue 4xxx, Expense 5xxx) do **not** need to be explicitly
-zeroed in the database. When the active year is set to 2026, all GL queries filter `dt` to
-`2026-*` records — income and expense rows for 2026 start at $0 automatically. No opening
-balance entries are needed for permanent accounts either; balances carry forward as the running
+zeroed in the database. 
+
+#### 1.1.1 Per Year DB's
+
+When the active year is set to 2026, all GL queries filter `dt` to
+`2026-*` records — income and expense rows for 2026 start at $0 automatically. 
+
+The openning balance is based on the previous Fiscal Financial Report 
+- Section 1, Financial Summary: 'Cash Position'
+- Section 5, Member Capital - `Ending Capital`
+- YearStart
+    - `Acct.Exp.Depreciation` must start fiscal year zero'd out — **Answer:** Handled automatically by the year filter on stmtIS. The 2025 depreciation entry is dated `2025.12.31`; when stmtIS filters IS accounts (4xxx/5xxx) to `dt` starting with `2026.`, that entry is excluded. No explicit zeroing entry is needed or correct. The year filter implementation is the blocking code task.
+    - `Acct.Equity.Earnings.PnL` must start year zero'd out — **Answer:** PnL (3100) is a permanent equity account — its balance carries forward. The "zero at year start" is conceptual: the YE closing entries transfer NI into Owner.Capital.Funds (Dr PnL / Cr Capital for profit), so the running PnL balance reflects cumulative allocations. The 2026 stmtIS starts at $0 NI because the year filter excludes 2025 IS entries — not because PnL is zeroed in the DB. The 2025 YE close posted the wrong direction (Credit for a profitable year); that data bug is fixed in BUS repo commit `9ed301e`.
+
+No opening balance entries are needed for permanent accounts either; balances carry forward as the running
 sum of all prior transactions.
+
 
 `books/<year>/` directories hold only **filed documents** (not accounting records):
 ```
