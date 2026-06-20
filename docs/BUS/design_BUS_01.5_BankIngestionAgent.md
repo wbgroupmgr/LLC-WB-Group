@@ -1,390 +1,509 @@
-# BankIngestionAgent (BkAgent) — Design
+# BankAgent + IngestAgent — Design
 
-**Status:** v0.2 — 2026-06-19 (two-phase pipeline, module structure, schema changes, action plan)
+**Status:** v0.3 — 2026-06-19 (rewrite; two-agent architecture)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Stage:** AccountingWorkflow 01.5 — Transactional ingestion (upstream of all statements/forms)
 **Related:** `design_BUS_01.5_ExpRevAgent.md`, `design_BUS_04.0_TaxPrep.md`,
-`design_BUS_04.6_Form8825Agent.md`, `docs/FlowSchematics/BookToIRS_HL_Flow.mmd`
+`design_BUS_04.6_Form8825Agent.md`
 **GitHub:** [Issue #20](https://github.com/wbgroupmgr/llcRentalTracker/issues/20)
 
 ---
 
-## 1. Why — Prevent Problems Early
+## 1. Why — Two Goals, Two Agents
 
-**Core principle: every issue found downstream in BookToIRS is a fault at the *transactional step* of the accounting workflow.** By the time a mis-classification reaches Form 8825 / Form 1065, it has already polluted the GL, the IS, the BS, and every derived form. The cheapest place to catch it is at **bank-statement ingestion** — before it ever enters the ledger.
+The BankToBook pipeline has two distinct failure modes, each requiring a dedicated agent:
 
-Two real 2025 incidents motivate this agent:
+**Goal 1 — Smart Classification (BankAgent).** Most bank transactions are routine and repeatable — rent income, utilities, hardware, insurance. But a subset are *special*: a property closing, a member capital investment, a mortgage payoff. A naive ingestion process treats all rows the same and mis-classifies the special ones. The **BankAgent** is a "smart banker" that learns the LLC's transaction patterns and flags — or auto-routes — special transactions to the right COA account.
 
-1. **CIP mis-classification.** RV_RV1 construction purchases were ingested as `Acct.Exp.Repair` / `Acct.Exp.Other` (operating expense) when the property was `Acct.Fixed.Tangible.InConstruction`. IRC §263(a) requires pre-placed-in-service costs to be **capitalized**, not expensed. The error surfaced only at Form 8825 (F8EX-R05 / F8NI-R04), forcing a manual ~$1,075 reclass across ~17 transactions.
+**Goal 2 — Prevent Problems Early (IngestAgent).** Nearly every downstream error in BookToIRS traces back to a mis-classification at ingestion. Two real 2025 incidents prove this:
 
-2. **Refund mis-tagged to the wrong property.** A $14.06 WIMBERLEY ACE purchase + its return on 2025-10-09 were split across two properties — the refund landed on `H_805HighMesa` while the matching purchases were `RV_RV1`. This understated one property's expense and overstated the other's basis. Caught only by Form 8825 forensic rule F8NI-R05.
+1. **CIP mis-classification.** RV_RV1 construction purchases were ingested as `Acct.Exp.Repair` / `Acct.Exp.Other` when the property was `Acct.Fixed.Tangible.InConstruction`. IRC §263(a) requires capitalization. Error surfaced only at Form 8825 (F8EX-R05), forcing a manual ~$1,075 reclass across ~17 transactions.
 
-Both are **ingestion-time** faults. The BkAgent's job is to prevent them at the source.
+2. **Refund mis-tagged to wrong property.** A $14.06 WIMBERLEY ACE purchase + its return on 2025-10-09 were split across two properties — the refund landed on `H_805HighMesa`, the purchases on `RV_RV1`. Caught only by forensic rule F8NI-R05 in the IRS pipeline, far too late.
 
----
+The **IngestAgent** is the safety net that prevents these at the top of the funnel, before any row reaches the GL.
 
-## 2. What — The Agent
-
-The **BankIngestionAgent (BkAgent)** sits inside the bank-statement ingestion pipeline (`BankStmts/<date>*.csv` → `llcExpRev`). It is an intelligent classifier + auditor + rule-learner that runs in a **two-phase preview/commit** model so the operator always reviews before writing to the ledger.
-
-### 2.1 Responsibilities
-
-1. **Infer the COA account from the bank description.** Use transaction-description history and banking best practices (vendor → category mapping), modeled on consumer finance apps (RocketMoney, Monarch Money, Copilot, YNAB). E.g. `WIMBERLEY ACE` → `Acct.Exp.Repair`; `Pedernales_Elec ELEC_BILL` → `Acct.Exp.Util`; `ALLSTATE IND CO INS PYMT` → `Acct.Exp.Ins`.
-
-2. **Enforce the capitalization rule at ingestion.** When a transaction's `propNm` resolves to a property whose current COA state is `Acct.Fixed.Tangible.InConstruction`, the BkAgent must route the cost to CIP — NOT to any operating-expense account (IRC §263(a)). This single rule would have prevented incident #1 entirely.
-
-3. **Detect purchase/return pairs and duplicates.** Same-amount / same-day / same-vendor clusters must carry the **same** `propNm` and net correctly. Cross-property refunds (incident #2) are flagged before they enter the ledger. Overlapping rows between successive CSV imports (e.g., two statements with a shared tail) are also caught.
-
-4. **Post-ingestion audit + notify BookToIRS.** After each commit, the BkAgent audits the new transactions and notifies the relevant BookToIRS section agents (Form8825 / Form4562 / Form1065 / SchK1) of new patterns — closing the loop between ingestion and tax-form compliance.
-
-5. **Learn over time.** Each resolved issue (operator confirms/corrects a classification) updates the BkAgent's vendor KB. Over time, ingestion of a recurring statement should flow **automatically** when nothing new appears — only genuinely novel patterns require operator review.
-
-### 2.2 Design Principle
-
-> **Prevent problems early — across the whole accounting workflow.** The BkAgent is the upstream guardrail; the BookToIRS section agents are the downstream backstop. A fault caught at ingestion never reaches a tax form.
+> **Design principle: smart banker classification + prevent problems early — across the whole accounting workflow.**
 
 ---
 
-## 3. Data-Model Prerequisites
+## 2. Two-Agent Architecture
 
-These schema changes are required before the BkAgent can be built. They are valuable independently.
-
-### 3.1 `llcExpRev_*.json` — wrap flat list in a named struct
-
-Current schema is a flat JSON array. Needs to become a top-level object to support `LogHistory`:
-
-```json
-{
-  "records": [ ...existing ExpRev transaction dicts... ],
-  "LogHistory": []
-}
-```
-
-Migration: one-time script wraps the existing list under `"records"`, adds `"LogHistory": []`. All readers must update to `d["records"]`.
-
-### 3.2 `refDB` — specific provenance per transaction
-
-Every `llcExpRev` record must have `refDB` pointing to its exact source:
-- `"BankStmts/WBGroupLLC_WF_20251231.csv"` — bank-ingested (relative to `books/<year>/`)
-- `"llcBank-Manual"` — operator journal entry
-
-Current state: all 53 records carry `"refDB": "llcBank"` (generic). Migration: existing records stay as-is (they pre-date the BkAgent); only new ingested rows must carry the specific CSV path.
-
-### 3.3 `LogHistory` stanza
-
-Top-level `LogHistory` array in `llcExpRev_*.json`:
-
-```json
-{
-  "ts": "2026-06-19T15:00:00Z",
-  "source": "BankStmts/WBGroupLLC_WF_20251231.csv",
-  "rows_in_csv": 54,
-  "rows_new": 51,
-  "rows_duplicate": 3,
-  "rows_auto_classified": 48,
-  "rows_flagged_for_review": 6,
-  "bkagent_version": "0.1",
-  "notes": "CIP capitalization enforced for RV_RV1; 1 cross-property refund flagged."
-}
-```
-
----
-
-## 4. Pipeline Design
-
-### 4.1 Two-Phase Preview / Commit
-
-The BkAgent operates in two phases — operator always sees a preview before any write.
+The two agents have distinct responsibilities and compose in a clear sequence:
 
 ```
-Phase 1 — PREVIEW (read-only)
-  BankIngestAgent.preview(csv_path, propNm_default, year)
-    → PreviewResult {
-        rows: [ ClassifiedRow, ...],   # one per CSV line
-        flags: [ FlaggedIssue, ...],   # CIP violations, cross-property refunds, duplicates
-        stats: { new, duplicate, auto_classified, needs_review }
-      }
-
-Phase 2 — COMMIT (write)
-  BankIngestAgent.commit(preview_result)
-    → CommitResult {
-        rows_written: int,
-        log_entry: LogHistory,
-      }
-    writes: llcExpRev records + LogHistory entry
-    does NOT call BookToIRS notification (separate step, post-commit)
-```
-
-**Key invariant:** `commit()` only accepts a `PreviewResult` object returned by `preview()`. It re-validates the preview token before writing — no blind commit from raw CSV.
-
-### 4.2 ClassifiedRow Structure
-
-```python
-@dataclass
-class ClassifiedRow:
-    dt:         str      # YYYY.MM.DD
-    amt:        float    # positive = credit, negative = debit
-    desc:       str      # raw bank description
-    acct:       str      # inferred COA account (e.g. "Acct.Exp.Repair")
-    acctSub:    str      # sub-category detail
-    propNm:     str      # property or "LLC"
-    confidence: str      # "auto" | "review" | "flagged"
-    flag:       str      # "" | "CIP_VIOLATION" | "CROSS_PROP_REFUND" | "DUPLICATE"
-    refDB:      str      # "BankStmts/WBGroupLLC_WF_20251231.csv"
-    vendor_key: str      # normalized vendor key for KB lookup/update
-```
-
-### 4.3 Duplicate Detection — Two Dimensions
-
-**Intra-CSV pairs:** within one statement, `PURCHASE RETURN` lines must match a same-vendor purchase within a 3-day window by amount. If the paired purchase and return carry different `propNm`, flag as `CROSS_PROP_REFUND`.
-
-**Inter-CSV overlap:** when two successive CSV exports share tail rows (bank exports often overlap by a few days), detect existing `tID`s in `llcExpRev.records` before writing. Use `tID = f"{dt}_{D|C}{abs(amt):.2f}"` as the deduplication key (matches current tID convention).
-
-### 4.4 Pipeline Position
-
-```
-BankStmts/<year>/WBGroupLLC_WF_<date>.csv
-      │
-      ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  BankIngestionAgent (BkAgent) — Phase 1: preview()               │
-│   1. BankCSVParser.parse()     → raw rows                        │
-│   2. BkDuplicateDetector       → mark duplicates + return pairs  │
-│   3. BkVendorKB.lookup()       → candidate COA + confidence      │
-│   4. BkCIPGuard.check()        → override to CIP if InConstruct  │
-│   5. BkClassifier.classify()   → final ClassifiedRow per line    │
-│   6. return PreviewResult (nothing written yet)                   │
-└──────────────────────────────────────────────────────────────────┘
-      │ operator reviews preview
-      ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  BankIngestionAgent — Phase 2: commit()                          │
-│   7. re-validate PreviewResult token                             │
-│   8. write new rows → llcExpRev.records (skip duplicates)        │
-│   9. append LogHistory entry                                     │
-│  10. notify BookToIRS section agents of new patterns             │
-└──────────────────────────────────────────────────────────────────┘
-      │
-      ▼
+BankStmts/<year>/<date>.csv
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│  IngestAgent — Phase 1: preview()             │
+│   1. BankCSVParser → raw rows                 │
+│   2. BkDuplicateDetector → mark pairs + dups  │
+│   3. BankAgent.classify() → ClassifiedRow     │  ← BankAgent called here
+│   4. BkCIPGuard → override if InConstruction  │
+│   5. return PreviewResult (nothing written)   │
+└──────────────────────────────────────────────┘
+        │  operator reviews preview
+        ▼
+┌──────────────────────────────────────────────┐
+│  IngestAgent — Phase 2: commit()              │
+│   6. skip DUPLICATE rows                      │
+│   7. write new rows → llcExpRev.records       │
+│   8. append LogHistory entry                  │
+│   9. BkAuditNotifier → notify BookToIRS       │
+└──────────────────────────────────────────────┘
+        │
+        ▼
   llcExpRev → GL → stmtIS/BS → BookToIRS → IRS forms
 ```
 
+**BankAgent** = the intelligence layer (what to classify, how to learn).
+**IngestAgent** = the pipeline orchestrator (sequencing, safety rules, phases, audit trail).
+
+The IngestAgent calls the BankAgent; the BankAgent has no knowledge of the pipeline or phases.
+
 ---
 
-## 5. Vendor Knowledge Base (BkVendorKB)
+## 3. BankAgent — The Inference Engine
 
-### 5.1 `vendor_rules.json`
+### 3.1 Core Responsibility
 
-Operator-editable file at `ledger/bankAgent/vendor_rules.json`. Each rule maps a regex pattern to a COA account:
+The BankAgent classifies a single bank transaction into a COA account + transaction type. It is called once per row during Phase 1 of the IngestAgent pipeline. It is also callable standalone (from the notebook, from tests, from a REPL).
+
+```
+BankAgent.classify(raw_row, context) → ClassifiedRow
+```
+
+### 3.2 Transaction Types
+
+The BankAgent recognizes two tiers of transactions:
+
+**Tier 1 — Routine (auto-classifiable)**
+
+| Pattern | COA Account | Notes |
+|---|---|---|
+| Utility vendor (Pedernales, COMWSC Water) | `Acct.Exp.Util` | recurring; auto after first match |
+| Hardware/repair (Wimberley ACE, Kings Feed, Harbor Freight) | `Acct.Exp.Repair` | frequent; auto |
+| Insurance (Allstate, State Farm) | `Acct.Exp.Ins` | monthly recurring |
+| Management fees | `Acct.Exp.Fees.Mgmt` | periodic |
+| HOA / operating (HOA, subscriptions) | `Acct.Exp.Operating` | periodic |
+| Property tax (HAYS CO TX WIMBER) | `Acct.Exp.Tax.Prop` | annual |
+| Rental income (Zelle from known tenant) | `Acct.Rev.Rent` | monthly; propNm from tenant table |
+| Late fees, other fees | `Acct.Rev.Fees.Late` | |
+
+**Tier 2 — Special (require operator review or context)**
+
+| Transaction Signal | COA Account | Why Special |
+|---|---|---|
+| Large wire out > $50k | `Acct.Fixed.Tangible` or `Acct.Cash.Bank` | Property closing or large transfer |
+| `WT FED#` / `WITHDRAWAL MADE IN A BRANCH` > $50k | `Acct.Fixed.Tangible` | Closing — route to CIP or InService |
+| `WT FED#` inbound + member name | `Acct.Equity.Owner.Capital.Funds` | Member capital investment |
+| Large check out (mortgage-sized) | `Acct.Liab.Morgage` split | Principal + `Acct.Exp.Int.Morg` |
+| `TRUIST ACCTVERIFY` micro-deposits | `Acct.Cash.Bank` | ACH verification — not an expense |
+| `Promotion Bonus` / bank incentive | `Acct.Rev.Ord.Other` | Miscellaneous income |
+| Vendor Amazon / Walmart / big-box | `Acct.Exp.Repair` or flagged | Could be CIP; confirm per propNm |
+| Zelle from unknown sender | Flagged | Could be investment, rent, or personal |
+| `PURCHASE RETURN` | Mirror of the purchase | Must match propNm of paired purchase |
+
+### 3.3 BkVendorKB — The Knowledge Base
+
+`ledger/bankAgent/vendor_rules.json` — operator-editable, version-controlled:
 
 ```json
 {
+  "version": "0.1",
+  "last_updated": "2026-06-19",
   "rules": [
     {
       "pattern": "Pedernales_Elec|PEC ELEC_BILL",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Util",
       "acctSub": "Electricity",
-      "confidence": "auto",
-      "notes": "Pedernales Electric Cooperative — H_805HighMesa"
+      "confidence": "auto"
     },
     {
-      "pattern": "WIMBERLEY ACE|Kings Feed And Hardware",
+      "pattern": "BILL PAY Water-COMWSC",
+      "txn_type": "ROUTINE_EXPENSE",
+      "acct": "Acct.Exp.Util",
+      "acctSub": "Water",
+      "confidence": "auto"
+    },
+    {
+      "pattern": "WIMBERLEY ACE|Kings Feed And Hardware|Harbor Freight",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Repair",
       "acctSub": "Hardware/Supplies",
       "confidence": "auto"
     },
     {
       "pattern": "ALLSTATE IND CO INS PYMT",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Ins",
       "acctSub": "Property Insurance",
       "confidence": "auto"
     },
     {
-      "pattern": "BILL PAY Water-COMWSC",
+      "pattern": "HAYS CO TX WIMBER",
+      "txn_type": "ROUTINE_EXPENSE",
+      "acct": "Acct.Exp.Tax.Prop",
+      "acctSub": "Property Tax",
+      "confidence": "auto"
+    },
+    {
+      "pattern": "Texas Disposal|TEXAS DISPOSAL",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Util",
-      "acctSub": "Water",
+      "acctSub": "Trash",
       "confidence": "auto"
     },
     {
       "pattern": "ZELLE FROM",
+      "txn_type": "RENT_INCOME",
       "acct": "Acct.Rev.Rent",
       "acctSub": "Rental Income",
       "confidence": "review",
-      "notes": "Confirm propNm and tenant for each Zelle inflow"
+      "notes": "Confirm propNm and tenant; could be member investment if sender is a member"
     },
     {
-      "pattern": "AMAZON MKTPL|AMAZON.COM",
+      "pattern": "AMAZON MKTPL|AMAZON.COM|WAL-MART|H-E-B",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Repair",
       "acctSub": "Supplies",
       "confidence": "review",
-      "notes": "Amazon could be repair, operating, or CIP — confirm per propNm"
+      "notes": "Could be CIP if propNm is InConstruction — BkCIPGuard will override"
     },
     {
-      "pattern": "LOWE'S|LOWES|LAIRD PLASTICS|RODCO STEEL",
+      "pattern": "LOWE'S|LOWES|LAIRD PLASTICS|RODCO STEEL|SQ \\*",
+      "txn_type": "ROUTINE_EXPENSE",
       "acct": "Acct.Exp.Repair",
       "acctSub": "Materials",
       "confidence": "review",
-      "notes": "Construction materials — verify CIP guard for InConstruction properties"
+      "notes": "Construction materials — CIP guard critical for InConstruction properties"
     },
     {
-      "pattern": "WITHDRAWAL MADE IN A BRANCH|eWithdrawal|eDeposit",
+      "pattern": "WT FED#|NATIONAL FINANCIAL",
+      "txn_type": "SPECIAL_WIRE",
       "acct": "Acct.Cash.Bank",
-      "acctSub": "Transfer",
+      "acctSub": "Wire Transfer",
+      "confidence": "flagged",
+      "notes": "Could be property acquisition, member investment, or large transfer — always review"
+    },
+    {
+      "pattern": "WITHDRAWAL MADE IN A BRANCH",
+      "txn_type": "SPECIAL_WIRE",
+      "acct": "Acct.Cash.Bank",
+      "acctSub": "Branch Withdrawal",
+      "confidence": "flagged",
+      "notes": "Large branch withdrawal — property closing candidate"
+    },
+    {
+      "pattern": "TRUIST ACCTVERIFY",
+      "txn_type": "ACH_VERIFY",
+      "acct": "Acct.Cash.Bank",
+      "acctSub": "ACH Verification",
+      "confidence": "auto",
+      "notes": "Micro-deposit pairs net to zero; mark both as ACH_VERIFY"
+    },
+    {
+      "pattern": "VENMO ADDFUNDS",
+      "txn_type": "TRANSFER",
+      "acct": "Acct.Cash.Bank",
+      "acctSub": "Transfer Out",
       "confidence": "review"
     }
-  ],
-  "version": "0.1",
-  "last_updated": "2026-06-19"
+  ]
 }
 ```
 
-### 5.2 Learning Loop
+### 3.4 Perpetual Learning
 
-When an operator corrects a `confidence: "review"` row during the commit phase, the correction is optionally fed back:
+Each time an operator corrects a `confidence: "review"` or `confidence: "flagged"` row during the commit phase, the BankAgent learns:
 
 ```python
-BkVendorKB.learn(vendor_key, confirmed_acct, confirmed_acctSub)
+BankAgent.learn(vendor_key, confirmed_acct, confirmed_acctSub, confirmed_txn_type)
 ```
 
-This either raises the confidence of an existing rule to `"auto"` or inserts a new rule. Rules are written back to `vendor_rules.json` so they apply on the next ingestion. Over time, the operator's corrections encode LLC-specific knowledge permanently.
+This either raises an existing rule's confidence to `"auto"` or inserts a new rule. Corrections are written back to `vendor_rules.json` so they apply on the next ingestion. Over time, recurring-statement rows that required review become `auto`, and the operator only sees genuinely novel patterns.
+
+**Auto-commit eligibility:** when a full statement preview contains zero `"review"` or `"flagged"` rows and zero IngestAgent flags, the IngestAgent surfaces an "auto-commit" option — still requiring operator confirmation, but skipping the row-by-row review.
+
+### 3.5 ClassifiedRow Output
+
+```python
+@dataclass
+class ClassifiedRow:
+    # from BankCSVParser
+    dt:         str      # YYYY.MM.DD
+    amt:        float    # negative = debit (expense), positive = credit (income)
+    desc:       str      # raw bank description
+    check_num:  str      # check number or ""
+    tID:        str      # f"{dt}_{D|C}{abs(amt):.2f}" — dedup key
+
+    # from BankAgent
+    txn_type:   str      # ROUTINE_EXPENSE | RENT_INCOME | SPECIAL_WIRE | MEMBER_INVEST | etc.
+    acct:       str      # COA account
+    acctSub:    str      # sub-category
+    propNm:     str      # property or "LLC" — operator sets; BankAgent may suggest
+    confidence: str      # "auto" | "review" | "flagged"
+    vendor_key: str      # normalized vendor string (for KB lookup/learn)
+
+    # from IngestAgent
+    flag:       str      # "" | "CIP_VIOLATION" | "CROSS_PROP_REFUND" | "DUPLICATE" | "RETURN_PAIR"
+    refDB:      str      # "BankStmts/WBGroupLLC_WF_20251231.csv"
+```
+
+---
+
+## 4. IngestAgent — The Pipeline Orchestrator
+
+### 4.1 Core Responsibility
+
+The IngestAgent owns the two-phase ingestion pipeline. It calls the BankAgent for classification but is solely responsible for:
+- Sequencing (parse → detect → classify → guard → preview → commit)
+- Safety rules (CIP enforcement, duplicate suppression, cross-property refund detection)
+- Data integrity (no duplicate tIDs in `llcExpRev`)
+- Audit trail (`LogHistory`, `refDB` provenance)
+- Post-commit BookToIRS notification
+
+### 4.2 Phase 1 — Preview (read-only)
+
+```python
+IngestAgent.preview(csv_path: str, propNm_default: str, year: int) → PreviewResult
+```
+
+Steps — nothing is written:
+
+1. **`BankCSVParser.parse()`** → `list[RawRow]` from the WF CSV
+2. **`BkDuplicateDetector.scan()`** → mark `DUPLICATE` rows (tID already in `llcExpRev`) and identify `PURCHASE RETURN` pairs within the CSV
+3. **`BankAgent.classify()`** → `ClassifiedRow` per non-duplicate row (vendor KB lookup + txn type detection)
+4. **`BkCIPGuard.check()`** → for each classified row, if `propNm` resolves to an InConstruction property and `acct` is any `Acct.Exp.*`, override `acct` to `Acct.Fixed.Tangible.InConstruction` and set `flag = "CIP_VIOLATION"`
+
+Return:
+```python
+@dataclass
+class PreviewResult:
+    rows:   list[ClassifiedRow]
+    flags:  list[str]          # human-readable flag summaries
+    stats:  dict               # new, duplicate, auto, review, flagged counts
+    source: str                # csv_path
+    ts:     str                # ISO timestamp of preview
+```
+
+### 4.3 Phase 2 — Commit (write)
+
+```python
+IngestAgent.commit(preview: PreviewResult) → CommitResult
+```
+
+Steps:
+1. Re-validate `preview` object (must be a `PreviewResult` from this agent, not raw data)
+2. For each row where `flag != "DUPLICATE"`: build `llcExpRev` record and append to `records`
+3. Append `LogHistory` entry
+4. Write updated `llcExpRev_*.json` to disk
+5. Invalidate `eSession.books` (`BooksContext.invalidate()`)
+6. Call `BkAuditNotifier.notify(committed_rows, llc)` — post-commit BookToIRS notification
+
+**Invariant:** `commit()` only accepts a `PreviewResult`. There is no path to write to `llcExpRev` from a raw CSV in a single step.
+
+### 4.4 BkCIPGuard — IRC §263(a) Enforcement
+
+The CIP guard is a hard override — not a suggestion. It cannot be bypassed from the UI.
+
+```python
+def check(self, propNm: str, proposed_acct: str, llc) -> tuple[str, bool]:
+    """
+    Returns (final_acct, cip_violated).
+    If property is InConstruction and proposed_acct is Acct.Exp.*,
+    returns Acct.Fixed.Tangible.InConstruction and cip_violated=True.
+    """
+```
+
+The operator can only clear a CIP flag by first updating the COA (marking the property as InService in `llcAssets`), which correctly reflects that the property has been placed in service.
+
+### 4.5 BkDuplicateDetector — Two Dimensions
+
+**Intra-CSV purchase/return pairs:**
+- Within one CSV, find each `PURCHASE RETURN` line and match to a same-vendor, same-amount purchase within a ±3-day window
+- If matched pair has mismatched `propNm` → flag `CROSS_PROP_REFUND`
+- If no matching purchase found → flag `RETURN_PAIR` for review
+
+**Inter-CSV overlap (duplicate tIDs):**
+- Load existing `tID` set from `llcExpRev.records`
+- Any new row whose `tID` matches an existing record → flag `DUPLICATE`; skip on commit
+- Some Wells Fargo CSV exports overlap at the tail; this suppresses double-ingestion silently
+
+### 4.6 BkAuditNotifier — Post-Commit BookToIRS Notification
+
+After a successful commit, the notifier scans the committed rows for patterns requiring downstream attention:
+
+| Pattern in committed rows | Notifies |
+|---|---|
+| Any CIP-routed row | Form4562 agent — new asset cost; may affect depreciation |
+| Any `Acct.Fixed.Tangible` or `Acct.Fixed.Tangible.InService` row | Form8825 agent — asset basis change |
+| Any `Acct.Equity.Owner.Capital.*` row | SchK1 agent — capital account change |
+| Any `Acct.Rev.Rent` row with new propNm | Form8825 agent — new income stream |
+| Any `SPECIAL_WIRE` txn type | All section agents — significant financial event |
+
+Notification in v0.1 is a log message + a JSON entry in `books/<year>/Forms/.agent_work/IngestAgent_notifications.json`. Section agents read this file at the start of their next run.
+
+---
+
+## 5. Data-Model Prerequisites
+
+These schema changes are required before either agent can be built.
+
+### 5.1 `llcExpRev_*.json` — Wrap flat list in a struct
+
+Current: flat JSON array of 53 records.
+Required: top-level object:
+
+```json
+{
+  "records": [ ...existing llcExpRev transaction dicts... ],
+  "LogHistory": []
+}
+```
+
+One-time migration script: `ledger/bankAgent/migrate_exprev_schema.py`. All readers (`llcExpRev.py`, `stmtIS`, `stmtGL`, `stmtBS`, `ui/llcExpRev.py`) update to `d["records"]`.
+
+### 5.2 `refDB` Provenance
+
+Every new transaction written by the IngestAgent must carry:
+- `"refDB": "BankStmts/WBGroupLLC_WF_<date>.csv"` (relative to `books/<year>/`)
+
+Existing records retain `"refDB": "llcBank"` — they pre-date the IngestAgent and the manual entry provenance is unknown.
+
+Manual journal entries (added via the web editor) must carry `"refDB": "llcBank-Manual"`.
+
+### 5.3 LogHistory Stanza
+
+```json
+{
+  "ts": "2026-06-19T15:30:00Z",
+  "source": "BankStmts/WBGroupLLC_WF_20251231.csv",
+  "rows_in_csv": 54,
+  "rows_new": 51,
+  "rows_duplicate": 3,
+  "rows_auto_classified": 46,
+  "rows_flagged_review": 3,
+  "rows_flagged_cip": 1,
+  "rows_flagged_cross_prop": 1,
+  "bkagent_version": "0.1",
+  "ingest_agent_version": "0.1",
+  "notes": ""
+}
+```
 
 ---
 
 ## 6. Module Structure
 
-All new code lives under `ledger/bankAgent/`:
-
 ```
 ledger/
   bankAgent/
     __init__.py
-    bkCSVParser.py          # BankCSVParser: parse WF CSV → list[RawRow]
-    bkVendorKB.py           # BkVendorKB: pattern→COA lookup + learn()
-    bkCIPGuard.py           # BkCIPGuard: enforce IRC §263(a) InConstruction override
-    bkDuplicateDetector.py  # BkDuplicateDetector: intra-CSV pairs + inter-CSV overlap
-    bkClassifier.py         # BkClassifier: combine KB + CIP + dup → ClassifiedRow
-    bankIngestAgent.py      # BankIngestAgent: preview() + commit() orchestration
-    vendor_rules.json       # operator-editable KB (seed entries from §5.1)
+    BankAgent.py              # BankAgent: classify() + learn()
+    bkVendorKB.py             # BkVendorKB: pattern → COA lookup, rule persistence
+    bkTxnTypeDetector.py      # BkTxnTypeDetector: ROUTINE_EXPENSE / SPECIAL_WIRE / etc.
+    IngestAgent.py            # IngestAgent: preview() + commit()
+    bkCSVParser.py            # BankCSVParser: WF CSV → list[RawRow]
+    bkCIPGuard.py             # BkCIPGuard: IRC §263(a) InConstruction override
+    bkDuplicateDetector.py    # BkDuplicateDetector: intra-CSV pairs + inter-CSV dedup
+    bkAuditNotifier.py        # BkAuditNotifier: post-commit BookToIRS notification
+    migrate_exprev_schema.py  # one-time migration: flat list → {records, LogHistory}
+    vendor_rules.json         # operator-editable KB (seeded; grows via learn())
 
 Notebooks/
-  bankIngestPreview.ipynb   # Jupyter diagnostic: load CSV → preview → inspect flags
+  bankIngestPreview.ipynb     # diagnostic: load CSV → preview → inspect → optional commit
 
 ui/
-  llcBankIngest.py          # Flask routes: /api/bank/ingest/preview + /commit
+  llcBankIngest.py            # Flask routes: /api/bank/ingest/preview + /commit
   templates/
-    bank_ingest.html        # Two-phase UI: upload CSV → review table → commit
+    bank_ingest.html          # two-phase UI: select CSV → review → commit
 ```
 
-### 6.1 Class Responsibilities
+### 6.1 Class Summary
 
-| Class | File | Key Methods |
+| Class | Key Methods | Owned By |
 |---|---|---|
-| `BankCSVParser` | `bkCSVParser.py` | `parse(csv_path, year) → list[RawRow]` |
-| `BkVendorKB` | `bkVendorKB.py` | `lookup(desc) → (acct, acctSub, confidence)`, `learn(key, acct, sub)` |
-| `BkCIPGuard` | `bkCIPGuard.py` | `check(propNm, acct, llc) → acct` — overrides to CIP if property InConstruction |
-| `BkDuplicateDetector` | `bkDuplicateDetector.py` | `scan(rows, existing_tIDs) → rows_with_dup_flags` |
-| `BkClassifier` | `bkClassifier.py` | `classify(raw_row, propNm, llc) → ClassifiedRow` |
-| `BankIngestAgent` | `bankIngestAgent.py` | `preview(csv_path, propNm, year) → PreviewResult`, `commit(preview) → CommitResult` |
-
-### 6.2 `BankCSVParser` — WF CSV Format
-
-Wells Fargo CSV columns (no header row): `date, amount, *, check_num, description`
-
-```python
-# date format: "12/29/2025"  →  dt: "2025.12.29"
-# amount: negative = debit (expense), positive = credit (income)
-# tID convention: f"{dt}_{D if amt<0 else C}{abs(amt):.2f}"
-```
-
-### 6.3 `BkCIPGuard` — Capitalization Enforcement
-
-```python
-def check(self, propNm: str, proposed_acct: str, llc) -> str:
-    """
-    IRC §263(a): if the property is InConstruction, ALL costs are CIP.
-    Returns corrected acct — caller must surface a CIP_VIOLATION flag
-    if proposed_acct != returned acct.
-    """
-    if self._is_in_construction(propNm, llc):
-        return "Acct.Fixed.Tangible.InConstruction"
-    return proposed_acct
-
-def _is_in_construction(self, propNm: str, llc) -> bool:
-    # Query llcAssets for any active asset with propNm and
-    # acct == "Acct.Fixed.Tangible.InConstruction"
-```
+| `BankAgent` | `classify(raw_row, context) → ClassifiedRow`, `learn(vendor_key, ...)` | BankAgent layer |
+| `BkVendorKB` | `lookup(desc)`, `learn(key, acct, sub)`, `save()` | BankAgent |
+| `BkTxnTypeDetector` | `detect(desc, amt) → TxnType` | BankAgent |
+| `IngestAgent` | `preview(csv_path, propNm, year) → PreviewResult`, `commit(preview) → CommitResult` | IngestAgent layer |
+| `BankCSVParser` | `parse(csv_path, year) → list[RawRow]` | IngestAgent |
+| `BkCIPGuard` | `check(propNm, acct, llc) → (acct, violated)` | IngestAgent |
+| `BkDuplicateDetector` | `scan(rows, existing_tIDs) → rows_with_flags` | IngestAgent |
+| `BkAuditNotifier` | `notify(rows, llc)` | IngestAgent |
 
 ---
 
-## 7. Flask UI Integration
+## 7. `bankIngestPreview.ipynb` — Diagnostic Notebook
 
-Two new routes in `ui/llcBankIngest.py`, bound in `ui/llcMgmt.py`:
-
-| Route | Method | Description |
-|---|---|---|
-| `/api/bank/ingest/preview` | POST | Body: `{csv_path, propNm, year}` → returns `PreviewResult` JSON |
-| `/api/bank/ingest/commit` | POST | Body: `{preview_token}` → returns `CommitResult` JSON |
-| `/view/bank_ingest` | GET | Renders `bank_ingest.html` — two-phase UI |
-
-**`bank_ingest.html`** flow:
-1. Upload / select CSV from `BankStmts/<year>/`
-2. Set default `propNm` (dropdown of active properties)
-3. Preview table: one row per transaction, editable `acct`/`propNm`, CIP flags highlighted in amber, cross-property refunds in red
-4. Operator reviews, corrects flagged rows
-5. "Commit" button → POST to `/api/bank/ingest/commit`
-6. Success: shows `CommitResult` stats + LogHistory entry
-
----
-
-## 8. `bankIngestPreview.ipynb`
-
-Located at `Notebooks/bankIngestPreview.ipynb`. Purpose: diagnostic and debugging tool for the BkAgent outside the web app.
+Located at `Notebooks/bankIngestPreview.ipynb`. Covers both agents independently and together.
 
 ```python
 # Cell 1 — setup
 from ledger import setup_paths
 setup_paths.load_bootstrap('WBGroupLLC')
-from ledger.bankAgent.bankIngestAgent import BankIngestAgent
+from ledger.LLC import LLC
+llc = LLC('WBGroupLLC', year=2025)
 
-# Cell 2 — preview a CSV
-agent = BankIngestAgent(llc)
-result = agent.preview('books/2025/BankStmts/WBGroupLLC_WF_20251231.csv',
-                       propNm_default='H_805HighMesa', year=2025)
+# Cell 2 — test BankAgent standalone (no ingestion)
+from ledger.bankAgent.BankAgent import BankAgent
+agent = BankAgent(llc)
+row = {'desc': 'PURCHASE AUTHORIZED ON 10/07 LOWE\'S #159 SAN MARCOS TX', 'amt': -27.04}
+result = agent.classify(row, context={'propNm': 'RV_RV1'})
+print(result)   # → ClassifiedRow with acct=Acct.Fixed.Tangible.InConstruction, flag=CIP_VIOLATION
 
-# Cell 3 — inspect flags
+# Cell 3 — run IngestAgent preview
+from ledger.bankAgent.IngestAgent import IngestAgent
+ingest = IngestAgent(llc)
+preview = ingest.preview('books/2025/BankStmts/WBGroupLLC_WF_20251231.csv',
+                         propNm_default='H_805HighMesa', year=2025)
+
+# Cell 4 — inspect flags
 import pandas as pd
-df = pd.DataFrame([r.__dict__ for r in result.rows])
-display(df[df.flag != ''])   # show flagged rows
+df = pd.DataFrame([r.__dict__ for r in preview.rows])
+display(df[df.flag != ''][['dt','amt','desc','acct','flag','propNm']])
 
-# Cell 4 — inspect auto vs review
-display(df.groupby(['confidence','acct']).size().reset_index(name='count'))
+# Cell 5 — inspect BankAgent confidence split
+display(df.groupby(['confidence','txn_type','acct']).size().reset_index(name='count'))
 
-# Cell 5 — commit (after manual review of flags above)
-# agent.commit(result)   # uncomment to write
+# Cell 6 — commit (uncomment after reviewing flags above)
+# result = ingest.commit(preview)
+# print(result)
 ```
 
 ---
 
-## 9. Out of Scope (v0.1 implementation)
+## 8. Flask UI Integration
 
-- ML/LLM-based classification — v1 uses deterministic vendor→COA rules + history; LLM classifier is a later enhancement.
-- Direct bank API / Plaid integration — CSV import only for now.
-- Multi-bank reconciliation — single Wells Fargo account.
-- Flask upload endpoint (file upload from browser) — v0.1 uses server-local CSV path; browser file upload is v0.2.
+Two routes in `ui/llcBankIngest.py`:
+
+| Route | Method | Body | Response |
+|---|---|---|---|
+| `/api/bank/ingest/preview` | POST | `{csv_path, propNm, year}` | `PreviewResult` JSON |
+| `/api/bank/ingest/commit` | POST | `{preview_token}` | `CommitResult` JSON |
+| `/view/bank_ingest` | GET | — | `bank_ingest.html` |
+
+**`bank_ingest.html` operator flow:**
+1. Select CSV from `BankStmts/<year>/` dropdown (server enumerates available files)
+2. Set default `propNm` (dropdown of active properties from COA/llcAssets)
+3. Click Preview → loads classified rows into a table
+4. Review table: editable `acct` / `propNm` per row; `CIP_VIOLATION` rows amber; `CROSS_PROP_REFUND` rows red; `DUPLICATE` rows struck-through (will be skipped)
+5. Stats banner: `N auto / N review / N flagged / N duplicate`
+6. If all rows are `auto` and zero flags → "Auto-Commit" button appears
+7. Click Commit → POST to `/commit` → show `CommitResult` stats and LogHistory entry
 
 ---
 
-## 10. Build Tracking
+## 9. Out of Scope (v0.1)
 
-GitHub issue: **[#20 — Build BankIngestionAgent (BkAgent)](https://github.com/wbgroupmgr/llcRentalTracker/issues/20)**
-
-Action plan phases (see issue comment):
-- **Phase 0** — Schema migration (`llcExpRev` struct, `LogHistory`)
-- **Phase 1** — Core classifiers (`BankCSVParser`, `BkVendorKB`, `BkCIPGuard`, `BkDuplicateDetector`, `BkClassifier`)
-- **Phase 2** — Orchestration (`BankIngestAgent.preview()` + `commit()`)
-- **Phase 3** — Notebook + Flask UI
-- **Phase 4** — Learning feedback loop + auto-commit mode
+- ML/LLM-based classification — v0.1 uses deterministic vendor rules + history; LLM is a future enhancement
+- Direct bank API / Plaid integration — CSV only
+- Multi-bank reconciliation — single Wells Fargo account
+- Browser file upload — v0.1 selects from server-local `BankStmts/` directory
 
 ---
 
-*End of design_BUS_01.5_BankIngestionAgent.md — v0.2, 2026-06-19*
+*End of design_BUS_01.5_BankIngestionAgent.md — v0.3, 2026-06-19*
