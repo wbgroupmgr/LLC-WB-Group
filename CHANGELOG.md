@@ -6,6 +6,37 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.0] — 2026-06-21  **BankToBook Design + BUS Repo Migration**
+
+### Added
+- **BankToBook design doc v0.5** (`docs/BUS/design_BUS_01.5_BankToBook.md`) —
+  Full two-agent architecture: **BankAgent** (outer orchestrator — two-phase
+  preview/commit pipeline, BkCIPGuard IRC §263(a) hard override, 3-scope
+  dedup, BkAuditNotifier post-commit) + **IngestAgent** (per-record bookkeeper
+  — BkVendorKB regex rules, BkTxnTypeDetector Tier 2 overrides, `classify()`,
+  `learn()`). Includes end-user scenario (Home → `/view/bank_reconcile`),
+  ClassifiedRow schema with `aType`/`Ledger` fields, module structure, and
+  phased regression harness (P0 B1–B5 notebook baseline + P1–P4 per-phase
+  COMPAT + new-capability cells).
+- **GitHub issue #40** — clean replacement for issue #20: "feat(BankToBook):
+  implement BankAgent + IngestAgent two-phase ingestion pipeline" with concise
+  goals, requirements checklist (P0–P4), and action plan table (~6.5 days).
+  Issue #20 commented with reference to #40.
+
+### Infrastructure (BUS repo)
+- **BUS repo migration** (issue #5) — `Assets/` → `pages/Assets/` (46 files);
+  `pages/AccountingData/` retired (3 tracked files archived to `books/2025/`;
+  48 `.bookNS_backups/` JSONs removed). No APP dependency — `ACCT_DATA_DIR`
+  resolves to `books/`.
+- **PA gitignore fix** — `*_session_state.json` and `*_diagnose_state.json`
+  untracked from BUS (`git rm --cached`) and added to `.gitignore`.  Root
+  cause: files were committed before gitignore rules existed; once tracked,
+  gitignore does not untrack. Fixed PA pull failures.
+- **BUS `release/v1.2`** — checkpoint branch from `origin/main` after old-repo
+  migration and 2025 YE machinery landing.
+
+---
+
 ## [2.0.0] — 2026-06-15  **PA Migration + Gmail SMTP Email Service**
 
 ### Fixed
