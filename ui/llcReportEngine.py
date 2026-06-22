@@ -52,17 +52,14 @@ class llcReportEngine:
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_source(self, name: str) -> List[Dict[str, Any]]:
-        # Read the shared DB file directly (bypasses in-memory llcAssets.df cache).
-        # Filters to the active fiscal year so the single cross-year DB only
-        # contributes the current year's records to the GL.
-        import json as _json
-        from pathlib import Path as _Path
+        # Route through the ledger object's schema-aware load() so format changes
+        # (e.g. llcExpRev's {"records":[],"LogHistory":[]} wrapper) are handled
+        # transparently rather than silently returning [].
         wk = self.eSession.oDict.get(name)
         if wk is None:
             return []
-        real_path = _Path(wk.o.FN())
         try:
-            data = _json.loads(real_path.read_text(encoding='utf-8'))
+            data = wk.o.load()
             if not isinstance(data, list):
                 return []
             yr = str(getattr(self.eSession.llc, 'yr', '') or '')
