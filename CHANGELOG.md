@@ -6,6 +6,33 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.0] — 2026-06-21  **BankToBook P0 — Schema Migration + Notebook Baseline**
+
+### Added
+- **`ledger/bankAgent/` package** — new module directory for the BankToBook pipeline
+  (issue #40). Includes `__init__.py` and `migrate_exprev_schema.py` (one-time
+  migration runner).
+- **`Notebooks/bankIngestPreview.ipynb`** — phased regression harness. B1–B5 P0
+  baseline cells: setup → parse 2025 WF CSVs → load llcExpRev → double-entry GL
+  expansion → trial balance (verified = 0: 440,577.19 debits = credits).
+  Placeholder sections for P1–P4 phases added.
+
+### Changed
+- **`llcExpRev_WBGroupLLC.json` (BUS repo)** — schema migration: flat list →
+  `{"records":[...],"LogHistory":[]}`. All 53 existing records: `refDB: "llcBank"`
+  → `"llcBank-Manual"` (manually entered, not imported by BankAgent).
+- **`ledger/llcExpRev.py`** — new overrides: `load()` unwraps new dict format;
+  `save()` preserves `LogHistory`; `log_history()` accessor; `_normalize_for_temp()`
+  hook ensures working-file temp stays a flat list (backward-compatible).
+- **`util/utilWorkingDB.py`** — `loadTemp()` and `_refresh_from_real()` call
+  `_normalize_for_temp()` hook when present on `self.o`, so the temp file always
+  receives a flat list regardless of real-file format.
+- **`ui/llcRecordsView.savePayload()`** — real-file write now delegates to
+  `self.wk.o.save(payload)` so schema-aware objects control serialization
+  (previously wrote flat list directly via `json.dump`).
+
+---
+
 ## [2.1.0] — 2026-06-21  **BankToBook Design + BUS Repo Migration**
 
 ### Added
