@@ -6,6 +6,32 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.1] — 2026-06-21  **Bug fixes: Income.Summary restore + notebook baseline assertions**
+
+### Fixed
+- **BUS `llcAssets_WBGroupLLC.json`** — restored `Acct.Equity.Income.Summary →
+  Acct.Equity.Earnings.PnL` (Debit 667.55, dt=2025.12.31) that was removed by
+  commit `83373cf fix(#39)`. Without it:
+  - GL total dropped 667.55 each side (672,945.93 → 672,278.38)
+  - `Acct.Equity.Earnings.PnL` had a net Debit of 667.55 (unbalanced equity)
+  - BS trial balance diverged from PA reference (669,198.89/668,531.34/667.55)
+  The entry closes the intermediate YE closing leg: Income.Summary → PnL.
+  The 3 per-member NI distribution entries (PnL → Owner.Capital.Funds) are
+  retained — both legs are required for correct GAAP double-entry close.
+- **`Notebooks/bankIngestPreview.ipynb` B2** — now loads only the YE statement
+  (`WBGroupLLC_WF_20251231.csv`) instead of all 3 CSVs in the directory. The
+  YE file supersedes the earlier partial exports (20251211, 20251216).
+
+### Added
+- **`Notebooks/bankIngestPreview.ipynb` B6** — 2025 full-GL baseline assertion
+  cell. Asserts against PA-verified reference values:
+  - GL: 672,945.93 / 672,945.93 / 0.00
+  - IS: total_income=4400, net_rental=667.55, subtotal_rental_expense=3732.45,
+        depreciation=1903.13, net_rental_before_depr=2570.68
+  - BS (balance-sheet account trial balance): D=669,198.89 / C=668,531.34 / B=667.55
+
+---
+
 ## [2.2.0] — 2026-06-21  **BankToBook P0 — Schema Migration + Notebook Baseline**
 
 ### Added
