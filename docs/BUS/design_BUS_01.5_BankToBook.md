@@ -1,6 +1,6 @@
 # BankToBook Pipeline — Design
 
-**Status:** v0.4 — 2026-06-19 (corrected agent semantics, end-user scenario, 3-scope dedup, ClassifiedRow schema)
+**Status:** v0.5 — 2026-06-19 (notebook moved to P0 as phased regression harness)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Stage:** AccountingWorkflow 01.5 — Transactional ingestion (upstream of all statements/forms)
 **Related:** `design_BUS_01.5_ExpRevAgent.md`, `design_BUS_04.0_TaxPrep.md`,
@@ -79,10 +79,12 @@ The operator starts from the **Home View**, which already shows a **"🏧 Bank R
    └─ click "🏧 Bank Reconciliation"
         │
         ▼
-② Bank Reconciliation View  (/view/bank_reconcile)
+② Bank Reconciliation View  (/view/bank_reconcile) 
    - Lists available CSVs in BankStmts/<year>/
    - Shows last ingestion date and row count from LogHistory
-   - "Select CSV" dropdown + optional "Upload New CSV" (existing /api/llcBank/upload_csv)
+   - "Select New BankStmt (CSV)" dropdown
+        + optional "Upload New CSV" (existing /api/llcBank/upload_csv)
+        + Find (look in ~/Downloads for Bank CSV files, name patterns - look no more then 15 days before current datetime)
    - "Default propNm" dropdown (active properties from COA)
    - Click "Preview →"
         │
@@ -367,7 +369,7 @@ ledger/
     vendor_rules.json         # operator-editable KB
 
 Notebooks/
-  bankIngestPreview.ipynb     # diagnostic: load CSV → preview → inspect → optional commit
+  bankIngestPreview.ipynb     # phased regression harness — created P0, extended P1–P4
 
 ui/
   llcBankView.py              # existing skeleton — extend in place
@@ -391,43 +393,153 @@ ui/
 
 ---
 
-## 8. `bankIngestPreview.ipynb` — Diagnostic Notebook
+## 8. `bankIngestPreview.ipynb` — Phased Regression Harness
+
+The notebook is **created in P0** and **extended in each subsequent phase**. It serves as both a development tool and a regression harness — each phase must keep the 2025 baseline cells green before adding new capability.
+
+### 8.1 Structure
+
+```
+P0 baseline cells (B1–B5)   — 2025 BankToBook using existing llcBankView (no agents yet)
+P1 extension cells (P1a–P1b) — IngestAgent: compat check + 2026 run
+P2 extension cells (P2a–P2b) — BankAgent: compat check + 2026 run
+P3 extension cells (P3a–P3b) — Full pipeline including optional commit
+```
+
+Cells accumulate — earlier cells always run first. The P0 baseline is the ground truth against which all later phases are compared.
+
+### 8.2 P0 Baseline Cells — 2025 BankToBook (existing code, no agents)
 
 ```python
-# Cell 1 — setup
+# B1 — Setup
 from ledger import setup_paths
 setup_paths.load_bootstrap('WBGroupLLC')
 from ledger.LLC import LLC
-llc = LLC('WBGroupLLC', year=2025)
-
-# Cell 2 — test IngestAgent standalone (no pipeline, no writes)
-from ledger.bankAgent.IngestAgent import IngestAgent
-ia = IngestAgent(llc)
-row = {'desc': "PURCHASE AUTHORIZED ON 10/07 LOWE'S #159 SAN MARCOS TX",
-       'amt': 27.04, 'aType': 'Debit'}
-classified = ia.classify(row, context={'propNm': 'RV_RV1'})
-print(classified)  # acct=Acct.Exp.Repair, confidence='review'
-# BkCIPGuard (BankAgent level) will override this to CIP_VIOLATION when called in pipeline
-
-# Cell 3 — run BankAgent full preview
-from ledger.bankAgent.BankAgent import BankAgent
-ba = BankAgent(llc)
-preview = ba.preview('books/2025/BankStmts/WBGroupLLC_WF_20251231.csv',
-                     propNm_default='H_805HighMesa', year=2025)
-
-# Cell 4 — inspect all flags
 import pandas as pd
-df = pd.DataFrame([r.__dict__ for r in preview.rows])
-display(df[df.flag != ''][['dt','amt','aType','desc','acct','Ledger','flag','propNm']])
 
-# Cell 5 — IngestAgent confidence breakdown
-display(df.groupby(['confidence','txn_type','acct']).size().reset_index(name='count'))
+llc_2025 = LLC('WBGroupLLC', year=2025)
+CSV_2025 = 'books/2025/BankStmts/WBGroupLLC_WF_20251231.csv'
 
-# Cell 6 — amount-collision audit (Scope 3 dedup)
-display(df[df.flag == 'AMOUNT_COLLISION'][['dt','amt','desc','flag']])
+# B2 — Import 2025 BankStmt using existing llcBankView (no write)
+from ui.llcBankView import llcBankView, _parse_wf_csv
+with open(CSV_2025) as f:
+    raw_rows_2025 = _parse_wf_csv(f.read())
 
-# Cell 7 — commit (uncomment after reviewing)
-# result = ba.commit(preview)
+bk_df_2025 = pd.DataFrame(raw_rows_2025)
+print(f"2025 BankStmt: {len(bk_df_2025)} rows")
+display(bk_df_2025.head(10))
+
+# B3 — Produce llcExpRev in-memory DataFrame (simulated, no write)
+# Only rows that are NEW (not already in llcExpRev) — using existing _diff() logic
+from util.utilEditSession import utilEditSession
+# Load tIDs from live llcExpRev to find what's already ingested
+from ledger.llcExpRev import llcExpRev as LlcExpRev
+er_obj = LlcExpRev(llc_2025)
+existing_tids = {r.get('tID') for r in er_obj.load()}
+
+simulated_er_2025 = bk_df_2025[~bk_df_2025['tID'].isin(existing_tids)].copy()
+print(f"Simulated new ExpRev rows: {len(simulated_er_2025)}")
+display(simulated_er_2025[['dt','amt','aType','acct','desc']].head(20))
+
+# B4 — Produce GL in-memory DataFrame from BankStmt rows
+# Double-entry expansion: each row → debit leg + credit leg
+def to_gl_rows(er_df):
+    rows = []
+    for _, r in er_df.iterrows():
+        acct   = r.get('acct', 'Acct.Exp.Other')
+        ledger = 'Acct.Cash.Bank'   # contra for all BankStmt rows
+        rows.append({**r, 'entry': 'primary', 'gl_acct': acct})
+        rows.append({**r, 'entry': 'contra',  'gl_acct': ledger,
+                     'aType': 'Credit' if r['aType']=='Debit' else 'Debit'})
+    return pd.DataFrame(rows)
+
+gl_df_2025 = to_gl_rows(simulated_er_2025)
+print(f"GL rows (double-entry): {len(gl_df_2025)}")
+display(gl_df_2025[['dt','gl_acct','aType','amt','desc']].head(20))
+
+# B5 — Trial balance from GL DataFrame
+def trial_balance(gl_df):
+    tb = gl_df.copy()
+    tb['signed'] = tb.apply(
+        lambda r: r['amt'] if r['aType']=='Debit' else -r['amt'], axis=1)
+    return (tb.groupby('gl_acct')['signed']
+              .sum()
+              .reset_index(name='net_balance')
+              .sort_values('net_balance'))
+
+tb_2025 = trial_balance(gl_df_2025)
+print(f"Trial balance total (should be 0 if balanced): {tb_2025['net_balance'].sum():.2f}")
+display(tb_2025)
+```
+
+### 8.3 P1 Extension Cells — IngestAgent Backward Compat + 2026
+
+```python
+# P1a — [COMPAT] Re-classify 2025 BankStmt via IngestAgent; compare to P0 baseline
+from ledger.bankAgent.IngestAgent import IngestAgent
+ia = IngestAgent(llc_2025)
+
+classified_2025 = [ia.classify(r.to_dict(), context={'propNm': 'H_805HighMesa'})
+                   for _, r in bk_df_2025.iterrows()]
+ia_df_2025 = pd.DataFrame([c.__dict__ for c in classified_2025])
+
+# Compare acct assignments vs B3 baseline — flag any differences
+diff = ia_df_2025.merge(simulated_er_2025[['tID','acct']], on='tID', suffixes=('_ia','_baseline'))
+changes = diff[diff['acct_ia'] != diff['acct_baseline']]
+print(f"P1 compat: {len(changes)} acct changes vs P0 baseline (expected: 0 for Tier 1 rows)")
+display(changes[['tID','desc','acct_baseline','acct_ia','confidence']])
+
+# P1b — [2026] Classify 2026 BankStmt via IngestAgent
+llc_2026 = LLC('WBGroupLLC', year=2026)
+CSV_2026 = 'books/2026/BankStmts/WBGroupLLC_WF_20260313.csv'
+with open(CSV_2026) as f:
+    raw_rows_2026 = _parse_wf_csv(f.read())
+
+ia_2026 = IngestAgent(llc_2026)
+classified_2026 = [ia_2026.classify(r, context={'propNm': 'H_805HighMesa'})
+                   for r in raw_rows_2026]
+ia_df_2026 = pd.DataFrame([c.__dict__ for c in classified_2026])
+display(ia_df_2026.groupby(['confidence','txn_type','acct']).size().reset_index(name='count'))
+```
+
+### 8.4 P2 Extension Cells — BankAgent Backward Compat + 2026
+
+```python
+# P2a — [COMPAT] BankAgent.preview() on 2025 → verify rows match P1 IngestAgent output
+from ledger.bankAgent.BankAgent import BankAgent
+ba_2025 = BankAgent(llc_2025)
+preview_2025 = ba_2025.preview(CSV_2025, propNm_default='H_805HighMesa', year=2025)
+
+ba_df_2025 = pd.DataFrame([r.__dict__ for r in preview_2025.rows])
+compat_check = ba_df_2025.merge(ia_df_2025[['tID','acct']], on='tID', suffixes=('_ba','_ia'))
+changes = compat_check[compat_check['acct_ba'] != compat_check['acct_ia']]
+print(f"P2 compat: {len(changes)} acct changes vs P1 baseline (expected: only CIP overrides)")
+display(changes[['tID','desc','acct_ia','acct_ba','flag']])
+
+# P2b — [2026] Full BankAgent preview on 2026 CSV + inspect flags
+ba_2026 = BankAgent(llc_2026)
+preview_2026 = ba_2026.preview(CSV_2026, propNm_default='H_805HighMesa', year=2026)
+
+ba_df_2026 = pd.DataFrame([r.__dict__ for r in preview_2026.rows])
+print(preview_2026.stats)
+display(ba_df_2026[ba_df_2026['flag'] != ''][['dt','amt','aType','desc','acct','Ledger','flag','propNm']])
+display(ba_df_2026[ba_df_2026['flag'] == 'AMOUNT_COLLISION'][['dt','amt','desc','flag']])
+
+# P3a — [COMPAT] Verify 2025 trial balance unchanged after IngestAgent + BankAgent
+gl_df_2025_p2 = to_gl_rows(ba_df_2025[ba_df_2025['flag'] != 'DUPLICATE'])
+tb_2025_p2 = trial_balance(gl_df_2025_p2)
+print(f"P2 2025 trial balance total: {tb_2025_p2['net_balance'].sum():.2f}")
+delta = tb_2025_p2.merge(tb_2025, on='gl_acct', suffixes=('_p2','_p0'))
+display(delta[abs(delta['net_balance_p2'] - delta['net_balance_p0']) > 0.01])
+
+# P3b — [2026] Full GL + trial balance for 2026 preview
+gl_df_2026 = to_gl_rows(ba_df_2026[ba_df_2026['flag'] != 'DUPLICATE'])
+tb_2026 = trial_balance(gl_df_2026)
+print(f"2026 trial balance total: {tb_2026['net_balance'].sum():.2f}")
+display(tb_2026)
+
+# Commit cell — uncomment after reviewing P2b flags above
+# result = ba_2026.commit(preview_2026)
 # print(f"Written: {result.rows_written}  Skipped: {result.rows_duplicate}")
 ```
 
@@ -442,4 +554,4 @@ display(df[df.flag == 'AMOUNT_COLLISION'][['dt','amt','desc','flag']])
 
 ---
 
-*End of design_BUS_01.5_BankToBook.md — v0.4, 2026-06-19*
+*End of design_BUS_01.5_BankToBook.md — v0.5, 2026-06-19*
