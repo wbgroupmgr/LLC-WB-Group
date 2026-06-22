@@ -81,6 +81,8 @@ class utilWorkingDB(ledgerDB):
             with open(self.o.FN(), 'r') as fio:
                 jStr = fio.read()
             wkList = json.loads(jStr.replace('NaN', 'null'))
+            if hasattr(self.o, '_normalize_for_temp'):
+                wkList = self.o._normalize_for_temp(wkList)
             self.save(wkList)
             self.oTime = self.fnTime(self.FN())
             print(f"⚠ utilWorkingDB: stale temp refreshed from {Path(self.o.FN()).name}")
@@ -125,6 +127,8 @@ class utilWorkingDB(ledgerDB):
                 jStr = fio.read()
                             # save to temp
             wkList = json.loads(jStr.replace('NaN', 'null'))
+            if hasattr(self.o, '_normalize_for_temp'):
+                wkList = self.o._normalize_for_temp(wkList)
             self.save(wkList)
             self.oTime = self.fnTime(self.FN())
             return True

@@ -91,11 +91,9 @@ class llcRecordsView:
                 except (TypeError, ValueError):
                     tDict['amt'] = 0.0
 
-        # Write to real (committed) DB — the authoritative source of truth.
-        import json as _json
-        real_fn = self.wk.o.FN()
-        with open(real_fn, 'w') as _fio:
-            _json.dump(payload, _fio, indent=4)
+        # Write to real (committed) DB — delegates to the object's save() so
+        # schema-aware objects (e.g. llcExpRev) can wrap in their own format.
+        self.wk.o.save(payload)
 
         # Mirror to working (temp) file so the editor view stays consistent.
         self.wk.save(payload)

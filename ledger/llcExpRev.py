@@ -24,6 +24,38 @@ class llcExpRev(ledgerDB):
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
 
+    # ── New-format schema support (P0, issue #40) ────────────────────────────
+
+    def load(self):
+        """Return records list from either flat-list (old) or {"records":...} (new) format."""
+        raw = super().load()
+        if isinstance(raw, dict):
+            return raw.get("records", [])
+        return raw if isinstance(raw, list) else []
+
+    def load_raw(self):
+        """Return the full dict {"records": [...], "LogHistory": [...]} from disk."""
+        return super().load()
+
+    def log_history(self):
+        """Return the LogHistory list (empty list for pre-migration files)."""
+        raw = super().load()
+        if isinstance(raw, dict):
+            return raw.get("LogHistory", [])
+        return []
+
+    def save(self, tList):
+        """Write records list while preserving LogHistory in the new format."""
+        raw = self.load_raw()
+        log = raw.get("LogHistory", []) if isinstance(raw, dict) else []
+        return super().save({"records": list(tList), "LogHistory": log})
+
+    def _normalize_for_temp(self, raw):
+        """Hook used by utilWorkingDB: temp file always stores a flat list."""
+        if isinstance(raw, dict):
+            return raw.get("records", [])
+        return raw if isinstance(raw, list) else []
+
     def bk2Exp(self, df):
         '''
         Import Bk DF and produce a set of new expense entries
