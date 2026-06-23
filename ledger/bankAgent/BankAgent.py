@@ -33,7 +33,7 @@ class PreviewStats:
     duplicate: int = 0
     return_pair: int = 0
     amount_collision: int = 0
-    cip_violation: int = 0
+    need_req_doc: int = 0
 
     def as_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
@@ -161,9 +161,9 @@ class BankAgent:
                 new_acct, cip_violated = self._cip.check(cr.propNm, cr.acct)
                 if cip_violated:
                     cr.acct = new_acct
-                    cr.flag = 'CIP_VIOLATION'
+                    cr.flag = 'NEED_REQ_DOC'
                     cr.confidence = 'flagged'
-                    stats.cip_violation += 1
+                    stats.need_req_doc += 1
                     stats.flagged += 1
                 else:
                     self._count_confidence(stats, cr)
@@ -239,7 +239,7 @@ class BankAgent:
             'rows_amount_collision':      preview.stats.amount_collision,
             'rows_auto_classified':       preview.stats.auto,
             'rows_flagged_review':        preview.stats.review,
-            'rows_flagged_cip':           preview.stats.cip_violation,
+            'rows_need_req_doc':          preview.stats.need_req_doc,
             'bankagent_version':          '0.2',
             'ingestagent_version':        '0.1',
             'notes':                      '',

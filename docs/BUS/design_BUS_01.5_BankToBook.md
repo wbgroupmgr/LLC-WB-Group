@@ -1,6 +1,6 @@
 # BankToBook Pipeline — Design
 
-**Status:** v0.5 — 2026-06-19 (notebook moved to P0 as phased regression harness)
+**Status:** v0.6 — 2026-06-23 (Phase 1a Resolve + IngestAgent Aids added)
 **Owner:** Francisco Rojas (W&B Group, LLC)
 **Stage:** AccountingWorkflow 01.5 — Transactional ingestion (upstream of all statements/forms)
 **Related:** `design_BUS_01.5_ExpRevAgent.md`, `design_BUS_04.0_TaxPrep.md`,
@@ -79,12 +79,12 @@ The operator starts from the **Home View**, which already shows a **"🏧 Bank R
    └─ click "🏧 Bank Reconciliation"
         │
         ▼
-② Bank Reconciliation View  (/view/bank_reconcile) 
+② Bank Reconciliation View  (/view/bank_reconcile)
    - Lists available CSVs in BankStmts/<year>/
    - Shows last ingestion date and row count from LogHistory
    - "Select New BankStmt (CSV)" dropdown
         + optional "Upload New CSV" (existing /api/llcBank/upload_csv)
-        + Find (look in ~/Downloads for Bank CSV files, name patterns - look no more then 15 days before current datetime)
+        + Find (look in ~/Downloads for Bank CSV files, name patterns ≤15 days old)
    - "Default propNm" dropdown (active properties from COA)
    - Click "Preview →"
         │
@@ -92,19 +92,37 @@ The operator starts from the **Home View**, which already shows a **"🏧 Bank R
 ③ Phase 1 — Preview  (BankAgent.preview() — nothing written)
    - BankAgent parses CSV, calls IngestAgent per row, runs CIP guard + 3-scope dedup
    - Preview table renders:
-       · Auto rows (green)         — confident classification, no flags
-       · Review rows (amber)       — needs operator confirmation (editable inline)
-       · Flagged rows (red)        — CIP_VIOLATION, CROSS_PROP_REFUND, RETURN_PAIR
-       · Duplicate rows (grey/——)  — already in GL; will be skipped on commit
-       · Amount-collision (orange) — same dt+amt found elsewhere in GL; confirm before commit
-   - Stats banner: "N new · N auto · N review · N flagged · N duplicate"
-   - Operator edits acct / propNm inline on any row
+       · Auto rows (green)           — confident classification, no flags
+       · Review rows (amber)         — needs operator confirmation (editable inline)
+       · NEED_REQ_DOC rows (orange)  — InConstruction property; operator must supply ReqDoc
+       · RETURN_PAIR rows (amber)    — purchase return pair
+       · Duplicate rows (grey/——)    — already in GL; will be skipped on commit
+       · Amount-collision (orange)   — same dt+amt found elsewhere in GL; confirm before commit
+   - Stats banner: "N new · N auto · N review · N need-req-doc · N duplicate"
         │
-        ├── "Discard / Start Over" ──→  PreviewResult discarded; zero impact to llcExpRev / GL
+        ├── If any NEED_REQ_DOC or UNKNOWN rows → "Resolve →" opens Phase 1a
         │
-        └── "Commit ✓" ─────────────→
-                │
-                ▼
+        └── If zero unresolved rows → "Commit ✓" goes directly to Phase 2
+        │
+        ▼
+③a Phase 1a — Resolve  (IngestAgent Aids — nothing written)
+   TWO AIDS available to the operator:
+
+   A) NewIngestRuleAgent — declare permanent vendor patterns
+      - Shows review rows whose vendor pattern could be promoted to a permanent KB rule
+      - Operator fills: pattern, acct, acctSub, txn_type, confidence
+      - On "Save Rules": IngestAgent.learn() writes to vendor_rules.json
+      - Preview re-runs with new rules applied
+
+   B) ReqDocAgent — document one-time service/merchandise charges
+      - Shows NEED_REQ_DOC and UNKNOWN rows with no auto-classifiable pattern
+      - Operator fills per row: propNm, confirmed acct, description/purpose
+      - Produces req_docs_<ts>.json in books/<year>/Forms/.agent_work/
+      - Preview re-runs with req_docs overrides applied
+        │
+        └── "Back to Preview" ─────────────→  (loops back to ③ with enriched rules/docs)
+        │
+        ▼
 ④ Phase 2 — Commit  (BankAgent.commit())
    - Skips DUPLICATE rows
    - Enriches ClassifiedRows → full llcExpRev records
@@ -180,7 +198,59 @@ IngestAgent.learn(vendor_key: str, acct: str, acctSub: str, txn_type: str)
 
 **Auto-commit eligibility:** when a full statement preview has zero `"review"` or `"flagged"` rows and zero BankAgent flags (CIP_VIOLATION, CROSS_PROP_REFUND), BankAgent surfaces a one-click "Auto-Commit" path — still requiring operator confirmation, but skipping the row-by-row review table.
 
-### 4.4 ClassifiedRow — IngestAgent Working Object
+### 4.4 IngestAgent Aids — Phase 1a Resolve Tools
+
+The LLC has one bank account covering N properties. The IngestAgent cannot resolve `propNm` for ad-hoc service or merchandise charges without operator input. Phase 1a provides two aids:
+
+#### NewIngestRuleAgent
+
+Promotes repeating vendor patterns to permanent KB rules. When the operator sees the same vendor appear across multiple statements as "review", they declare a rule:
+
+```json
+{
+  "pattern": "(?i)allstate ins co",
+  "acct": "Acct.Exp.Ins",
+  "acctSub": "Property Insurance",
+  "txn_type": "ROUTINE_EXPENSE",
+  "confidence": "auto"
+}
+```
+
+`IngestAgent.learn()` writes this to `vendor_rules.json` and the preview re-runs. Future statements auto-classify this vendor without operator intervention.
+
+#### ReqDocAgent
+
+Documents one-time charges (checks, hardware runs, contractor payments, Amazon/Lowe's receipts) that cannot be inferred from the bank description alone. Each ReqDoc answers:
+
+1. **propNm** — which property does this cost belong to?
+2. **acct** — confirmed COA account (may confirm `NEED_REQ_DOC` → InConstruction, or override to a different acct)
+3. **notes** — human description of the service or item purchased
+
+```json
+{
+  "tID": "2026.01.23_C2730.86",
+  "propNm": "H_805HighMesa",
+  "acct": "Acct.Fixed.Tangible.InConstruction",
+  "acctSub": "Labor",
+  "notes": "Check #104: subcontractor — framing and rough carpentry"
+}
+```
+
+ReqDocs are stored in `books/<year>/Forms/.agent_work/req_docs_<ts>.json`. They feed back into BankAgent.preview() as overrides — rows with a matching `tID` in req_docs use the operator-supplied `propNm` and `acct` instead of the IngestAgent's guess.
+
+**Why not just edit inline?** Inline edits in the preview table are ephemeral (lost if the session is discarded). ReqDocs are persisted — they survive a discard, can be audited, and are re-applied if the same CSV is re-ingested.
+
+#### propNm Resolution Strategy
+
+| Row type | propNm source |
+|---|---|
+| Recurring utility (electric, water, trash) | `propNm_default` passed to `preview()` |
+| Rent income (Zelle from known tenant) | KB lookup → propNm from context |
+| MEMBER_INVEST (Zelle from member) | `"LLC"` — equity transaction |
+| Ad-hoc service / merchandise | **ReqDoc required** |
+| SPECIAL_WIRE | Operator must set in ReqDoc |
+
+### 4.5 ClassifiedRow — IngestAgent Working Object
 
 `ClassifiedRow` is the IngestAgent's output for one bank row. It is **not** the final `llcExpRev` record — BankAgent enriches it at commit time with `propAddr`, `propID`, `propOwners`, `acctType`, and `tDB`.
 
@@ -205,7 +275,7 @@ class ClassifiedRow:
     vendor_key: str    # normalized vendor string — for KB lookup and learn()
 
     # ── from BankAgent (CIP guard, dedup) ──────────────
-    flag:       str    # "" | "CIP_VIOLATION" | "CROSS_PROP_REFUND" | "DUPLICATE"
+    flag:       str    # "" | "NEED_REQ_DOC" | "CROSS_PROP_REFUND" | "DUPLICATE"
                        #    | "RETURN_PAIR" | "AMOUNT_COLLISION"
     refDB:      str    # "BankStmts/WBGroupLLC_WF_<date>.csv"
 ```
