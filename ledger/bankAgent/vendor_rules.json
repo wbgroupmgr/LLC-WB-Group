@@ -1,0 +1,212 @@
+[
+  {
+    "pattern": "pedernales",
+    "acct": "Acct.Exp.Util",
+    "acctSub": "Electricity",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "elec_bill",
+    "acct": "Acct.Exp.Util",
+    "acctSub": "Electricity",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "comwsc",
+    "acct": "Acct.Exp.Util",
+    "acctSub": "Water",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "bill pay water",
+    "acct": "Acct.Exp.Util",
+    "acctSub": "Water",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "texas disposal",
+    "acct": "Acct.Exp.Util",
+    "acctSub": "Trash",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "wimberley ace",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Hardware",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "kings feed",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Hardware",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "harbor freight",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Hardware",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "allstate",
+    "acct": "Acct.Exp.Ins",
+    "acctSub": "Property Insurance",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "hays co tx wimber",
+    "acct": "Acct.Exp.Tax.Prop",
+    "acctSub": "Property Tax",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "truist acctverify",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "ACH Verification",
+    "txn_type": "ACH_VERIFY",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "sp growers",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Landscaping",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "growers solution",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Landscaping",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "rodco steel",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Materials",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "laird plastics",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Materials",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "zelle from alejandro villarreal",
+    "acct": "Acct.Rev.Rent",
+    "acctSub": "Rental Income",
+    "txn_type": "RENT_INCOME",
+    "confidence": "auto"
+  },
+  {
+    "pattern": "amazon mktpl",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "Online Purchase",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "lowe's",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Hardware/Materials",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "lowes",
+    "acct": "Acct.Exp.Repair",
+    "acctSub": "Hardware/Materials",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "wal-mart",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "General Supplies",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "walmart",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "General Supplies",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "h-e-b",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "General Supplies",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "venmo",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "Payment/Service",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "check #",
+    "acct": "Acct.Exp.Other",
+    "acctSub": "Check Payment",
+    "txn_type": "ROUTINE_EXPENSE",
+    "confidence": "review"
+  },
+  {
+    "pattern": "promotion bonus",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Bank Bonus",
+    "txn_type": "BANK_BONUS",
+    "confidence": "review"
+  },
+  {
+    "pattern": "mobile deposit",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Deposit",
+    "txn_type": "BANK_DEPOSIT",
+    "confidence": "review"
+  },
+  {
+    "pattern": "edeposit",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Deposit",
+    "txn_type": "BANK_DEPOSIT",
+    "confidence": "review"
+  },
+  {
+    "pattern": "ewithdrawal",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Cash Withdrawal",
+    "txn_type": "BANK_DEPOSIT",
+    "confidence": "review"
+  },
+  {
+    "pattern": "opening deposit",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Account Opening",
+    "txn_type": "BANK_DEPOSIT",
+    "confidence": "review"
+  },
+  {
+    "pattern": "wfb opening",
+    "acct": "Acct.Cash.Bank",
+    "acctSub": "Account Opening",
+    "txn_type": "BANK_DEPOSIT",
+    "confidence": "review"
+  }
+]
