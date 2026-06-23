@@ -6,6 +6,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.2] — 2026-06-22  **Issue #41 — Soft-delete audit trail for Table Action Delete**
+
+### Changed
+- **`ui/llcMgmt.py`** — both delete paths (single `cmd="delete"` and batch
+  `sub="delete"` within `cmd="batch"`) now soft-delete instead of physically
+  removing rows. A deleted record has `amt` zeroed and `desc` prefixed with
+  `"RECORD DELETED <YYYY-MM-DD>; amt zero'd out. "`. The row is preserved in
+  the JSON DB for full audit trail.
+- Added `import datetime` to top-level imports.
+
+---
+
 ## [2.2.1] — 2026-06-21  **Bug fixes: Income.Summary restore + notebook baseline assertions**
 
 ### Fixed

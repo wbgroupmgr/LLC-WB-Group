@@ -25,6 +25,7 @@ Views:
 Timestamp of last change: 2026.04.24  (v0.2.4.7 — PDF-embed tax views)
 '''
 
+import datetime
 import json
 import logging
 import math
@@ -1368,11 +1369,21 @@ class llcMgmt:
                 record_id = request.values.get("id")
                 rows      = manager.load()
                 idx = self._row_index_arg(len(rows))
+                target = None
                 if idx is not None:
-                    new_rows = [row for i, row in enumerate(rows) if i != idx]
+                    if 0 <= idx < len(rows):
+                        target = idx
                 else:
-                    new_rows = [row for i, row in enumerate(rows) if self._row_id(row, i) != str(record_id)]
-                saved = s(manager.save(new_rows))
+                    for i, row in enumerate(rows):
+                        if self._row_id(row, i) == str(record_id):
+                            target = i
+                            break
+                if target is None:
+                    return jsonify({"ok": False, "error": "Record not found"}), 404
+                stamp = datetime.date.today().isoformat()
+                rows[target]['amt']  = 0
+                rows[target]['desc'] = f"RECORD DELETED {stamp}; amt zero'd out. " + str(rows[target].get('desc', ''))
+                saved = s(manager.save(rows))
                 return jsonify({"ok": True, "data": saved})
 
             if cmd == "batch":
@@ -1430,8 +1441,11 @@ class llcMgmt:
                     return jsonify({"ok": False, "error": "; ".join(errors)}), 400
 
                 if delete_ids:
-                    rows = [row for i, row in enumerate(rows)
-                            if self._row_id(row, i) not in delete_ids]
+                    stamp = datetime.date.today().isoformat()
+                    for i, row in enumerate(rows):
+                        if self._row_id(row, i) in delete_ids:
+                            row['amt']  = 0
+                            row['desc'] = f"RECORD DELETED {stamp}; amt zero'd out. " + str(row.get('desc', ''))
                 rows.extend(adds)
                 saved = s(manager.save(rows))
                 return jsonify({"ok": True, "data": saved})
