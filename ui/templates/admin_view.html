@@ -134,6 +134,34 @@ document.addEventListener("DOMContentLoaded", () => {
     </div>
 </div>
 
+<!-- ── Business frame ───────────────────────────────────────────────── -->
+{% if bus_info %}
+<details class="admin-frame" open>
+    <summary>
+        <span class="collapse-chevron">▼</span>
+        <span class="frame-title">🏢 Business</span>
+        <span class="frame-count">{{ bus_info.llcName }}{% if bus_info.active_year %} · {{ bus_info.active_year }}{% endif %}</span>
+    </summary>
+    <div class="admin-table-wrap">
+        <table class="admin-table" style="table-layout:fixed;width:100%">
+            <colgroup><col style="width:160px"><col></colgroup>
+            <tbody>
+            <tr><th>LLC Name</th><td>{{ bus_info.llcName or '—' }}</td></tr>
+            <tr><th>Data Name</th><td>{{ bus_info.dataName or '—' }}</td></tr>
+            <tr><th>Active Year</th><td><strong>{{ bus_info.active_year or '—' }}</strong></td></tr>
+            <tr><th>Registered Years</th><td>{{ bus_info.years | join(', ') if bus_info.years else '—' }}</td></tr>
+            <tr><th>BUS Repo</th><td style="white-space:normal;word-break:break-all;font-family:monospace;font-size:12px">{{ bus_info.bus_repo or '—' }}</td></tr>
+            <tr><th>Books Dir</th><td style="font-family:monospace;font-size:12px">{{ bus_info.books_dir or '—' }}</td></tr>
+            <tr><th>Accts Dir</th><td style="white-space:normal;word-break:break-all;font-family:monospace;font-size:12px">{{ bus_info.accts_dir or '—' }}</td></tr>
+            <tr><th>Bank Stmts</th><td style="white-space:normal;word-break:break-all;font-family:monospace;font-size:12px">{{ bus_info.bank_stmts or '—' }}</td></tr>
+            <tr><th>IRS Forms</th><td style="white-space:normal;word-break:break-all;font-family:monospace;font-size:12px">{{ bus_info.irs_forms or '—' }}</td></tr>
+            <tr><th>Config File</th><td style="white-space:normal;word-break:break-all;font-family:monospace;font-size:12px">{{ bus_info.config_file or '—' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</details>
+{% endif %}
+
 <!-- ── Year Management panel ────────────────────────────────────────── -->
 <div id="admin-notify" style="display:none;padding:10px 16px;border-radius:7px;font-size:13px;font-weight:600;margin-bottom:14px;position:relative;"></div>
 

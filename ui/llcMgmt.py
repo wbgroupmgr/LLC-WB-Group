@@ -922,6 +922,37 @@ class llcMgmt:
             cur_year  = getattr(getattr(self.eSession, 'llc', None), 'yr', None)
             from util.utilEditSession import utilEditSession as _UES
             year_locked = _UES.is_locked(int(cur_year)) if cur_year else False
+
+            # ── Business info from config.json + setup_paths ──────────────────
+            from ledger import setup_paths as _sp
+            bus_info: dict = {}
+            try:
+                cfg     = _sp.read_config()
+                llc_nm  = self.app.config.get("_llc_name", "")
+                stanza  = next(
+                    (s for s in cfg.get("llcList", []) if s.get("llcName") == llc_nm),
+                    cfg["llcList"][0] if cfg.get("llcList") else {}
+                )
+                bus_repo   = stanza.get("bus_repo", "")
+                books_dir  = stanza.get("books_dir", "books")
+                years_list = stanza.get("years", [])
+                data_name  = stanza.get("dataName", stanza.get("llcName", ""))
+                active_yr  = int(_sp.YEAR) if _sp.YEAR else (int(cur_year) if cur_year else None)
+                bus_info = {
+                    "llcName":      stanza.get("llcName", ""),
+                    "dataName":     data_name,
+                    "bus_repo":     bus_repo,
+                    "books_dir":    books_dir,
+                    "years":        sorted(years_list, reverse=True),
+                    "active_year":  active_yr,
+                    "accts_dir":    str(_sp.ACCTS_DIR)  if _sp.ACCTS_DIR  else (f"{bus_repo}/{books_dir}/Accts" if bus_repo else ""),
+                    "bank_stmts":   str(_sp.BANK_STMTS) if _sp.BANK_STMTS else (f"{bus_repo}/{books_dir}/{active_yr}/BankStmts" if bus_repo and active_yr else ""),
+                    "irs_forms":    str(_sp.IRS_FORMS_DIR) if _sp.IRS_FORMS_DIR else (f"{bus_repo}/{books_dir}/{active_yr}/Forms" if bus_repo and active_yr else ""),
+                    "config_file":  str(_sp.CONFIG_FILE) if hasattr(_sp, "CONFIG_FILE") and _sp.CONFIG_FILE else "",
+                }
+            except Exception:
+                pass
+
             return render_template(
                 "admin_view.html",
                 title=self.title,
@@ -930,6 +961,7 @@ class llcMgmt:
                 current_year=cur_year,
                 next_year=(int(cur_year) + 1) if cur_year else None,
                 year_locked=year_locked,
+                bus_info=bus_info,
             )
 
         # ── View ──────────────────────────────────────────────────────────────
