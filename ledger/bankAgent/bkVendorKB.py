@@ -74,3 +74,25 @@ class BkVendorKB:
 
     def rules(self):
         return list(self._rules)
+
+    _FIELDS = ('pattern', 'acct', 'acctSub', 'txn_type', 'confidence')
+
+    def set_rules(self, rules: list) -> list:
+        """Replace the whole rule set (operator KB-edit Save). Validates each rule
+        has a non-empty pattern + acct; normalizes to the 5 KB fields and saves."""
+        clean = []
+        for r in rules:
+            pattern = (r.get('pattern') or '').strip()
+            acct    = (r.get('acct') or '').strip()
+            if not pattern or not acct:
+                continue  # skip incomplete rows
+            clean.append({
+                'pattern':    pattern,
+                'acct':       acct,
+                'acctSub':    (r.get('acctSub') or '').strip(),
+                'txn_type':   (r.get('txn_type') or 'ROUTINE_EXPENSE').strip(),
+                'confidence': (r.get('confidence') or 'review').strip(),
+            })
+        self._rules = clean
+        self.save()
+        return list(self._rules)

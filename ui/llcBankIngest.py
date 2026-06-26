@@ -41,6 +41,10 @@ _KNOWN_ACCTS: list[tuple[str, str]] = [
     ('Acct.Liab.Loan.Mortgage',            'Liability — Mortgage'),
 ]
 
+_TXN_TYPES = ['ROUTINE_EXPENSE', 'RENT_INCOME', 'MEMBER_INVEST', 'SPECIAL_WIRE',
+              'RETURN_PAIR', 'ACH_VERIFY', 'BANK_DEPOSIT', 'BANK_BONUS', 'UNKNOWN']
+_CONFIDENCES = ['auto', 'review', 'flagged']
+
 # ── preview storage ─────────────────────────────────────────────────────────────
 
 _PREVIEW_DIR = Path(tempfile.gettempdir()) / 'llc_bank_previews'
@@ -317,3 +321,37 @@ def bind_bankIngest_routes(app, objects: dict):
         if token:
             _delete_preview(token)
         return jsonify({'ok': True})
+
+    # ── Bank Knowledge / Rules (Phase B) ────────────────────────────────────────
+
+    @app.route('/view/bank_kb_rules')
+    def view_bank_kb_rules():
+        return render_template(
+            'bank_kb_rules.html',
+            prop_names=_get_prop_names(objects),
+            known_accts=_KNOWN_ACCTS,
+            txn_types=_TXN_TYPES,
+            confidences=_CONFIDENCES,
+        )
+
+    @app.route('/api/bank/kb/rules', methods=['GET'])
+    def api_bank_kb_get():
+        try:
+            from ledger.bankAgent.bkVendorKB import BkVendorKB
+            return jsonify({'ok': True, 'rules': BkVendorKB().rules()})
+        except Exception as err:
+            return jsonify({'ok': False, 'error': str(err)}), 500
+
+    @app.route('/api/bank/kb/rules', methods=['POST'])
+    def api_bank_kb_save():
+        """Replace-all save from the KB editor (operator-authored rule set)."""
+        try:
+            from ledger.bankAgent.bkVendorKB import BkVendorKB
+            body = request.get_json(force=True) or {}
+            rules = body.get('rules', [])
+            saved = BkVendorKB().set_rules(rules)
+            return jsonify({'ok': True, 'rules': saved, 'count': len(saved)})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500

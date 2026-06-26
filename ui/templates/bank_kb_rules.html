@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+{% include '_inline_edit_table.html' %}
+<script>
+  const _scriptRoot = {{ request.script_root | tojson }};
+  const KNOWN_ACCTS = {{ known_accts | tojson }};
+  const TXN_TYPES   = {{ txn_types | tojson }};
+  const CONFIDENCES = {{ confidences | tojson }};
+  let   _kbCtrl     = null;
+
+  function _opts(list)   { return list.map(v => ({ value: v, label: v })); }
+  function _acctOpts()   { return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] })); }
+  function _confClass(row){
+    const c = (row.confidence || '').toLowerCase();
+    if (c === 'auto')    return 'iet-auto';
+    if (c === 'review')  return 'iet-review';
+    if (c === 'flagged') return 'iet-flagged';
+    return '';
+  }
+
+  async function loadRules() {
+    const res = await fetch(_scriptRoot + '/api/bank/kb/rules');
+    const j = await res.json();
+    if (!j.ok) { document.getElementById('kbMsg').innerHTML =
+      '<span class="err">Load failed: ' + (j.error||'') + '</span>'; return; }
+    buildTable(j.rules);
+    document.getElementById('kbCount').textContent = j.rules.length + ' rules';
+  }
+
+  function buildTable(rules) {
+    _kbCtrl = window.InlineEditTable.create({
+      mount: 'kbTable',
+      rowKeyField: 'pattern',
+      statusClass: _confClass,
+      showCommit: true,
+      commitLabel: 'Save Rules',
+      emptyText: 'No KB rules yet — click ➕ Add to create one.',
+      columns: [
+        { key: 'pattern',    label: 'Pattern (regex, lowercase)', editable: true, input: 'text' },
+        { key: 'acct',       label: 'Account',  editable: true, input: 'select', options: _acctOpts() },
+        { key: 'acctSub',    label: 'Sub',      editable: true, input: 'text' },
+        { key: 'txn_type',   label: 'Txn Type', editable: true, input: 'select', options: _opts(TXN_TYPES) },
+        { key: 'confidence', label: 'Conf',     editable: true, input: 'select', options: _opts(CONFIDENCES) },
+      ],
+      rows: rules,
+      onCommit: saveRules,
+    });
+  }
+
+  async function saveRules(payload, ctrl) {
+    const rules = payload.allRows || [];
+    const btnMsg = document.getElementById('kbMsg');
+    btnMsg.textContent = 'Saving…';
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/kb/rules', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ rules }),
+      });
+      const j = await res.json();
+      if (!j.ok) { btnMsg.innerHTML = '<span class="err">Save failed: ' + (j.error||'') + '</span>'; return; }
+      btnMsg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' rules to vendor_rules.json</span>';
+      ctrl.refresh(j.rules);  // reload clean state (clears pending)
+      document.getElementById('kbCount').textContent = j.count + ' rules';
+    } catch (e) {
+      btnMsg.innerHTML = '<span class="err">Save error: ' + e.message + '</span>';
+    }
+  }
+
+  // unsaved-changes leave guard
+  window.addEventListener('beforeunload', function (e) {
+    if (!_kbCtrl) return;
+    const p = _kbCtrl.getPending();
+    if ((p.edited.length + p.added.length + p.deleted.length) > 0) {
+      e.preventDefault(); e.returnValue = '';
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', loadRules);
+</script>
+<style>
+  .bp-panel { background:white; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
+  .bp-title { background:#7c3aed; color:white; border-radius:10px 10px 0 0; padding:12px 16px;
+              display:flex; align-items:center; gap:10px; margin:-16px -16px 14px; }
+  .bp-title .nm { font-weight:700; font-size:16px; }
+  .bp-title .cnt { margin-left:auto; font-size:13px; opacity:.85; }
+  .menu summary { list-style:none; cursor:pointer; font-size:18px; background:rgba(255,255,255,.2);
+                  color:white; border-radius:4px; padding:2px 10px; }
+  .menu summary::-webkit-details-marker { display:none; }
+  .err { color:#b91c1c; font-weight:600; } .ok { color:#15803d; font-weight:600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bp-panel">
+  <div class="bp-title">
+    <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
+    <span class="nm">📓 Bank Knowledge / Rules</span>
+    <span class="cnt" id="kbCount"></span>
+  </div>
+  <p style="font-size:13px;color:#6b7280;margin-top:0;">
+    First-match vendor classification rules (<code>vendor_rules.json</code>). Select rows to Edit/Dup/Delete,
+    ➕ Add new patterns, then <strong>Save Rules</strong>. Patterns are lowercase regex matched against the bank description.
+  </p>
+  <div id="kbMsg" style="font-size:13px;margin-bottom:10px;"></div>
+  <div id="kbTable"></div>
+</div>
+{% endblock %}
