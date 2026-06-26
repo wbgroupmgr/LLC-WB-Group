@@ -121,9 +121,11 @@
 
   function _needsReq(r) {
     if ((r.flag || '').toUpperCase() === 'DUPLICATE') return false;
+    // auto = KB-matched recurring charge — no requisition needed
+    if ((r.confidence || '').toLowerCase() === 'auto') return false;
     const acct = r.acct || '';
     const txn  = (r.txn_type || '').toUpperCase();
-    // Income and passive deposits don't need a requisition; everything else does
+    // Income and passive deposits don't need a requisition
     if (acct.startsWith('Acct.Rev.') || txn === 'RENT_INCOME' || txn === 'BANK_BONUS') return false;
     return true;
   }
