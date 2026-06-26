@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+{% include '_inline_edit_table.html' %}
+<script>
+  const _scriptRoot   = {{ request.script_root | tojson }};
+  const PROP_NAMES    = {{ prop_names | tojson }};
+  const KNOWN_ACCTS   = {{ known_accts | tojson }};
+  const CONFIG_YEAR   = {{ configured_year | tojson }};
+  let   _previewToken = null;
+  let   _ietCtrl      = null;
+
+  function _acctOptions() {
+    return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] }));
+  }
+  function _propOptions() {
+    return PROP_NAMES.map(p => ({ value: p, label: p }));
+  }
+
+  function _statusClass(row) {
+    const f = (row.flag || '').toUpperCase();
+    if (f === 'DUPLICATE')       return 'iet-dup';
+    if (f === 'NEED_REQ_DOC')    return 'iet-need';
+    const c = (row.confidence || '').toLowerCase();
+    if (c === 'auto')    return 'iet-auto';
+    if (c === 'review')  return 'iet-review';
+    if (c === 'flagged') return 'iet-flagged';
+    return '';
+  }
+
+  async function runPreview() {
+    const sel  = document.getElementById('csvSelect');
+    const prop = document.getElementById('propSelect').value || 'LLC';
+    const banner = document.getElementById('previewMsg');
+    const btn  = document.getElementById('btnPreview');
+
+    let body, opts;
+    const upload = document.getElementById('csvUpload');
+    if (sel.value === '__upload__') {
+      if (!upload.files.length) { alert('Choose a CSV file to upload first.'); return; }
+      const fd = new FormData();
+      fd.append('csv_file', upload.files[0]);
+      fd.append('propNm_default', prop);
+      opts = { method: 'POST', body: fd };
+    } else {
+      if (!sel.value) { alert('Select a CSV first.'); return; }
+      opts = { method: 'POST', headers: {'Content-Type':'application/json'},
+               body: JSON.stringify({ csv_path: sel.value, propNm_default: prop }) };
+    }
+
+    btn.disabled = true; btn.textContent = 'Previewing…';
+    banner.textContent = '';
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/ingest/preview', opts);
+      const j = await res.json();
+      if (!j.ok) { banner.innerHTML = '<span class="err">Preview failed: ' + (j.error || '') + '</span>'; return; }
+      _previewToken = j.token;
+      renderStats(j.stats, j.source);
+      if (j.year_warn) {
+        banner.innerHTML = '<span class="warn">⚠ CSV year (' + j.csv_year +
+          ') ≠ configured year (' + j.configured_year + '). Confirm before commit.</span>';
+      }
+      buildPreviewTable(j.rows);
+      document.getElementById('commitRow').style.display = 'flex';
+    } catch (e) {
+      banner.innerHTML = '<span class="err">Preview error: ' + e.message + '</span>';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Preview →';
+    }
+  }
+
+  function renderStats(s, source) {
+    const chips = [
+      ['Source', source], ['New', s.total], ['Auto', s.auto], ['Review', s.review],
+      ['Need-Req-Doc', s.need_req_doc], ['Return-Pair', s.return_pair],
+      ['Amount-Collision', s.amount_collision], ['Duplicate', s.duplicate],
+    ];
+    document.getElementById('statsBar').innerHTML = chips.map(c =>
+      '<span class="stat-chip"><span class="value">' + c[1] + '</span> ' + c[0] + '</span>').join('');
+  }
+
+  function buildPreviewTable(rows) {
+    _ietCtrl = window.InlineEditTable.create({
+      mount: 'previewTable',
+      rowKeyField: 'tID',
+      statusClass: _statusClass,
+      showCommit: false,
+      emptyText: 'No new transactions in this CSV.',
+      columns: [
+        { key: 'dt',      label: 'Date' },
+        { key: 'amt',     label: 'Amount' },
+        { key: 'aType',   label: 'Type' },
+        { key: 'desc',    label: 'Description' },
+        { key: 'txn_type',label: 'Txn Type' },
+        { key: 'acct',    label: 'Account',  editable: true, input: 'select', options: _acctOptions() },
+        { key: 'acctSub', label: 'Sub',      editable: true, input: 'text' },
+        { key: 'propNm',  label: 'Property', editable: true, input: 'select', options: _propOptions() },
+        { key: 'confidence', label: 'Conf' },
+        { key: 'flag',    label: 'Flag' },
+      ],
+      rows: rows,
+    });
+  }
+
+  async function commitPreview() {
+    if (!_previewToken) { alert('Run a preview first.'); return; }
+    const pend = _ietCtrl ? _ietCtrl.getPending() : { edited: [] };
+    const edits = (pend.edited || []).map(r => ({
+      tID: r.tID, acct: r.acct, propNm: r.propNm, acctSub: r.acctSub,
+    }));
+    if (!confirm('Commit previewed rows to llcExpRev?\n' +
+                 edits.length + ' row(s) edited; duplicates are skipped automatically.')) return;
+
+    const btn = document.getElementById('btnCommit');
+    btn.disabled = true; btn.textContent = 'Committing…';
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/ingest/commit', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ token: _previewToken, edits }),
+      });
+      const j = await res.json();
+      if (!j.ok) { alert('Commit failed: ' + (j.error || '')); return; }
+      document.getElementById('commitDone').innerHTML =
+        '✅ ' + j.rows_written + ' written · ' + j.rows_duplicate + ' duplicates skipped · ' +
+        j.rows_amount_collision + ' amount-collision · ' +
+        '<a href="' + _scriptRoot + '/view/stmtGeneralLedger">View General Ledger →</a>';
+      document.getElementById('previewTable').innerHTML = '';
+      document.getElementById('commitRow').style.display = 'none';
+      _previewToken = null; _ietCtrl = null;
+    } catch (e) {
+      alert('Commit error: ' + e.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Commit to llcExpRev ✓';
+    }
+  }
+
+  async function discardPreview() {
+    if (_previewToken) {
+      try { await fetch(_scriptRoot + '/api/bank/ingest/discard', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ token: _previewToken }) }); } catch (e) {}
+    }
+    document.getElementById('previewTable').innerHTML = '';
+    document.getElementById('statsBar').innerHTML = '';
+    document.getElementById('commitRow').style.display = 'none';
+    document.getElementById('previewMsg').textContent = '';
+    _previewToken = null; _ietCtrl = null;
+  }
+
+  function onCsvChange() {
+    const sel = document.getElementById('csvSelect');
+    document.getElementById('uploadRow').style.display =
+      (sel.value === '__upload__') ? 'flex' : 'none';
+  }
+</script>
+<style>
+  .bp-panel { background:white; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
+  .bp-title { background:#1e40af; color:white; border-radius:10px 10px 0 0; padding:12px 16px;
+              display:flex; align-items:center; gap:10px; margin:-16px -16px 14px; }
+  .bp-title .nm { font-weight:700; font-size:16px; }
+  .bp-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .bp-row label { font-size:13px; color:#374151; font-weight:600; }
+  .bp-row select, .bp-row input[type=file] { font-size:13px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:6px; }
+  .btn { padding:7px 14px; border-radius:6px; border:1px solid #cbd5e1; cursor:pointer; font-size:13px; background:white; }
+  .btn-primary { background:#2563eb; color:white; border-color:#2563eb; font-weight:600; }
+  .btn-success { background:#16a34a; color:white; border-color:#16a34a; font-weight:600; }
+  .btn-ghost   { background:white; color:#374151; }
+  .stats-window { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .stat-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:999px;
+               background:#eef2ff; color:#1e3a8a; border:1px solid #c7d2fe; font-size:13px; }
+  .stat-chip .value { font-weight:700; }
+  .err { color:#b91c1c; font-weight:600; }
+  .warn { color:#b45309; font-weight:600; }
+  .menu summary { list-style:none; cursor:pointer; font-size:18px; background:rgba(255,255,255,.2);
+                  color:white; border-radius:4px; padding:2px 10px; }
+  .menu summary::-webkit-details-marker { display:none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bp-panel">
+  <div class="bp-title">
+    <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
+    <span class="nm">🏧 Bank Reconciliation — Preview</span>
+  </div>
+
+  <div class="bp-row">
+    <label for="csvSelect">Bank statement (CSV):</label>
+    <select id="csvSelect" onchange="onCsvChange()">
+      <option value="">— select a CSV —</option>
+      {% for c in csv_candidates %}
+      <option value="{{ c.path }}">{{ c.name }} · {{ c.source }}{% if c.age_days is not none %} · {{ c.age_days }}d old{% endif %}</option>
+      {% endfor %}
+      <option value="__upload__">⬆ Upload a new CSV…</option>
+    </select>
+
+    <label for="propSelect">Default property:</label>
+    <select id="propSelect">
+      {% for p in prop_names %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+
+    <button id="btnPreview" class="btn btn-primary" onclick="runPreview()">Preview →</button>
+  </div>
+
+  <div id="uploadRow" class="bp-row" style="display:none; margin-top:10px;">
+    <label>Upload CSV:</label>
+    <input type="file" id="csvUpload" accept=".csv">
+    <span style="font-size:12px;color:#6b7280;">Wells Fargo format: Date, Amount, -, CheckNo, Description (no header)</span>
+  </div>
+
+  {% if not csv_candidates %}
+  <p style="font-size:13px;color:#b45309;margin-top:10px;">
+    No CSVs found in <code>BankStmts/&lt;year&gt;/</code> or recent Downloads. Use “Upload a new CSV…”.
+  </p>
+  {% endif %}
+
+  <div id="previewMsg" style="margin-top:10px;font-size:13px;"></div>
+  <div id="statsBar" class="stats-window"></div>
+</div>
+
+<div class="bp-panel">
+  <div id="commitDone" style="font-size:14px;margin-bottom:10px;"></div>
+  <div id="previewTable"></div>
+  <div id="commitRow" class="bp-row" style="display:none; margin-top:14px;">
+    <button id="btnCommit" class="btn btn-success" onclick="commitPreview()">Commit to llcExpRev ✓</button>
+    <button class="btn btn-ghost" onclick="discardPreview()">Discard</button>
+    <span style="font-size:12px;color:#6b7280;">Phase 1 is read-only — nothing is written until you Commit.</span>
+  </div>
+</div>
+{% endblock %}

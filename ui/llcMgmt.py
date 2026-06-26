@@ -59,6 +59,7 @@ from ui.llcForm4562         import llcForm4562
 from ui.llcLogin_auth       import make_auth_routes
 from ui.llcPropAgent        import bind_propAgent_routes
 from ui.llcExpAgent         import bind_expAgent_routes
+from ui.llcBankIngest       import bind_bankIngest_routes
 
 
 class llcMgmt:
@@ -91,6 +92,9 @@ class llcMgmt:
         "llcReceivables":     "Receivables (A/R)",
         "stmtGeneralLedger":   "General Ledger",
         "llcBank":            "Bank Reconciliation",
+        "bank_reconcile":     "Bank Reconciliation",
+        "bank_kb_rules":      "Bank Knowledge / Rules",
+        "requisitions":       "Requisitions",
         "stmtBalanceSheet":    "Balance Sheet",
         "stmtIncomeStmt":      "Income Statement",
         "stmtOwnerEquity":     "Owner Equity",
@@ -147,7 +151,7 @@ class llcMgmt:
             "label": "Transactions - Journal Entry",
             "icon":  "📂",
             "views": ["llcAssets", "llcExpRev", "llcPayables", "llcReceivables",
-                      "llcBank"],
+                      "bank_reconcile", "bank_kb_rules", "requisitions"],
         },
         {
             "label": "Financial Books",
@@ -3860,6 +3864,7 @@ class llcMgmt:
 
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)
+        bind_bankIngest_routes(app, self.objects)
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:

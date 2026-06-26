@@ -1,0 +1,319 @@
+"""
+ui/llcBankIngest.py — Flask routes for the BankToBook views (issue #42)
+
+Phase A (this commit) — Bank Reconciliation / Preview only:
+    GET  /view/bank_reconcile      — CSV selector + propNm; renders bank_preview.html
+    POST /api/bank/ingest/preview  — BankAgent.preview() → serialized PreviewResult (read-only)
+    POST /api/bank/ingest/commit   — operator edits + BankAgent.commit() → llcExpRev
+    POST /api/bank/ingest/discard  — delete stored preview
+
+Bank Knowledge/Rules (Phase B) and Requisitions (Phase C) get their own
+routes here later; their views are construction stubs for now.
+
+Preview is serialised to a temp JSON in _PREVIEW_DIR; the browser holds the token.
+The proven backend logic is reused from the reverted v1 (preview/commit was sound;
+only the v1 single-page UI was discarded).
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import re
+import tempfile
+from dataclasses import asdict
+from pathlib import Path
+
+from flask import current_app, jsonify, render_template, request
+
+# COA accounts offered in the editable preview dropdown
+_KNOWN_ACCTS: list[tuple[str, str]] = [
+    ('Acct.Cash.Bank',                     'Cash — Bank'),
+    ('Acct.Exp.Ins',                       'Expense — Insurance'),
+    ('Acct.Exp.Other',                     'Expense — Other'),
+    ('Acct.Exp.Repair',                    'Expense — Repair/Maint'),
+    ('Acct.Exp.Tax.Prop',                  'Expense — Property Tax'),
+    ('Acct.Exp.Util',                      'Expense — Utilities'),
+    ('Acct.Rev.Fees.Other',                'Revenue — Fees/Other'),
+    ('Acct.Rev.Rent',                      'Revenue — Rent'),
+    ('Acct.Fixed.Tangible.InConstruction', 'Fixed Asset — CIP (In Construction)'),
+    ('Acct.Fixed.Tangible.InService',      'Fixed Asset — In Service'),
+    ('Acct.Equity.Capital.Member',         'Equity — Member Capital'),
+    ('Acct.Liab.Loan.Mortgage',            'Liability — Mortgage'),
+]
+
+# ── preview storage ─────────────────────────────────────────────────────────────
+
+_PREVIEW_DIR = Path(tempfile.gettempdir()) / 'llc_bank_previews'
+_PREVIEW_DIR.mkdir(exist_ok=True)
+
+
+def _preview_path(token: str) -> Path:
+    return _PREVIEW_DIR / f'bank_preview_{token}.json'
+
+
+def _store_preview(token, rows_dicts, stats, source, ts, propNm_default='') -> None:
+    payload = {'token': token, 'rows': rows_dicts, 'stats': stats,
+               'source': source, 'ts': ts, 'propNm_default': propNm_default}
+    with open(_preview_path(token), 'w', encoding='utf-8') as f:
+        json.dump(payload, f, indent=2)
+
+
+def _load_preview(token: str) -> dict | None:
+    p = _preview_path(token)
+    if not p.exists():
+        return None
+    with open(p, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _delete_preview(token: str) -> None:
+    p = _preview_path(token)
+    if p.exists():
+        p.unlink()
+
+
+# ── ClassifiedRow helpers ───────────────────────────────────────────────────────
+
+def _cr_to_dict(cr) -> dict:
+    return asdict(cr)
+
+
+def _dict_to_cr(d: dict):
+    from ledger.bankAgent.IngestAgent import ClassifiedRow
+    known = ClassifiedRow.__dataclass_fields__.keys()
+    return ClassifiedRow(**{k: d[k] for k in known if k in d})
+
+
+# ── session helpers ─────────────────────────────────────────────────────────────
+
+def _get_llc():
+    es = current_app.config.get('_esession')
+    return getattr(es, 'llc', None) if es else None
+
+
+def _get_prop_names(objects: dict) -> list[str]:
+    props: set[str] = {'LLC'}
+    for key in ('llcAssets', 'llcPayables', 'llcReceivables'):
+        mgr = objects.get(key)
+        if mgr:
+            try:
+                for r in mgr.load():
+                    p = r.get('propNm', '')
+                    if p:
+                        props.add(p)
+            except Exception:
+                pass
+    return sorted(props)
+
+
+def _infer_year_from_name(filename: str) -> int | None:
+    m = re.search(r'(20\d{2})', filename)
+    return int(m.group(1)) if m else None
+
+
+def _detect_csv_year(csv_path: str) -> int | None:
+    try:
+        import csv as _csv
+        with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
+            for row in _csv.reader(f):
+                if row:
+                    try:
+                        return datetime.datetime.strptime(row[0].strip(), '%m/%d/%Y').year
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return None
+
+
+def _list_csv_candidates() -> list[dict]:
+    """{name, path, source, year, age_days} from BankStmts/<year>/ + ~/Downloads (≤15d)."""
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    now = datetime.datetime.now()
+
+    try:
+        from ledger import setup_paths
+        top = setup_paths.TOP
+        books_dir = setup_paths.BOOKS_DIR or 'books'
+        if top:
+            books_root = Path(top) / books_dir
+            if books_root.exists():
+                for yr_dir in sorted(books_root.iterdir()):
+                    if not yr_dir.is_dir() or not yr_dir.name.isdigit():
+                        continue
+                    bank_dir = yr_dir / 'BankStmts'
+                    if not bank_dir.exists():
+                        continue
+                    for csv_file in sorted(bank_dir.glob('*.csv')):
+                        ap = str(csv_file.resolve())
+                        if ap in seen:
+                            continue
+                        seen.add(ap)
+                        candidates.append({
+                            'name': csv_file.name, 'path': ap,
+                            'source': f'BankStmts/{yr_dir.name}',
+                            'year': int(yr_dir.name), 'age_days': None,
+                        })
+    except Exception:
+        pass
+
+    try:
+        dl = Path.home() / 'Downloads'
+        if dl.exists():
+            cutoff = now - datetime.timedelta(days=15)
+            for csv_file in sorted(dl.glob('*.csv')):
+                ap = str(csv_file.resolve())
+                if ap in seen:
+                    continue
+                mtime = datetime.datetime.fromtimestamp(csv_file.stat().st_mtime)
+                if mtime < cutoff:
+                    continue
+                seen.add(ap)
+                candidates.append({
+                    'name': csv_file.name, 'path': ap, 'source': 'Downloads',
+                    'year': _infer_year_from_name(csv_file.name),
+                    'age_days': (now - mtime).days,
+                })
+    except Exception:
+        pass
+
+    return candidates
+
+
+# ── bind routes ─────────────────────────────────────────────────────────────────
+
+def bind_bankIngest_routes(app, objects: dict):
+
+    @app.route('/view/bank_reconcile')
+    def view_bank_reconcile():
+        from ledger import setup_paths
+        return render_template(
+            'bank_preview.html',
+            prop_names=_get_prop_names(objects),
+            csv_candidates=_list_csv_candidates(),
+            configured_year=getattr(setup_paths, 'YEAR', None),
+            known_accts=_KNOWN_ACCTS,
+        )
+
+    @app.route('/api/bank/ingest/preview', methods=['POST'])
+    def api_bank_ingest_preview():
+        try:
+            llc = _get_llc()
+            if llc is None:
+                return jsonify({'ok': False, 'error': 'LLC not initialised'}), 500
+
+            from ledger.bankAgent.BankAgent import BankAgent
+
+            csv_path_str = None
+            tmp_upload = None
+            if 'csv_file' in request.files and request.files['csv_file'].filename:
+                f = request.files['csv_file']
+                tmp_upload = Path(tempfile.mktemp(suffix='.csv', prefix='bank_upload_'))
+                f.save(str(tmp_upload))
+                csv_path_str = str(tmp_upload)
+                propNm_default = request.form.get('propNm_default', 'LLC') or 'LLC'
+            else:
+                body = request.get_json(force=True) or {}
+                csv_path_str = (body.get('csv_path') or '').strip()
+                propNm_default = body.get('propNm_default', 'LLC') or 'LLC'
+
+            if not csv_path_str:
+                return jsonify({'ok': False, 'error': 'No CSV provided'}), 400
+
+            result = BankAgent(llc).preview(csv_path_str, propNm_default=propNm_default)
+
+            if tmp_upload and tmp_upload.exists():
+                tmp_upload.unlink()
+
+            rows_dicts = [_cr_to_dict(cr) for cr in result.rows]
+            _store_preview(result._token, rows_dicts, result.stats.as_dict(),
+                           result.source, result.ts, propNm_default)
+
+            csv_year = _detect_csv_year(csv_path_str)
+            from ledger import setup_paths
+            configured_year = getattr(setup_paths, 'YEAR', None)
+
+            return jsonify({
+                'ok': True, 'token': result._token, 'rows': rows_dicts,
+                'stats': result.stats.as_dict(), 'source': result.source, 'ts': result.ts,
+                'csv_year': csv_year, 'configured_year': configured_year,
+                'year_warn': bool(csv_year and configured_year and csv_year != configured_year),
+            })
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/bank/ingest/commit', methods=['POST'])
+    def api_bank_ingest_commit():
+        try:
+            body = request.get_json(force=True) or {}
+            token = (body.get('token') or '').strip()
+            edits = body.get('edits', [])  # [{tID, acct, propNm, acctSub}]
+            if not token:
+                return jsonify({'ok': False, 'error': 'token required'}), 400
+
+            stored = _load_preview(token)
+            if stored is None:
+                return jsonify({'ok': False, 'error': 'Preview not found (expired or discarded)'}), 404
+
+            llc = _get_llc()
+            if llc is None:
+                return jsonify({'ok': False, 'error': 'LLC not initialised'}), 500
+
+            from ledger.bankAgent.BankAgent import BankAgent, PreviewResult, PreviewStats
+
+            rows = [_dict_to_cr(d) for d in stored['rows']]
+            edit_map = {e['tID']: e for e in edits if e.get('tID')}
+            changed_rows = []
+            for cr in rows:
+                ed = edit_map.get(cr.tID)
+                if not ed:
+                    continue
+                new_acct = ed.get('acct', cr.acct)
+                new_propNm = ed.get('propNm', cr.propNm)
+                new_sub = ed.get('acctSub', ed.get('acct_sub', cr.acctSub))
+                if new_acct != cr.acct or new_propNm != cr.propNm or new_sub != cr.acctSub:
+                    cr.acct, cr.propNm, cr.acctSub = new_acct, new_propNm, new_sub
+                    if cr.flag != 'DUPLICATE' and cr.vendor_key:
+                        changed_rows.append(cr)
+
+            stats_d = stored['stats']
+            stats_obj = PreviewStats(**{k: v for k, v in stats_d.items()
+                                        if k in PreviewStats.__dataclass_fields__})
+            preview_obj = PreviewResult(rows=rows, stats=stats_obj,
+                                        source=stored['source'], ts=stored['ts'])
+            preview_obj._token = token
+
+            commit_result = BankAgent(llc).commit(preview_obj)
+
+            try:
+                es = current_app.config.get('_esession')
+                if es and hasattr(es, 'books') and hasattr(es.books, 'invalidate'):
+                    es.books.invalidate()
+            except Exception:
+                pass
+
+            _delete_preview(token)
+
+            return jsonify({
+                'ok': True,
+                'rows_written': commit_result.rows_written,
+                'rows_duplicate': commit_result.rows_duplicate,
+                'rows_amount_collision': commit_result.rows_amount_collision,
+                'source': commit_result.source, 'ts': commit_result.ts,
+                'notif_path': commit_result.notif_path,
+            })
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/bank/ingest/discard', methods=['POST'])
+    def api_bank_ingest_discard():
+        body = request.get_json(force=True) or {}
+        token = (body.get('token') or '').strip()
+        if token:
+            _delete_preview(token)
+        return jsonify({'ok': True})
