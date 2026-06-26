@@ -397,10 +397,15 @@ def bind_bankIngest_routes(app, objects: dict):
                     if not tID or tID in req_map or tID in seen:
                         continue
                     seen.add(tID)
+                    raw_acct = r.get('acct', '')
+                    ledger   = r.get('Ledger', '')
+                    # GL stores both sides; cash-side has acct=Acct.Cash.Bank —
+                    # flip to the counter-account so the requisition shows the real account.
+                    eff_acct = ledger if raw_acct == 'Acct.Cash.Bank' and ledger else raw_acct
                     missing.append({
                         'tID': tID, 'dt': r.get('dt', ''),
                         'amt': r.get('amt', 0), 'desc': r.get('desc', ''),
-                        'propNm': r.get('propNm', ''), 'acct': r.get('acct', ''),
+                        'propNm': r.get('propNm', ''), 'acct': eff_acct,
                         'purpose': r.get('acctSub', ''),
                         'src': key,
                     })
