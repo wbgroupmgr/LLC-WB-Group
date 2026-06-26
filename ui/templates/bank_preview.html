@@ -12,6 +12,7 @@
   let   _previewToken = null;
   let   _ietCtrl      = null;
   let   _reqMap       = {};   // {tID: rID} from last preview
+  let   _reqYear      = null; // requisition year = previewed CSV year
 
   function _acctOptions() {
     return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] }));
@@ -59,6 +60,9 @@
       if (!j.ok) { banner.innerHTML = '<span class="err">Preview failed: ' + (j.error || '') + '</span>'; return; }
       _previewToken = j.token;
       _reqMap = j.req_map || {};
+      _reqYear = j.req_year || j.csv_year || null;
+      const navReq = document.getElementById('navReq');
+      if (navReq && _reqYear) navReq.href = _scriptRoot + '/view/requisitions?year=' + _reqYear;
       // remember a disk-CSV selection so returning to this view auto-refreshes
       if (sel.value !== '__upload__') {
         sessionStorage.setItem('bank_last_csv', JSON.stringify({ path: sel.value, propNm: prop }));
@@ -103,19 +107,26 @@
   function newRequisition(selRows) {
     if (!selRows.length) { alert('Select one or more rows first.'); return; }
     const prefill = selRows.map(r => ({
-      tID: r.tID, dt: r.dt, req_date: '', amt: r.amt, desc: r.desc,
+      tID: r.tID, dt: r.dt, req_date: r.dt, amt: r.amt, desc: r.desc,  // req_date defaults to txn date
       acct: r.acct || 'Acct.Fixed.Tangible.InConstruction',
-      propNm: r.propNm || '', purpose: '', notes: '',
+      propNm: r.propNm || '', purpose: '', notes: r.desc || '',         // notes default to txn description
     }));
     sessionStorage.setItem('bank_req_prefill', JSON.stringify(prefill));
-    window.location.href = _scriptRoot + '/view/requisitions';
+    const yr = _reqYear ? ('?year=' + _reqYear) : '';
+    window.location.href = _scriptRoot + '/view/requisitions' + yr;
+  }
+
+  function _needsReq(r) {
+    return (r.flag || '').toUpperCase() === 'NEED_REQ_DOC'
+        || (r.acct || '').indexOf('InConstruction') >= 0;
   }
 
   function buildPreviewTable(rows) {
     // compute display fields: conf:pID and the linked requisition rID
     const mapped = rows.map(r => Object.assign({}, r, {
       confPid: (r.confidence || '') + ':' + (r.pID != null ? ('p' + r.pID) : 'na'),
-      reqID:   _reqMap[r.tID] != null ? String(_reqMap[r.tID]) : 'na',
+      // ReqID: rID (exists) · "need" (required, none yet) · "na" (not needed)
+      reqID:   _reqMap[r.tID] != null ? String(_reqMap[r.tID]) : (_needsReq(r) ? 'need' : 'na'),
     }));
     _ietCtrl = window.InlineEditTable.create({
       mount: 'previewTable',
@@ -252,7 +263,7 @@
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
     <span class="nm">🏧 Bank Reconciliation — Preview</span>
     <a class="ret" href="{{ request.script_root }}/view/bank_kb_rules">📓 Knowledge/Rules</a>
-    <a class="ret" href="{{ request.script_root }}/view/requisitions">🧾 Requisitions</a>
+    <a class="ret" id="navReq" href="{{ request.script_root }}/view/requisitions">🧾 Requisitions</a>
   </div>
 
   <div class="bp-row">

@@ -25,9 +25,9 @@
     document.getElementById('rdCount').textContent = docs.length + ' requisitions · ' + ACTIVE_YEAR;
     // auto-add missing (CIP) transactions as checked drafts (rID=Need) — NOT in DB until Save
     const missing = (j.missing || []).map(m => ({
-      rID: 'Need', tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+      rID: 'Need', tID: m.tID, dt: m.dt, req_date: m.dt, amt: m.amt, desc: m.desc,
       acct: m.acct || 'Acct.Fixed.Tangible.InConstruction', propNm: m.propNm || '',
-      purpose: '', notes: '',
+      purpose: '', notes: m.desc || '',   // auto-fill: req_date=txn date, notes=txn description
     }));
     if (missing.length) {
       _rdCtrl.addRows(missing, { check: true });
@@ -91,9 +91,9 @@
       ctrl.refresh(docs2);
       document.getElementById('rdCount').textContent = j.count + ' requisitions · ' + ACTIVE_YEAR;
       const missing = (j.missing || []).map(m => ({
-        rID: 'Need', tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+        rID: 'Need', tID: m.tID, dt: m.dt, req_date: m.dt, amt: m.amt, desc: m.desc,
         acct: m.acct || 'Acct.Fixed.Tangible.InConstruction', propNm: m.propNm || '',
-        purpose: '', notes: '',
+        purpose: '', notes: m.desc || '',
       }));
       if (missing.length) { _rdCtrl.addRows(missing, { check: true }); }
       msg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' requisitions.</span>' +

@@ -247,14 +247,16 @@ def bind_bankIngest_routes(app, objects: dict):
             csv_year = _detect_csv_year(csv_path_str)
             from ledger import setup_paths
             configured_year = getattr(setup_paths, 'YEAR', None)
-            req_map = _req_rid_map(int(configured_year or 2025), llc)
+            # Requisitions follow the previewed CSV's year, not the active fiscal year.
+            req_year = int(csv_year or configured_year or 2025)
+            req_map = _req_rid_map(req_year, llc)
 
             return jsonify({
                 'ok': True, 'token': result._token, 'rows': rows_dicts,
                 'stats': result.stats.as_dict(), 'source': result.source, 'ts': result.ts,
                 'csv_year': csv_year, 'configured_year': configured_year,
                 'year_warn': bool(csv_year and configured_year and csv_year != configured_year),
-                'req_map': req_map,
+                'req_map': req_map, 'req_year': req_year,
             })
         except Exception as err:
             import traceback
@@ -374,17 +376,20 @@ def bind_bankIngest_routes(app, objects: dict):
         from ledger import setup_paths
         return int(getattr(setup_paths, 'YEAR', 2025) or 2025)
 
-    def _missing_reqs(req_map: dict) -> list[dict]:
-        """GL transactions that need a requisition but have none — CIP
-        (InConstruction) rows in llcExpRev/llcAssets without a matching tID."""
+    def _missing_reqs(req_map: dict, year: int) -> list[dict]:
+        """GL transactions for `year` that need a requisition but have none —
+        CIP (InConstruction) rows in llcExpRev/llcAssets without a matching tID."""
         missing = []
         seen = set()
+        yr = str(year)
         for key in ('llcExpRev', 'llcAssets'):
             mgr = objects.get(key)
             if not mgr:
                 continue
             try:
                 for r in mgr.load():
+                    if not str(r.get('dt', '')).startswith(yr):
+                        continue   # requisition year follows the transaction year
                     acct = str(r.get('acct', '')) + '|' + str(r.get('Ledger', ''))
                     if 'InConstruction' not in acct:
                         continue
@@ -404,11 +409,17 @@ def bind_bankIngest_routes(app, objects: dict):
 
     @app.route('/view/requisitions')
     def view_requisitions():
+        # year follows the context that opened the view (?year= from preview),
+        # defaulting to the active fiscal year.
+        try:
+            year = int(request.args.get('year', _active_year()))
+        except (TypeError, ValueError):
+            year = _active_year()
         return render_template(
             'requisitions.html',
             prop_names=_get_prop_names(objects),
             known_accts=_KNOWN_ACCTS,
-            configured_year=_active_year(),
+            configured_year=year,
         )
 
     @app.route('/api/bank/reqdocs', methods=['GET'])
@@ -419,7 +430,7 @@ def bind_bankIngest_routes(app, objects: dict):
             rda  = BkReqDocAgent(year, _get_llc())
             docs = rda.all()
             return jsonify({'ok': True, 'year': year, 'docs': docs,
-                            'missing': _missing_reqs(rda.as_map())})
+                            'missing': _missing_reqs(rda.as_map(), year)})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),
@@ -435,7 +446,7 @@ def bind_bankIngest_routes(app, objects: dict):
             rda  = BkReqDocAgent(year, _get_llc())
             saved = rda.set_all(body.get('docs', []))
             return jsonify({'ok': True, 'docs': saved, 'count': len(saved),
-                            'missing': _missing_reqs(rda.as_map())})
+                            'missing': _missing_reqs(rda.as_map(), year)})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),

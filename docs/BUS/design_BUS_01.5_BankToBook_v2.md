@@ -207,6 +207,14 @@ The BankToBook pipeline extends the current read-only reconciliation view (`ui/l
 
 **Requisitions:**
 - **`rID`** column. CIP transactions still missing a requisition are **auto-added as `rID="Need"` drafts (auto-checked)** — not written to the DB until Save (replaces the prior "missing" info-list). **Return to Preview** action.
+- Draft requisitions auto-fill **`req_date` = transaction date** and **`notes` = transaction description**.
+
+**Requisition year follows the transaction context (not the active fiscal year):**
+- Previewing a 2026 CSV → 2026 requisitions (`req_docs_2026.json`); the preview `req_map` and the NewRequisition hand-off both carry the CSV year, and the Requisition view opens via `/view/requisitions?year=<csvYear>`.
+- The standalone Requisition view (Home card) defaults to the active fiscal year.
+- The missing-requisition scan filters GL rows by the requisition year.
+
+**Preview `ReqID` column has three states:** `rID` (a requisition exists — shows its id) · `need` (a requisition is required — NEED_REQ_DOC / InConstruction — but none exists yet) · `na` (no requisition needed).
 
 ### 3.3 Discard Scenario
 
