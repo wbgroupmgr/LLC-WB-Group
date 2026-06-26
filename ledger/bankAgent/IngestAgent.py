@@ -34,6 +34,7 @@ class ClassifiedRow:
     # Set by BankAgent after dedup + CIP check
     flag: str = ''
     refDB: str = ''
+    pID: int | None = None   # matched KB rule pID (index+1), or None if no KB match
 
 
 def _make_tID(dt: str, amt: float, a_type: str) -> str:
@@ -95,18 +96,24 @@ class IngestAgent:
         ref_doc = str(raw_row.get('refDoc', desc))
         tID     = raw_row.get('tID') or _make_tID(dt, amt, a_type)
 
-        # Tier 2: special transaction types override the vendor KB
-        tier2 = self._detector.detect(desc, amt)
-        if tier2:
-            txn_type, confidence, acct = tier2
-            acct_sub    = txn_type.replace('_', ' ').title()
-            vendor_key  = _normalize_vendor_key(desc)
+        # Priority: P1 vendor KB (operator-curated) BEFORE P2 Tier-2 heuristics,
+        # so an explicit rule (e.g. "zelle from nicola rojas" → RENT_INCOME) wins
+        # over a generic detector guess (e.g. ZELLE FROM member → MEMBER_INVEST).
+        pID = None
+        matched = self._kb.lookup_indexed(desc)
+        if matched:
+            idx, rule = matched
+            acct, acct_sub = rule['acct'], rule['acctSub']
+            txn_type, confidence = rule['txn_type'], rule['confidence']
+            vendor_key = rule['pattern']
+            pID = idx + 1
         else:
-            # Tier 1: vendor KB lookup
-            result = self._kb.lookup(desc)
-            if result:
-                acct, acct_sub, txn_type, confidence = result
-                vendor_key = self._kb.matched_pattern(desc)
+            # Tier 2: special transaction types (only when no KB rule matched)
+            tier2 = self._detector.detect(desc, amt)
+            if tier2:
+                txn_type, confidence, acct = tier2
+                acct_sub   = txn_type.replace('_', ' ').title()
+                vendor_key = _normalize_vendor_key(desc)
             else:
                 acct       = 'Acct.Exp.Other'
                 acct_sub   = 'Unknown'
@@ -130,6 +137,7 @@ class IngestAgent:
             vendor_key=vendor_key,
             flag='',
             refDB='',
+            pID=pID,
         )
 
     # ── learning ──────────────────────────────────────────────────────────────

@@ -24,16 +24,23 @@ class BkVendorKB:
 
     def lookup(self, desc: str):
         """Return (acct, acctSub, txn_type, confidence) or None on no match."""
+        m = self.lookup_indexed(desc)
+        if m is None:
+            return None
+        _idx, rule = m
+        return (rule['acct'], rule['acctSub'], rule['txn_type'], rule['confidence'])
+
+    def lookup_indexed(self, desc: str):
+        """Return (index, rule) of the first matching rule, or None. Index is the
+        0-based position in the ordered rule list — the operator-facing pID is index+1."""
         dl = desc.lower()
-        for rule in self._rules:
+        for i, rule in enumerate(self._rules):
             try:
                 if re.search(rule['pattern'], dl):
-                    return (rule['acct'], rule['acctSub'],
-                            rule['txn_type'], rule['confidence'])
+                    return (i, rule)
             except re.error:
                 if rule['pattern'] in dl:
-                    return (rule['acct'], rule['acctSub'],
-                            rule['txn_type'], rule['confidence'])
+                    return (i, rule)
         return None
 
     def matched_pattern(self, desc: str) -> str:
