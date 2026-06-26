@@ -208,5 +208,12 @@
     "acctSub": "Account Opening",
     "txn_type": "BANK_DEPOSIT",
     "confidence": "review"
+  },
+  {
+    "pattern": "zelle from nicola rojas",
+    "acct": "Acct.Rev.Rent",
+    "acctSub": "Rental Income",
+    "txn_type": "RENT_INCOME",
+    "confidence": "auto"
   }
 ]
