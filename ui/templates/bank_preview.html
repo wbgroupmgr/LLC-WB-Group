@@ -11,6 +11,7 @@
   const CONFIG_YEAR   = {{ configured_year | tojson }};
   let   _previewToken = null;
   let   _ietCtrl      = null;
+  let   _reqMap       = {};   // {tID: rID} from last preview
 
   function _acctOptions() {
     return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] }));
@@ -57,6 +58,11 @@
       const j = await res.json();
       if (!j.ok) { banner.innerHTML = '<span class="err">Preview failed: ' + (j.error || '') + '</span>'; return; }
       _previewToken = j.token;
+      _reqMap = j.req_map || {};
+      // remember a disk-CSV selection so returning to this view auto-refreshes
+      if (sel.value !== '__upload__') {
+        sessionStorage.setItem('bank_last_csv', JSON.stringify({ path: sel.value, propNm: prop }));
+      }
       renderStats(j.stats, j.source);
       if (j.year_warn) {
         banner.innerHTML = '<span class="warn">⚠ CSV year (' + j.csv_year +
@@ -106,17 +112,24 @@
   }
 
   function buildPreviewTable(rows) {
+    // compute display fields: conf:pID and the linked requisition rID
+    const mapped = rows.map(r => Object.assign({}, r, {
+      confPid: (r.confidence || '') + ':' + (r.pID != null ? ('p' + r.pID) : 'na'),
+      reqID:   _reqMap[r.tID] != null ? String(_reqMap[r.tID]) : 'na',
+    }));
     _ietCtrl = window.InlineEditTable.create({
       mount: 'previewTable',
       rowKeyField: 'tID',
       statusClass: _statusClass,
       showCommit: false,
+      ordinal: true,            // leading "#"
       extraActions: [
         { id:'newPattern', label:'＋ NewPattern', title:'Create KB rule(s) from selected rows', onClick:newPattern },
         { id:'newReq',     label:'＋ NewRequisition', title:'Create requisition(s) for selected rows', onClick:newRequisition },
       ],
       emptyText: 'No new transactions in this CSV.',
       columns: [
+        { key: 'tID',     label: 'tID' },
         { key: 'dt',      label: 'Date' },
         { key: 'amt',     label: 'Amount' },
         { key: 'aType',   label: 'Type' },
@@ -125,10 +138,11 @@
         { key: 'acct',    label: 'Account',  editable: true, input: 'select', options: _acctOptions() },
         { key: 'acctSub', label: 'Sub',      editable: true, input: 'text' },
         { key: 'propNm',  label: 'Property', editable: true, input: 'select', options: _propOptions() },
-        { key: 'confidence', label: 'Conf' },
+        { key: 'confPid', label: 'Conf:pID' },
+        { key: 'reqID',   label: 'ReqID' },
         { key: 'flag',    label: 'Flag' },
       ],
-      rows: rows,
+      rows: mapped,
     });
   }
 
@@ -156,6 +170,7 @@
         '<a href="' + _scriptRoot + '/view/stmtGeneralLedger">View General Ledger →</a>';
       document.getElementById('previewTable').innerHTML = '';
       document.getElementById('commitRow').style.display = 'none';
+      sessionStorage.removeItem('bank_last_csv');   // ingested — don't auto-reload
       _previewToken = null; _ietCtrl = null;
     } catch (e) {
       alert('Commit error: ' + e.message);
@@ -174,6 +189,7 @@
     document.getElementById('statsBar').innerHTML = '';
     document.getElementById('commitRow').style.display = 'none';
     document.getElementById('previewMsg').textContent = '';
+    sessionStorage.removeItem('bank_last_csv');
     _previewToken = null; _ietCtrl = null;
   }
 
@@ -182,12 +198,35 @@
     document.getElementById('uploadRow').style.display =
       (sel.value === '__upload__') ? 'flex' : 'none';
   }
+
+  // Remember the last CSV and auto-refresh the preview on return (e.g. after
+  // editing KB rules / requisitions) so changes are reflected immediately.
+  function restoreLast() {
+    const raw = sessionStorage.getItem('bank_last_csv');
+    if (!raw) return;
+    let last; try { last = JSON.parse(raw); } catch (e) { return; }
+    const sel = document.getElementById('csvSelect');
+    const opt = Array.from(sel.options).find(o => o.value === last.path);
+    if (!opt) return;                       // CSV no longer listed (e.g. ingested)
+    sel.value = last.path;
+    if (last.propNm) {
+      const ps = document.getElementById('propSelect');
+      if (Array.from(ps.options).some(o => o.value === last.propNm)) ps.value = last.propNm;
+    }
+    onCsvChange();
+    runPreview();                            // auto-refresh with current KB/Req
+  }
+
+  document.addEventListener('DOMContentLoaded', restoreLast);
 </script>
 <style>
   .bp-panel { background:white; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
   .bp-title { background:#1e40af; color:white; border-radius:10px 10px 0 0; padding:12px 16px;
               display:flex; align-items:center; gap:10px; margin:-16px -16px 14px; }
   .bp-title .nm { font-weight:700; font-size:16px; }
+  .bp-title .ret { color:white; font-size:12px; text-decoration:none; background:rgba(255,255,255,.18);
+                   border:1px solid rgba(255,255,255,.35); border-radius:6px; padding:4px 10px; }
+  .bp-title .ret:hover { background:rgba(255,255,255,.3); }
   .bp-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
   .bp-row label { font-size:13px; color:#374151; font-weight:600; }
   .bp-row select, .bp-row input[type=file] { font-size:13px; padding:5px 8px; border:1px solid #cbd5e1; border-radius:6px; }
@@ -212,6 +251,8 @@
   <div class="bp-title">
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
     <span class="nm">🏧 Bank Reconciliation — Preview</span>
+    <a class="ret" href="{{ request.script_root }}/view/bank_kb_rules">📓 Knowledge/Rules</a>
+    <a class="ret" href="{{ request.script_root }}/view/requisitions">🧾 Requisitions</a>
   </div>
 
   <div class="bp-row">

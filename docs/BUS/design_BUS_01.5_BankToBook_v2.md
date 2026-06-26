@@ -191,6 +191,23 @@ The BankToBook pipeline extends the current read-only reconciliation view (`ui/l
 
 ````
 
+### 3.2.4 View Enhancements (implemented)
+
+**Classification priority fix:** `IngestAgent.classify()` runs the **vendor KB (P1) before the Tier-2 detector (P2)**, so an operator-curated rule (e.g. `zelle from nicola rojas → RENT_INCOME`) wins over a generic heuristic guess (`ZELLE FROM <member> → MEMBER_INVEST`). Tier-2 only fires when no KB rule matches. Each classified row carries a **`pID`** = matched KB rule position (index+1), or `None`.
+
+**Shared component (`_inline_edit_table.html`)** gained: optional `#` ordinal column (configurable label), per-column text filters, UP/DOWN row reorder (with a dirty flag that enables Save), and `addRows(rows,{check})` for pre-checked draft handoff.
+
+**Bank Preview:**
+- Remembers the last disk CSV (sessionStorage) and **auto-refreshes** the preview on return — so KB/Requisition edits are reflected immediately without manual reload.
+- Columns: leading `#`, `tID`, **`Conf:pID`** (`<confidence>:p<pID>` or `:na`), **`ReqID`** (linked requisition rID or `na`).
+- Title-bar nav actions: **Knowledge/Rules** and **Requisitions** (jump between views); selection-bar **NewPattern / NewRequisition** hand-offs unchanged.
+
+**Bank Knowledge/Rules:**
+- **`pID`** ordinal column; **column filters** on pattern/account/sub; **UP/DOWN reorder** (order = first-match precedence, persisted on Save); **Return to Preview** action.
+
+**Requisitions:**
+- **`rID`** column. CIP transactions still missing a requisition are **auto-added as `rID="Need"` drafts (auto-checked)** — not written to the DB until Save (replaces the prior "missing" info-list). **Return to Preview** action.
+
 ### 3.3 Discard Scenario
 
 If the operator clicks "Discard" at any point, the `PreviewResult` is abandoned. Because Phase 1 is fully read-only, there is **zero impact** to `llcExpRev`, the GL, any statement, or any IRS form. The CSV file remains in `BankStmts/<year>/` available for future ingestion.

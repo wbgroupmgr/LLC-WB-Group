@@ -115,6 +115,16 @@ def _infer_year_from_name(filename: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _req_rid_map(year: int, llc) -> dict:
+    """{tID: rID} where rID is the 1-based position in the requisition DB."""
+    try:
+        from ledger.bankAgent.bkReqDocAgent import BkReqDocAgent
+        docs = BkReqDocAgent(year, llc).all()
+        return {d['tID']: i + 1 for i, d in enumerate(docs) if d.get('tID')}
+    except Exception:
+        return {}
+
+
 def _detect_csv_year(csv_path: str) -> int | None:
     try:
         import csv as _csv
@@ -237,12 +247,14 @@ def bind_bankIngest_routes(app, objects: dict):
             csv_year = _detect_csv_year(csv_path_str)
             from ledger import setup_paths
             configured_year = getattr(setup_paths, 'YEAR', None)
+            req_map = _req_rid_map(int(configured_year or 2025), llc)
 
             return jsonify({
                 'ok': True, 'token': result._token, 'rows': rows_dicts,
                 'stats': result.stats.as_dict(), 'source': result.source, 'ts': result.ts,
                 'csv_year': csv_year, 'configured_year': configured_year,
                 'year_warn': bool(csv_year and configured_year and csv_year != configured_year),
+                'req_map': req_map,
             })
         except Exception as err:
             import traceback

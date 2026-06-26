@@ -64,6 +64,14 @@
                border-radius:3px; font-size:13px; font-family:inherit; background:white; }
   .iet-input:focus { outline:2px solid #3b82f6; outline-offset:-1px; }
   .iet-empty { text-align:center; color:#6b7280; padding:24px; }
+  .iet-col-num { width:1%; white-space:nowrap; text-align:right; color:#6b7280; font-variant-numeric:tabular-nums; }
+  .iet-col-ord { width:1%; white-space:nowrap; text-align:center; }
+  .iet-mini { font-size:11px; line-height:1; padding:2px 5px; margin:0 1px; border:1px solid #cbd5e1;
+              border-radius:4px; background:white; cursor:pointer; color:#374151; }
+  .iet-mini:hover { background:#eff6ff; border-color:#93c5fd; }
+  tr.iet-filter th { background:#f1f5f9; padding:3px 6px; position:sticky; top:30px; z-index:1; }
+  .iet-filter-input { width:100%; box-sizing:border-box; font-size:11px; padding:2px 5px;
+                      border:1px solid #cbd5e1; border-radius:4px; font-weight:400; }
 </style>
 
 <script>
@@ -92,9 +100,13 @@
     const extraActions= cfg.extraActions || [];
     const showCommit  = cfg.showCommit !== false;
     const commitLabel = cfg.commitLabel || 'Commit';
+    const ordinal     = !!cfg.ordinal;                 // leading "#" column
+    const reorder     = !!cfg.reorder && !readOnly;    // UP/DOWN row reorder
+    const filters     = !!cfg.filters;                 // per-column filter row
 
     let rows    = (cfg.rows || []).map(normalize);
     let seq     = 0;
+    let orderDirty = false;
     const editing = new Set();            // keys currently open as inputs
     const pending = new Map();            // key -> {op:'update'|'add'|'delete', row}
 
@@ -154,8 +166,28 @@
       htr.appendChild(thSel);
       htr.appendChild(el('th', 'iet-col-chg', 'Chg'));
     }
+    if (ordinal) htr.appendChild(el('th', 'iet-col-num', esc(cfg.ordinalLabel || '#')));
     columns.forEach(c => htr.appendChild(el('th', null, esc(c.label || c.key))));
+    if (reorder) htr.appendChild(el('th', 'iet-col-ord', 'Order'));
     thead.appendChild(htr);
+
+    if (filters) {
+      const ftr = el('tr', 'iet-filter');
+      if (!readOnly) { ftr.appendChild(el('th')); ftr.appendChild(el('th')); }
+      if (ordinal) ftr.appendChild(el('th'));
+      columns.forEach(c => {
+        const th = el('th');
+        if (c.filter) {
+          const inp = el('input', 'iet-filter-input');
+          inp.type = 'text'; inp.placeholder = 'filter…'; inp.dataset.col = c.key;
+          inp.addEventListener('input', applyFilters);
+          th.appendChild(inp);
+        }
+        ftr.appendChild(th);
+      });
+      if (reorder) ftr.appendChild(el('th'));
+      thead.appendChild(ftr);
+    }
     const tbody = el('tbody');
     table.appendChild(thead); table.appendChild(tbody);
     scroll.appendChild(table);
@@ -172,15 +204,15 @@
       if (!rows.length) {
         const tr = el('tr');
         const td = el('td', 'iet-empty', cfg.emptyText || 'No records.');
-        td.colSpan = columns.length + (readOnly ? 0 : 2);
+        td.colSpan = columns.length + (readOnly ? 0 : 2) + (ordinal ? 1 : 0) + (reorder ? 1 : 0);
         tr.appendChild(td); tbody.appendChild(tr);
         updateBar(); updateCommit(); return;
       }
-      rows.forEach(row => tbody.appendChild(buildRow(row)));
-      updateBar(); updateCommit();
+      rows.forEach((row, i) => tbody.appendChild(buildRow(row, i)));
+      updateBar(); updateCommit(); applyFilters();
     }
 
-    function buildRow(row) {
+    function buildRow(row, idx) {
       const tr = el('tr');
       tr.dataset.key = row.__key;
       const stat = statusClass(row);
@@ -199,12 +231,45 @@
           (p.op==='add'?'+':p.op==='delete'?'✕':'✎') + '</span>';
         tr.appendChild(tdChg);
       }
+      if (ordinal) tr.appendChild(el('td', 'iet-col-num', String((idx != null ? idx : 0) + 1)));
       columns.forEach(c => {
         const td = el('td'); td.dataset.col = c.key;
         td.textContent = fmt(row[c.key], c);
         tr.appendChild(td);
       });
+      if (reorder) {
+        const td = el('td', 'iet-col-ord');
+        const up = el('button', 'iet-mini', '↑'); up.title = 'Move up';
+        const dn = el('button', 'iet-mini', '↓'); dn.title = 'Move down';
+        up.addEventListener('click', () => moveRow(row.__key, -1));
+        dn.addEventListener('click', () => moveRow(row.__key, +1));
+        td.appendChild(up); td.appendChild(dn); tr.appendChild(td);
+      }
       return tr;
+    }
+
+    function moveRow(key, delta) {
+      const i = rows.findIndex(r => r.__key === key);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= rows.length) return;
+      const tmp = rows[i]; rows[i] = rows[j]; rows[j] = tmp;
+      orderDirty = true; render();
+    }
+
+    function applyFilters() {
+      if (!filters) return;
+      const active = Array.from(thead.querySelectorAll('.iet-filter-input'))
+        .map(i => ({ col: i.dataset.col, v: i.value.trim().toLowerCase() }))
+        .filter(f => f.v);
+      tbody.querySelectorAll('tr').forEach(tr => {
+        let show = true;
+        active.forEach(f => {
+          const td = tr.querySelector('td[data-col="' + CSS.escape(f.col) + '"]');
+          const txt = (td ? td.textContent : '').toLowerCase();
+          if (!txt.includes(f.v)) show = false;
+        });
+        tr.style.display = show ? '' : 'none';
+      });
     }
 
     function fmt(v, c) {
@@ -234,8 +299,9 @@
     }
     function updateCommit() {
       if (!showCommit) return;
-      commitbar.classList.toggle('show', pending.size > 0);
-      btnCommit.textContent = commitLabel + ' (' + pending.size + ')';
+      commitbar.classList.toggle('show', pending.size > 0 || orderDirty);
+      const n = pending.size + (orderDirty ? 1 : 0);
+      btnCommit.textContent = commitLabel + ' (' + n + ')';
     }
 
     // ── edit mechanics ─────────────────────────────────────────────────────────
@@ -387,17 +453,24 @@
       clearPending: () => { pending.clear(); render(); },
       refresh: (newRows) => {
         rows = (newRows || []).map(normalize);
-        editing.clear(); pending.clear(); render();
+        editing.clear(); pending.clear(); orderDirty = false; render();
       },
       // Append rows as pending-add (used for cross-view prefill handoff) so the
-      // Commit/Save bar surfaces them as unsaved.
-      addRows: (arr) => {
+      // Commit/Save bar surfaces them as unsaved. opts.check pre-checks the new rows.
+      addRows: (arr, opts) => {
+        opts = opts || {};
+        const added = [];
         (arr || []).forEach(r => {
           const row = normalize(Object.assign({}, r, { __key: undefined }));
           rows.push(row);
           pending.set(row.__key, { op: 'add', row });
+          added.push(row.__key);
         });
         render();
+        if (opts.check) {
+          added.forEach(k => { const tr = trByKey(k); const cb = tr && tr.querySelector('.iet-rowsel'); if (cb) cb.checked = true; });
+          updateBar();
+        }
       },
     };
 

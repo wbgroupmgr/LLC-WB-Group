@@ -19,9 +19,23 @@
     const j = await res.json();
     if (!j.ok) { document.getElementById('rdMsg').innerHTML =
       '<span class="err">Load failed: ' + (j.error||'') + '</span>'; return; }
-    buildTable(j.docs);
-    document.getElementById('rdCount').textContent = j.docs.length + ' requisitions · ' + ACTIVE_YEAR;
-    renderMissing(j.missing || []);
+    // existing saved reqs get rID = 1-based position
+    const docs = (j.docs || []).map((d, i) => Object.assign({ rID: String(i + 1) }, d));
+    buildTable(docs);
+    document.getElementById('rdCount').textContent = docs.length + ' requisitions · ' + ACTIVE_YEAR;
+    // auto-add missing (CIP) transactions as checked drafts (rID=Need) — NOT in DB until Save
+    const missing = (j.missing || []).map(m => ({
+      rID: 'Need', tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+      acct: m.acct || 'Acct.Fixed.Tangible.InConstruction', propNm: m.propNm || '',
+      purpose: '', notes: '',
+    }));
+    if (missing.length) {
+      _rdCtrl.addRows(missing, { check: true });
+      document.getElementById('rdMsg').innerHTML =
+        '<span class="warn">⚠ ' + missing.length + ' transaction(s) need a requisition — added below as “Need” drafts (auto-checked). Edit/Delete, then Save.</span>';
+    } else {
+      document.getElementById('rdMsg').innerHTML = '<span class="ok">✅ No transactions are missing a requisition.</span>';
+    }
     _applyPrefill();
   }
 
@@ -32,31 +46,10 @@
     sessionStorage.removeItem('bank_req_prefill');
     let drafts; try { drafts = JSON.parse(raw); } catch (e) { return; }
     if (!Array.isArray(drafts) || !drafts.length) return;
-    _rdCtrl.addRows(drafts);
+    drafts.forEach(d => { if (!d.rID) d.rID = 'Need'; });
+    _rdCtrl.addRows(drafts, { check: true });
     document.getElementById('rdMsg').innerHTML =
       '<span class="ok">' + drafts.length + ' draft requisition(s) added from Preview — fill purpose/notes and Save.</span>';
-  }
-
-  function renderMissing(missing) {
-    const box = document.getElementById('missingBox');
-    if (!missing.length) { box.innerHTML = '<span class="ok">✅ No GL transactions are missing a requisition.</span>'; return; }
-    let h = '<strong>⚠ ' + missing.length + ' transaction(s) need a requisition</strong> (CIP / InConstruction, no linked req):<ul style="margin:6px 0 0;">';
-    missing.forEach(m => {
-      h += '<li><code>' + m.tID + '</code> · ' + m.dt + ' · $' + m.amt + ' · ' +
-           (m.propNm||'—') + ' · ' + (m.desc||'').slice(0,50) +
-           ' <button class="mini" onclick="addFromMissing(' + JSON.stringify(JSON.stringify(m)) + ')">+ add req</button></li>';
-    });
-    box.innerHTML = h + '</ul>';
-  }
-
-  function addFromMissing(mStr) {
-    const m = JSON.parse(mStr);
-    if (!_rdCtrl) return;
-    _rdCtrl.addRows([{ tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
-                acct: m.acct || 'Acct.Fixed.Tangible.InConstruction',
-                propNm: m.propNm || '', purpose: '', notes: '' }]);
-    document.getElementById('rdMsg').innerHTML =
-      '<span class="ok">Added a draft requisition for ' + m.tID + ' — fill purpose/notes and Save.</span>';
   }
 
   function buildTable(docs) {
@@ -65,8 +58,9 @@
       rowKeyField: 'tID',
       showCommit: true,
       commitLabel: 'Save Requisitions',
-      emptyText: 'No requisitions yet — ➕ Add, or use “+ add req” on a missing transaction above.',
+      emptyText: 'No requisitions — ➕ Add to create one.',
       columns: [
+        { key: 'rID',      label: 'rID' },
         { key: 'tID',      label: 'GL tID (link)', editable: true, input: 'text' },
         { key: 'dt',       label: 'Txn Date',      editable: true, input: 'text' },
         { key: 'req_date', label: 'Req Date',      editable: true, input: 'text' },
@@ -92,10 +86,18 @@
       });
       const j = await res.json();
       if (!j.ok) { msg.innerHTML = '<span class="err">Save failed: ' + (j.error||'') + '</span>'; return; }
-      msg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' requisitions.</span>';
-      ctrl.refresh(j.docs);
+      // reload clean state — re-derive rID + re-add any remaining missing as drafts
+      const docs2 = (j.docs || []).map((d, i) => Object.assign({ rID: String(i + 1) }, d));
+      ctrl.refresh(docs2);
       document.getElementById('rdCount').textContent = j.count + ' requisitions · ' + ACTIVE_YEAR;
-      renderMissing(j.missing || []);
+      const missing = (j.missing || []).map(m => ({
+        rID: 'Need', tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+        acct: m.acct || 'Acct.Fixed.Tangible.InConstruction', propNm: m.propNm || '',
+        purpose: '', notes: '',
+      }));
+      if (missing.length) { _rdCtrl.addRows(missing, { check: true }); }
+      msg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' requisitions.</span>' +
+        (missing.length ? ' <span class="warn">' + missing.length + ' still need a requisition.</span>' : '');
     } catch (e) {
       msg.innerHTML = '<span class="err">Save error: ' + e.message + '</span>';
     }
@@ -117,15 +119,14 @@
               display:flex; align-items:center; gap:10px; margin:-16px -16px 14px; }
   .bp-title .nm { font-weight:700; font-size:16px; }
   .bp-title .cnt { margin-left:auto; font-size:13px; opacity:.85; }
+  .bp-title .ret { color:white; font-size:12px; text-decoration:none; background:rgba(255,255,255,.18);
+                   border:1px solid rgba(255,255,255,.35); border-radius:6px; padding:4px 10px; }
+  .bp-title .ret:hover { background:rgba(255,255,255,.3); }
   .menu summary { list-style:none; cursor:pointer; font-size:18px; background:rgba(255,255,255,.2);
                   color:white; border-radius:4px; padding:2px 10px; }
   .menu summary::-webkit-details-marker { display:none; }
   .err { color:#b91c1c; font-weight:600; } .ok { color:#15803d; font-weight:600; }
-  #missingBox { font-size:13px; background:#fffbeb; border:1px solid #fcd34d; border-radius:8px;
-                padding:10px 12px; margin-bottom:12px; }
-  #missingBox.clean { background:#f0fdf4; border-color:#bbf7d0; }
-  .mini { font-size:11px; padding:1px 6px; border:1px solid #93c5fd; border-radius:4px;
-          background:#dbeafe; color:#1e40af; cursor:pointer; margin-left:6px; }
+  .warn { color:#b45309; font-weight:600; }
 </style>
 {% endblock %}
 
@@ -134,13 +135,14 @@
   <div class="bp-title">
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
     <span class="nm">🧾 Requisitions</span>
+    <a class="ret" href="{{ request.script_root }}/view/bank_reconcile">← Return to Preview</a>
     <span class="cnt" id="rdCount"></span>
   </div>
   <p style="font-size:13px;color:#6b7280;margin-top:0;">
     One-time charge documentation. Each requisition links to exactly one GL transaction by <code>tID</code>.
-    Select rows to Edit/Dup/Delete, ➕ Add, then <strong>Save Requisitions</strong>.
+    CIP transactions still needing a requisition are auto-added below as <strong>“Need”</strong> drafts (auto-checked).
+    Edit/Delete, ➕ Add, then <strong>Save Requisitions</strong>.
   </p>
-  <div id="missingBox"></div>
   <div id="rdMsg" style="font-size:13px;margin-bottom:10px;"></div>
   <div id="rdTable"></div>
 </div>
