@@ -6,6 +6,60 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.4.0] — 2026-06-26  **Issue #42 — BankToBook 3-view Flask UI + LLC Admin Business frame**
+
+### Added — BankToBook (issue #42)
+- **`ui/templates/_inline_edit_table.html`** — shared `InlineEditTable` JS component
+  (selection-bar model: checkbox → bar → inline inputs → pending → Save). Supports
+  `ordinal`, `ordinalLabel`, `reorder`, `filters`, and `addRows(arr, {check})`.
+  All three bank views consume it; no per-view editing logic duplication.
+- **Bank Preview** `GET /view/bank_reconcile` — CSV selector (BankStmts all years +
+  Downloads ≤15d), default property, Preview button. Stats bar (auto/review/need-req-doc/dup).
+  Preview table: inline-editable acct/sub/propNm; extra actions `＋NewPattern` /
+  `＋NewRequisition` hand off selected rows to KB/Req views via sessionStorage.
+  ReqID column: `rID` (requisition exists) · `need` (required, none yet) · `na` (not needed).
+  `confidence=auto` rows always show `na` (recurring KB charges). Auto-restore last CSV
+  on return from KB/Req views. `stashNeedRows()` writes all non-auto expense rows to
+  sessionStorage key `bank_req_need_<year>` on every preview.
+- **Bank Knowledge/Rules** `GET /view/bank_kb_rules` — inline-edit `vendor_rules.json`;
+  ordinal pID column (1-based match precedence); UP/DOWN reorder; column filters
+  (Pattern/Account/Sub); replace-all save via `BkVendorKB.set_rules()`.
+- **Requisitions** `GET /view/requisitions` — year-aware (`?year=` param from preview,
+  defaults to active fiscal year). Existing saved requisitions shown with 1-based rID.
+  Missing CIP GL records auto-added as `rID='Need'` checked drafts. Preview stash
+  `bank_req_need_<year>` consumed on load (deduped vs saved + missing-scan). All three
+  sources auto-fill `req_date=txn date`, `notes=txn description`, `purpose=acctSub`.
+  GL counter-account used instead of `Acct.Cash.Bank` for missing-scan drafts.
+- **`ledger/bankAgent/bkReqDocAgent.py`** — rebuilt: `add()` / `update()` / `delete()` /
+  `set_all()` / `all()` / `as_map()`; storage `books/<year>/BankStmts/req_docs_<year>.json`;
+  `set_all()` preserves existing `created` timestamps.
+- **`ledger/bankAgent/bkVendorKB.py`** — added `lookup_indexed()` (returns index + rule);
+  `lookup()` delegates to it; `set_rules()` validated replace-all save; `ordinalLabel`
+  config support.
+- **LLC Admin Business frame** — `/admin` now shows a `🏢 Business` collapsible frame
+  at the top with all active BUS details: llcName, dataName, active year, registered
+  years, BUS repo path, books dir, Accts/BankStmts/IRS Forms paths, config file.
+  Sourced from `config.json` stanza + `setup_paths` globals; no passphrase exposed.
+
+### Fixed — BankToBook (issue #42)
+- **Zelle classification** (`fix(#42) 1c8a4a9`) — KB lookup now runs BEFORE Tier-2;
+  `ZELLE FROM NICOLA ROJAS` correctly classified as `RENT_INCOME` via curated rule
+  instead of falling through to `MEMBER_INVEST` heuristic.
+- **pID** — `ClassifiedRow.pID` records the 1-based index of the matched KB rule;
+  displayed in preview `Conf:pID` column for traceability.
+- **Requisition year** (`fb178d0`) — `req_year = csv_year || configured_year`; Req view
+  year-scoped via `?year=`; `_missing_reqs()` filters by transaction year.
+- **_needsReq broadened** (`5f05d7b`) — all non-income, non-duplicate, non-auto rows
+  show `need`; CIP-only was too narrow (regular expenses need requisitions too).
+- **GL counter-account** (`ce2ad8d`) — `_missing_reqs()` flips `Acct.Cash.Bank` to
+  `Ledger` counter-account so requisition drafts show the real expense/asset account.
+- **Auto-confidence filter** (`21cb396`) — `confidence=auto` rows excluded from Req
+  view (recurring KB matches don't need a one-time charge document).
+- **acctSub as purpose** (`fb0eaf4`) — all requisition draft sources (GL missing-scan,
+  preview stash, NewRequisition hand-off) auto-fill `purpose` from `acctSub`.
+
+---
+
 ## [2.2.2] — 2026-06-22  **Issue #41 — Soft-delete audit trail for Table Action Delete**
 
 ### Changed
