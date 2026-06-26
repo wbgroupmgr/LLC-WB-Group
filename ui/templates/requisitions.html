@@ -36,6 +36,18 @@
     } else {
       document.getElementById('rdMsg').innerHTML = '<span class="ok">✅ No transactions are missing a requisition.</span>';
     }
+    // consume NEED-rows stash written by Preview's stashNeedRows() — dedup vs already-saved and missing-scan
+    const existingTIDs = new Set(
+      (j.docs || []).map(d => d.tID).concat((j.missing || []).map(m => m.tID))
+    );
+    const stashKey = 'bank_req_need_' + ACTIVE_YEAR;
+    const stashRaw = sessionStorage.getItem(stashKey);
+    if (stashRaw) {
+      sessionStorage.removeItem(stashKey);
+      let stash; try { stash = JSON.parse(stashRaw); } catch (e) { stash = []; }
+      const extra = (stash || []).filter(r => !existingTIDs.has(r.tID));
+      if (extra.length) _rdCtrl.addRows(extra, { check: true });
+    }
     _applyPrefill();
   }
 

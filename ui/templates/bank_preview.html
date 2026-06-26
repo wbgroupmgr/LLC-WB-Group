@@ -63,6 +63,9 @@
       _reqYear = j.req_year || j.csv_year || null;
       const navReq = document.getElementById('navReq');
       if (navReq && _reqYear) navReq.href = _scriptRoot + '/view/requisitions?year=' + _reqYear;
+      // Stash NEED rows (req required, none yet) keyed by year so the Requisition
+      // view auto-populates them without an explicit NewRequisition click.
+      stashNeedRows(j.rows);
       // remember a disk-CSV selection so returning to this view auto-refreshes
       if (sel.value !== '__upload__') {
         sessionStorage.setItem('bank_last_csv', JSON.stringify({ path: sel.value, propNm: prop }));
@@ -119,6 +122,21 @@
   function _needsReq(r) {
     return (r.flag || '').toUpperCase() === 'NEED_REQ_DOC'
         || (r.acct || '').indexOf('InConstruction') >= 0;
+  }
+
+  function stashNeedRows(rows) {
+    if (!_reqYear) return;
+    const need = (rows || [])
+      .filter(r => _needsReq(r) && _reqMap[r.tID] == null)
+      .map(r => ({
+        rID: 'Need', tID: r.tID, dt: r.dt, req_date: r.dt, amt: r.amt, desc: r.desc,
+        acct: r.acct || 'Acct.Fixed.Tangible.InConstruction',
+        propNm: r.propNm || '', purpose: '', notes: r.desc || '',
+      }));
+    if (need.length)
+      sessionStorage.setItem('bank_req_need_' + _reqYear, JSON.stringify(need));
+    else
+      sessionStorage.removeItem('bank_req_need_' + _reqYear);
   }
 
   function buildPreviewTable(rows) {
