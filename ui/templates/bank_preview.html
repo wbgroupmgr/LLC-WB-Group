@@ -112,7 +112,7 @@
     const prefill = selRows.map(r => ({
       tID: r.tID, dt: r.dt, req_date: r.dt, amt: r.amt, desc: r.desc,  // req_date defaults to txn date
       acct: r.acct || 'Acct.Fixed.Tangible.InConstruction',
-      propNm: r.propNm || '', purpose: '', notes: r.desc || '',         // notes default to txn description
+      propNm: r.propNm || '', purpose: r.acctSub || '', notes: r.desc || '',
     }));
     sessionStorage.setItem('bank_req_prefill', JSON.stringify(prefill));
     const yr = _reqYear ? ('?year=' + _reqYear) : '';
@@ -135,7 +135,7 @@
       .map(r => ({
         rID: 'Need', tID: r.tID, dt: r.dt, req_date: r.dt, amt: r.amt, desc: r.desc,
         acct: r.acct || 'Acct.Fixed.Tangible.InConstruction',
-        propNm: r.propNm || '', purpose: '', notes: r.desc || '',
+        propNm: r.propNm || '', purpose: r.acctSub || '', notes: r.desc || '',
       }));
     if (need.length)
       sessionStorage.setItem('bank_req_need_' + _reqYear, JSON.stringify(need));

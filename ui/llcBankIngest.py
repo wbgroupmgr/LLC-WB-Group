@@ -401,6 +401,7 @@ def bind_bankIngest_routes(app, objects: dict):
                         'tID': tID, 'dt': r.get('dt', ''),
                         'amt': r.get('amt', 0), 'desc': r.get('desc', ''),
                         'propNm': r.get('propNm', ''), 'acct': r.get('acct', ''),
+                        'purpose': r.get('acctSub', ''),
                         'src': key,
                     })
             except Exception:

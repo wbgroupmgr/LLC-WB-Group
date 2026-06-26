@@ -27,7 +27,7 @@
     const missing = (j.missing || []).map(m => ({
       rID: 'Need', tID: m.tID, dt: m.dt, req_date: m.dt, amt: m.amt, desc: m.desc,
       acct: m.acct || 'Acct.Fixed.Tangible.InConstruction', propNm: m.propNm || '',
-      purpose: '', notes: m.desc || '',   // auto-fill: req_date=txn date, notes=txn description
+      purpose: m.purpose || '', notes: m.desc || '',   // auto-fill: req_date=txn date, purpose=acctSub, notes=txn description
     }));
     if (missing.length) {
       _rdCtrl.addRows(missing, { check: true });
