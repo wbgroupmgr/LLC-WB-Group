@@ -81,12 +81,40 @@
       '<span class="stat-chip"><span class="value">' + c[1] + '</span> ' + c[0] + '</span>').join('');
   }
 
+  function newPattern(selRows) {
+    if (!selRows.length) { alert('Select one or more rows first.'); return; }
+    const prefill = selRows.map(r => ({
+      pattern:   (r.vendor_key || r.desc || '').toLowerCase().slice(0, 60),
+      acct:      r.acct || 'Acct.Exp.Other',
+      acctSub:   r.acctSub || '',
+      txn_type:  r.txn_type || 'ROUTINE_EXPENSE',
+      confidence:'review',
+    }));
+    sessionStorage.setItem('bank_kb_prefill', JSON.stringify(prefill));
+    window.location.href = _scriptRoot + '/view/bank_kb_rules';
+  }
+
+  function newRequisition(selRows) {
+    if (!selRows.length) { alert('Select one or more rows first.'); return; }
+    const prefill = selRows.map(r => ({
+      tID: r.tID, dt: r.dt, req_date: '', amt: r.amt, desc: r.desc,
+      acct: r.acct || 'Acct.Fixed.Tangible.InConstruction',
+      propNm: r.propNm || '', purpose: '', notes: '',
+    }));
+    sessionStorage.setItem('bank_req_prefill', JSON.stringify(prefill));
+    window.location.href = _scriptRoot + '/view/requisitions';
+  }
+
   function buildPreviewTable(rows) {
     _ietCtrl = window.InlineEditTable.create({
       mount: 'previewTable',
       rowKeyField: 'tID',
       statusClass: _statusClass,
       showCommit: false,
+      extraActions: [
+        { id:'newPattern', label:'＋ NewPattern', title:'Create KB rule(s) from selected rows', onClick:newPattern },
+        { id:'newReq',     label:'＋ NewRequisition', title:'Create requisition(s) for selected rows', onClick:newRequisition },
+      ],
       emptyText: 'No new transactions in this CSV.',
       columns: [
         { key: 'dt',      label: 'Date' },

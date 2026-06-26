@@ -22,6 +22,19 @@
     buildTable(j.docs);
     document.getElementById('rdCount').textContent = j.docs.length + ' requisitions · ' + ACTIVE_YEAR;
     renderMissing(j.missing || []);
+    _applyPrefill();
+  }
+
+  // pull draft requisitions handed off from the Preview "NewRequisition" action
+  function _applyPrefill() {
+    const raw = sessionStorage.getItem('bank_req_prefill');
+    if (!raw || !_rdCtrl) return;
+    sessionStorage.removeItem('bank_req_prefill');
+    let drafts; try { drafts = JSON.parse(raw); } catch (e) { return; }
+    if (!Array.isArray(drafts) || !drafts.length) return;
+    _rdCtrl.addRows(drafts);
+    document.getElementById('rdMsg').innerHTML =
+      '<span class="ok">' + drafts.length + ' draft requisition(s) added from Preview — fill purpose/notes and Save.</span>';
   }
 
   function renderMissing(missing) {
@@ -39,11 +52,9 @@
   function addFromMissing(mStr) {
     const m = JSON.parse(mStr);
     if (!_rdCtrl) return;
-    const rows = _rdCtrl.getRows();
-    rows.push({ tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+    _rdCtrl.addRows([{ tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
                 acct: m.acct || 'Acct.Fixed.Tangible.InConstruction',
-                propNm: m.propNm || '', purpose: '', notes: '' });
-    _rdCtrl.refresh(rows);
+                propNm: m.propNm || '', purpose: '', notes: '' }]);
     document.getElementById('rdMsg').innerHTML =
       '<span class="ok">Added a draft requisition for ' + m.tID + ' — fill purpose/notes and Save.</span>';
   }

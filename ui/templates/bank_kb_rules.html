@@ -28,6 +28,19 @@
       '<span class="err">Load failed: ' + (j.error||'') + '</span>'; return; }
     buildTable(j.rules);
     document.getElementById('kbCount').textContent = j.rules.length + ' rules';
+    _applyPrefill();
+  }
+
+  // pull draft rules handed off from the Preview "NewPattern" action
+  function _applyPrefill() {
+    const raw = sessionStorage.getItem('bank_kb_prefill');
+    if (!raw || !_kbCtrl) return;
+    sessionStorage.removeItem('bank_kb_prefill');
+    let drafts; try { drafts = JSON.parse(raw); } catch (e) { return; }
+    if (!Array.isArray(drafts) || !drafts.length) return;
+    _kbCtrl.addRows(drafts);
+    document.getElementById('kbMsg').innerHTML =
+      '<span class="ok">' + drafts.length + ' draft rule(s) added from Preview — review and Save.</span>';
   }
 
   function buildTable(rules) {

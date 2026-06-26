@@ -389,6 +389,16 @@
         rows = (newRows || []).map(normalize);
         editing.clear(); pending.clear(); render();
       },
+      // Append rows as pending-add (used for cross-view prefill handoff) so the
+      // Commit/Save bar surfaces them as unsaved.
+      addRows: (arr) => {
+        (arr || []).forEach(r => {
+          const row = normalize(Object.assign({}, r, { __key: undefined }));
+          rows.push(row);
+          pending.set(row.__key, { op: 'add', row });
+        });
+        render();
+      },
     };
 
     render();
