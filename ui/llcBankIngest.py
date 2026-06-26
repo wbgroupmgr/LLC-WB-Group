@@ -355,3 +355,76 @@ def bind_bankIngest_routes(app, objects: dict):
             import traceback
             return jsonify({'ok': False, 'error': str(err),
                             'traceback': traceback.format_exc()}), 500
+
+    # ── Requisitions (Phase C) ──────────────────────────────────────────────────
+
+    def _active_year() -> int:
+        from ledger import setup_paths
+        return int(getattr(setup_paths, 'YEAR', 2025) or 2025)
+
+    def _missing_reqs(req_map: dict) -> list[dict]:
+        """GL transactions that need a requisition but have none — CIP
+        (InConstruction) rows in llcExpRev/llcAssets without a matching tID."""
+        missing = []
+        seen = set()
+        for key in ('llcExpRev', 'llcAssets'):
+            mgr = objects.get(key)
+            if not mgr:
+                continue
+            try:
+                for r in mgr.load():
+                    acct = str(r.get('acct', '')) + '|' + str(r.get('Ledger', ''))
+                    if 'InConstruction' not in acct:
+                        continue
+                    tID = r.get('tID', '')
+                    if not tID or tID in req_map or tID in seen:
+                        continue
+                    seen.add(tID)
+                    missing.append({
+                        'tID': tID, 'dt': r.get('dt', ''),
+                        'amt': r.get('amt', 0), 'desc': r.get('desc', ''),
+                        'propNm': r.get('propNm', ''), 'acct': r.get('acct', ''),
+                        'src': key,
+                    })
+            except Exception:
+                pass
+        return missing
+
+    @app.route('/view/requisitions')
+    def view_requisitions():
+        return render_template(
+            'requisitions.html',
+            prop_names=_get_prop_names(objects),
+            known_accts=_KNOWN_ACCTS,
+            configured_year=_active_year(),
+        )
+
+    @app.route('/api/bank/reqdocs', methods=['GET'])
+    def api_bank_reqdocs_get():
+        try:
+            from ledger.bankAgent.bkReqDocAgent import BkReqDocAgent
+            year = int(request.args.get('year', _active_year()))
+            rda  = BkReqDocAgent(year, _get_llc())
+            docs = rda.all()
+            return jsonify({'ok': True, 'year': year, 'docs': docs,
+                            'missing': _missing_reqs(rda.as_map())})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/bank/reqdocs', methods=['POST'])
+    def api_bank_reqdocs_save():
+        """Replace-all save from the Requisition editor."""
+        try:
+            from ledger.bankAgent.bkReqDocAgent import BkReqDocAgent
+            body = request.get_json(force=True) or {}
+            year = int(body.get('year', _active_year()))
+            rda  = BkReqDocAgent(year, _get_llc())
+            saved = rda.set_all(body.get('docs', []))
+            return jsonify({'ok': True, 'docs': saved, 'count': len(saved),
+                            'missing': _missing_reqs(rda.as_map())})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500

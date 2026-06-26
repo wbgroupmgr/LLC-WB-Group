@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+{% include '_inline_edit_table.html' %}
+<script>
+  const _scriptRoot = {{ request.script_root | tojson }};
+  const PROP_NAMES  = {{ prop_names | tojson }};
+  const KNOWN_ACCTS = {{ known_accts | tojson }};
+  const ACTIVE_YEAR = {{ configured_year | tojson }};
+  let   _rdCtrl     = null;
+
+  function _acctOpts() { return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] })); }
+  function _propOpts() { return PROP_NAMES.map(p => ({ value: p, label: p })); }
+
+  async function loadReqs() {
+    const res = await fetch(_scriptRoot + '/api/bank/reqdocs?year=' + ACTIVE_YEAR);
+    const j = await res.json();
+    if (!j.ok) { document.getElementById('rdMsg').innerHTML =
+      '<span class="err">Load failed: ' + (j.error||'') + '</span>'; return; }
+    buildTable(j.docs);
+    document.getElementById('rdCount').textContent = j.docs.length + ' requisitions · ' + ACTIVE_YEAR;
+    renderMissing(j.missing || []);
+  }
+
+  function renderMissing(missing) {
+    const box = document.getElementById('missingBox');
+    if (!missing.length) { box.innerHTML = '<span class="ok">✅ No GL transactions are missing a requisition.</span>'; return; }
+    let h = '<strong>⚠ ' + missing.length + ' transaction(s) need a requisition</strong> (CIP / InConstruction, no linked req):<ul style="margin:6px 0 0;">';
+    missing.forEach(m => {
+      h += '<li><code>' + m.tID + '</code> · ' + m.dt + ' · $' + m.amt + ' · ' +
+           (m.propNm||'—') + ' · ' + (m.desc||'').slice(0,50) +
+           ' <button class="mini" onclick="addFromMissing(' + JSON.stringify(JSON.stringify(m)) + ')">+ add req</button></li>';
+    });
+    box.innerHTML = h + '</ul>';
+  }
+
+  function addFromMissing(mStr) {
+    const m = JSON.parse(mStr);
+    if (!_rdCtrl) return;
+    const rows = _rdCtrl.getRows();
+    rows.push({ tID: m.tID, dt: m.dt, req_date: '', amt: m.amt, desc: m.desc,
+                acct: m.acct || 'Acct.Fixed.Tangible.InConstruction',
+                propNm: m.propNm || '', purpose: '', notes: '' });
+    _rdCtrl.refresh(rows);
+    document.getElementById('rdMsg').innerHTML =
+      '<span class="ok">Added a draft requisition for ' + m.tID + ' — fill purpose/notes and Save.</span>';
+  }
+
+  function buildTable(docs) {
+    _rdCtrl = window.InlineEditTable.create({
+      mount: 'rdTable',
+      rowKeyField: 'tID',
+      showCommit: true,
+      commitLabel: 'Save Requisitions',
+      emptyText: 'No requisitions yet — ➕ Add, or use “+ add req” on a missing transaction above.',
+      columns: [
+        { key: 'tID',      label: 'GL tID (link)', editable: true, input: 'text' },
+        { key: 'dt',       label: 'Txn Date',      editable: true, input: 'text' },
+        { key: 'req_date', label: 'Req Date',      editable: true, input: 'text' },
+        { key: 'amt',      label: 'Amount',        editable: true, input: 'text' },
+        { key: 'acct',     label: 'Account',       editable: true, input: 'select', options: _acctOpts() },
+        { key: 'propNm',   label: 'Property',      editable: true, input: 'select', options: _propOpts() },
+        { key: 'purpose',  label: 'Purpose',       editable: true, input: 'text' },
+        { key: 'notes',    label: 'Notes',         editable: true, input: 'text' },
+      ],
+      rows: docs,
+      onCommit: saveReqs,
+    });
+  }
+
+  async function saveReqs(payload, ctrl) {
+    const docs = payload.allRows || [];
+    const msg = document.getElementById('rdMsg');
+    msg.textContent = 'Saving…';
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/reqdocs', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ year: ACTIVE_YEAR, docs }),
+      });
+      const j = await res.json();
+      if (!j.ok) { msg.innerHTML = '<span class="err">Save failed: ' + (j.error||'') + '</span>'; return; }
+      msg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' requisitions.</span>';
+      ctrl.refresh(j.docs);
+      document.getElementById('rdCount').textContent = j.count + ' requisitions · ' + ACTIVE_YEAR;
+      renderMissing(j.missing || []);
+    } catch (e) {
+      msg.innerHTML = '<span class="err">Save error: ' + e.message + '</span>';
+    }
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (!_rdCtrl) return;
+    const p = _rdCtrl.getPending();
+    if ((p.edited.length + p.added.length + p.deleted.length) > 0) {
+      e.preventDefault(); e.returnValue = '';
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', loadReqs);
+</script>
+<style>
+  .bp-panel { background:white; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
+  .bp-title { background:#0f766e; color:white; border-radius:10px 10px 0 0; padding:12px 16px;
+              display:flex; align-items:center; gap:10px; margin:-16px -16px 14px; }
+  .bp-title .nm { font-weight:700; font-size:16px; }
+  .bp-title .cnt { margin-left:auto; font-size:13px; opacity:.85; }
+  .menu summary { list-style:none; cursor:pointer; font-size:18px; background:rgba(255,255,255,.2);
+                  color:white; border-radius:4px; padding:2px 10px; }
+  .menu summary::-webkit-details-marker { display:none; }
+  .err { color:#b91c1c; font-weight:600; } .ok { color:#15803d; font-weight:600; }
+  #missingBox { font-size:13px; background:#fffbeb; border:1px solid #fcd34d; border-radius:8px;
+                padding:10px 12px; margin-bottom:12px; }
+  #missingBox.clean { background:#f0fdf4; border-color:#bbf7d0; }
+  .mini { font-size:11px; padding:1px 6px; border:1px solid #93c5fd; border-radius:4px;
+          background:#dbeafe; color:#1e40af; cursor:pointer; margin-left:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bp-panel">
+  <div class="bp-title">
+    <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
+    <span class="nm">🧾 Requisitions</span>
+    <span class="cnt" id="rdCount"></span>
+  </div>
+  <p style="font-size:13px;color:#6b7280;margin-top:0;">
+    One-time charge documentation. Each requisition links to exactly one GL transaction by <code>tID</code>.
+    Select rows to Edit/Dup/Delete, ➕ Add, then <strong>Save Requisitions</strong>.
+  </p>
+  <div id="missingBox"></div>
+  <div id="rdMsg" style="font-size:13px;margin-bottom:10px;"></div>
+  <div id="rdTable"></div>
+</div>
+{% endblock %}
