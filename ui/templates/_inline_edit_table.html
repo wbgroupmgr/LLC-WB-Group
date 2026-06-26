@@ -1,0 +1,400 @@
+<!--
+  _inline_edit_table.html — shared inline-edit table component (issue #42 Phase 0)
+
+  Reusable across the 3 BankToBook views (Preview, KB-Rules, Requisitions).
+  Models the proven issue-#8 selection-bar editing paradigm:
+    row checkbox → selection bar (Edit / Dup / Delete + custom) → inline inputs
+    → Done/Cancel → pending state (amber/green/red) → Commit / Revert.
+
+  Host page drives it via window.InlineEditTable.create(config):
+    {
+      mount:        'domId',                 // container element id
+      columns:      [{key,label,editable,input:'text'|'select',options:[{value,label}]}],
+      rows:         [ {...data...} ],         // plain row dicts
+      rowKeyField:  'tID',                    // unique key field (fallback: synthetic)
+      readOnly:     false,
+      statusClass:  function(row){return 'iet-auto'|'iet-review'|...|''},  // optional row tint
+      extraActions: [{id,label,title,onClick(selectedRows, ctrl)}],        // selection-bar buttons
+      showCommit:   true,
+      commitLabel:  'Commit',
+      onCommit:     function(payload, ctrl){...}  // payload:{edited,added,deleted,allRows}
+    }
+  Returns a controller: { getRows(), getPending(), refresh(rows), clearPending() }.
+-->
+<style>
+  .iet-wrap { border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
+  .iet-bar { display:none; align-items:center; gap:8px; padding:7px 14px;
+             background:#eff6ff; border-bottom:1px solid #bfdbfe; flex-wrap:wrap; }
+  .iet-bar.show { display:flex; }
+  .iet-count { font-size:13px; color:#1e40af; font-weight:600; margin-right:4px; }
+  .iet-btn { padding:5px 10px; border-radius:5px; cursor:pointer; font-size:12px;
+             border:1px solid #cbd5e1; background:white; color:#374151; white-space:nowrap; }
+  .iet-btn:hover { background:#f3f4f6; }
+  .iet-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .iet-btn.del { color:#dc2626; border-color:#fca5a5; }
+  .iet-btn.del:hover { background:#fee2e2; }
+  .iet-btn.done { color:#15803d; border-color:#86efac; font-weight:700; }
+  .iet-btn.done:hover { background:#dcfce7; }
+  .iet-btn.cancel { color:#b91c1c; border-color:#fca5a5; font-weight:700; }
+  .iet-btn.primary { color:#1d4ed8; border-color:#93c5fd; font-weight:600; }
+  .iet-btn.success { color:#15803d; border-color:#86efac; font-weight:600; }
+  .iet-commitbar { display:none; align-items:center; gap:10px; padding:7px 14px;
+                   background:#fef3c7; border-bottom:1px solid #fcd34d; flex-wrap:wrap; }
+  .iet-commitbar.show { display:flex; }
+  .iet-table-scroll { max-height:60vh; overflow:auto; }
+  table.iet-table { border-collapse:collapse; width:100%; }
+  table.iet-table th { position:sticky; top:0; background:#0f172a; color:white;
+                       padding:9px 11px; text-align:left; font-size:12px; z-index:2; white-space:nowrap; }
+  table.iet-table td { padding:6px 11px; border-bottom:1px solid #eef2f7; font-size:13px; vertical-align:top; }
+  table.iet-table tr:hover td { background:#f9fafb; }
+  .iet-col-sel, .iet-col-chg { width:1%; white-space:nowrap; text-align:center; }
+  .iet-chg { font-weight:700; }
+  .iet-chg.add { color:#15803d; } .iet-chg.edit { color:#b45309; } .iet-chg.del { color:#dc2626; }
+  tr.iet-editing td { background:#eff6ff !important; }
+  tr.iet-pending-add td { background:#ecfdf5 !important; }
+  tr.iet-pending-update td { background:#fffbeb !important; }
+  tr.iet-pending-delete td { background:#fef2f2 !important; text-decoration:line-through; color:#991b1b; }
+  /* status tints (preview color-coding) */
+  tr.iet-auto td       { box-shadow: inset 3px 0 0 #22c55e; }
+  tr.iet-review td     { box-shadow: inset 3px 0 0 #f59e0b; }
+  tr.iet-flagged td,
+  tr.iet-need td       { box-shadow: inset 3px 0 0 #fb923c; }
+  tr.iet-dup td        { color:#9ca3af; box-shadow: inset 3px 0 0 #d1d5db; }
+  .iet-input { width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #60a5fa;
+               border-radius:3px; font-size:13px; font-family:inherit; background:white; }
+  .iet-input:focus { outline:2px solid #3b82f6; outline-offset:-1px; }
+  .iet-empty { text-align:center; color:#6b7280; padding:24px; }
+</style>
+
+<script>
+(function () {
+  if (window.InlineEditTable) return;  // define once
+
+  function el(tag, cls, html) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html !== undefined) e.innerHTML = html;
+    return e;
+  }
+  function esc(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function create(cfg) {
+    const mount = document.getElementById(cfg.mount);
+    if (!mount) { console.error('InlineEditTable: mount not found', cfg.mount); return null; }
+
+    const columns     = cfg.columns || [];
+    const rowKeyField = cfg.rowKeyField || 'tID';
+    const readOnly    = !!cfg.readOnly;
+    const statusClass = cfg.statusClass || function(){ return ''; };
+    const extraActions= cfg.extraActions || [];
+    const showCommit  = cfg.showCommit !== false;
+    const commitLabel = cfg.commitLabel || 'Commit';
+
+    let rows    = (cfg.rows || []).map(normalize);
+    let seq     = 0;
+    const editing = new Set();            // keys currently open as inputs
+    const pending = new Map();            // key -> {op:'update'|'add'|'delete', row}
+
+    function normalize(r) {
+      const row = Object.assign({}, r);
+      if (!row.__key) row.__key = (row[rowKeyField] != null && row[rowKeyField] !== '')
+        ? 'k_' + row[rowKeyField] : 'n_' + (++seq) + '_' + Math.random().toString(36).slice(2);
+      return row;
+    }
+
+    // ── DOM scaffold ──────────────────────────────────────────────────────────
+    mount.innerHTML = '';
+    const wrap = el('div', 'iet-wrap');
+
+    const bar = el('div', 'iet-bar');
+    const selGrp = el('div'); selGrp.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+    const cnt = el('span', 'iet-count');
+    selGrp.appendChild(cnt);
+    const btnEdit = el('button', 'iet-btn', '✎ Edit');
+    const btnDup  = el('button', 'iet-btn', '⧉ Dup');
+    const btnDel  = el('button', 'iet-btn del', '✕ Delete');
+    selGrp.appendChild(btnEdit); selGrp.appendChild(btnDup); selGrp.appendChild(btnDel);
+    extraActions.forEach(a => {
+      const b = el('button', 'iet-btn primary', esc(a.label));
+      if (a.title) b.title = a.title;
+      b.addEventListener('click', () => a.onClick(selectedRows(), ctrl));
+      selGrp.appendChild(b);
+    });
+    const editGrp = el('div'); editGrp.style.cssText = 'display:none;gap:6px;align-items:center';
+    const btnDone = el('button', 'iet-btn done', '✓ Done');
+    const btnCancel = el('button', 'iet-btn cancel', '✗ Cancel');
+    editGrp.appendChild(btnDone); editGrp.appendChild(btnCancel);
+    bar.appendChild(selGrp); bar.appendChild(editGrp);
+
+    const commitbar = el('div', 'iet-commitbar');
+    const btnCommit = el('button', 'iet-btn success', commitLabel + ' (0)');
+    const btnRevert = el('button', 'iet-btn', '↩ Revert All');
+    commitbar.appendChild(btnCommit); commitbar.appendChild(btnRevert);
+
+    const toolbar = el('div'); toolbar.style.cssText = 'display:flex;gap:8px;padding:7px 14px;border-bottom:1px solid #e5e7eb;background:#fafafa';
+    if (!readOnly) {
+      const btnAdd = el('button', 'iet-btn success', '➕ Add');
+      btnAdd.addEventListener('click', addRow);
+      toolbar.appendChild(btnAdd);
+    }
+
+    const scroll = el('div', 'iet-table-scroll');
+    const table = el('table', 'iet-table');
+    const thead = el('thead');
+    const htr = el('tr');
+    if (!readOnly) {
+      const thSel = el('th', 'iet-col-sel'); thSel.innerHTML = '<input type="checkbox" title="Select all">';
+      thSel.querySelector('input').addEventListener('change', e => {
+        scroll.querySelectorAll('.iet-rowsel').forEach(cb => { cb.checked = e.target.checked; });
+        updateBar();
+      });
+      htr.appendChild(thSel);
+      htr.appendChild(el('th', 'iet-col-chg', 'Chg'));
+    }
+    columns.forEach(c => htr.appendChild(el('th', null, esc(c.label || c.key))));
+    thead.appendChild(htr);
+    const tbody = el('tbody');
+    table.appendChild(thead); table.appendChild(tbody);
+    scroll.appendChild(table);
+
+    if (!readOnly) wrap.appendChild(bar);
+    if (!readOnly && showCommit) wrap.appendChild(commitbar);
+    if (!readOnly) wrap.appendChild(toolbar);
+    wrap.appendChild(scroll);
+    mount.appendChild(wrap);
+
+    // ── render ─────────────────────────────────────────────────────────────────
+    function render() {
+      tbody.innerHTML = '';
+      if (!rows.length) {
+        const tr = el('tr');
+        const td = el('td', 'iet-empty', cfg.emptyText || 'No records.');
+        td.colSpan = columns.length + (readOnly ? 0 : 2);
+        tr.appendChild(td); tbody.appendChild(tr);
+        updateBar(); updateCommit(); return;
+      }
+      rows.forEach(row => tbody.appendChild(buildRow(row)));
+      updateBar(); updateCommit();
+    }
+
+    function buildRow(row) {
+      const tr = el('tr');
+      tr.dataset.key = row.__key;
+      const stat = statusClass(row);
+      if (stat) tr.classList.add(stat);
+      const p = pending.get(row.__key);
+      if (p) tr.classList.add('iet-pending-' + p.op);
+
+      if (!readOnly) {
+        const tdSel = el('td', 'iet-col-sel');
+        const cb = el('input'); cb.type = 'checkbox'; cb.className = 'iet-rowsel';
+        cb.addEventListener('change', updateBar);
+        tdSel.appendChild(cb); tr.appendChild(tdSel);
+        const tdChg = el('td', 'iet-col-chg');
+        if (p) tdChg.innerHTML = '<span class="iet-chg ' +
+          (p.op==='add'?'add':p.op==='delete'?'del':'edit') + '">' +
+          (p.op==='add'?'+':p.op==='delete'?'✕':'✎') + '</span>';
+        tr.appendChild(tdChg);
+      }
+      columns.forEach(c => {
+        const td = el('td'); td.dataset.col = c.key;
+        td.textContent = fmt(row[c.key], c);
+        tr.appendChild(td);
+      });
+      return tr;
+    }
+
+    function fmt(v, c) {
+      if (v === null || v === undefined) return '';
+      if (c.input === 'select' && c.options) {
+        const o = c.options.find(o => String(o.value) === String(v));
+        return o ? o.label : String(v);
+      }
+      return String(v);
+    }
+
+    // ── selection ────────────────────────────────────────────────────────────
+    function selectedTrs() { return Array.from(scroll.querySelectorAll('.iet-rowsel'))
+      .filter(cb => cb.checked).map(cb => cb.closest('tr')); }
+    function selectedRows() { return selectedTrs().map(tr => rowByKey(tr.dataset.key)); }
+    function rowByKey(k) { return rows.find(r => r.__key === k); }
+    function trByKey(k) { return scroll.querySelector('tr[data-key="'+CSS.escape(k)+'"]'); }
+
+    function updateBar() {
+      const n = selectedTrs().length;
+      const isEditing = editing.size > 0;
+      bar.classList.toggle('show', isEditing || n > 0);
+      selGrp.style.display = isEditing ? 'none' : 'flex';
+      editGrp.style.display = isEditing ? 'flex' : 'none';
+      cnt.textContent = n ? (n + ' selected') : '';
+      btnEdit.disabled = n === 0; btnDup.disabled = n === 0; btnDel.disabled = n === 0;
+    }
+    function updateCommit() {
+      if (!showCommit) return;
+      commitbar.classList.toggle('show', pending.size > 0);
+      btnCommit.textContent = commitLabel + ' (' + pending.size + ')';
+    }
+
+    // ── edit mechanics ─────────────────────────────────────────────────────────
+    function openEdit(tr) {
+      const key = tr.dataset.key;
+      if (editing.has(key)) return;
+      const row = rowByKey(key);
+      tr.classList.remove('iet-pending-delete');
+      tr.querySelectorAll('td[data-col]').forEach(td => {
+        const c = columns.find(x => x.key === td.dataset.col);
+        if (!c || !c.editable) return;
+        let inp;
+        if (c.input === 'select' && c.options) {
+          inp = el('select', 'iet-input');
+          c.options.forEach(o => {
+            const opt = el('option'); opt.value = o.value; opt.textContent = o.label;
+            if (String(o.value) === String(row[c.key])) opt.selected = true;
+            inp.appendChild(opt);
+          });
+        } else {
+          inp = el('input', 'iet-input'); inp.type = 'text';
+          inp.value = row[c.key] != null ? row[c.key] : '';
+        }
+        inp.dataset.col = c.key;
+        td.innerHTML = ''; td.appendChild(inp);
+      });
+      tr.classList.add('iet-editing');
+      editing.add(key);
+    }
+
+    function commitEditRow(key) {
+      const tr = trByKey(key); if (!tr) { editing.delete(key); return; }
+      const row = rowByKey(key);
+      tr.querySelectorAll('.iet-input').forEach(inp => { row[inp.dataset.col] = inp.value; });
+      editing.delete(key);
+      tr.classList.remove('iet-editing');
+      const isNew = (pending.get(key) || {}).op === 'add';
+      pending.set(key, { op: isNew ? 'add' : 'update', row });
+      // repaint cells
+      tr.querySelectorAll('td[data-col]').forEach(td => {
+        const c = columns.find(x => x.key === td.dataset.col);
+        td.textContent = fmt(row[td.dataset.col], c || {});
+      });
+      tr.classList.remove('iet-pending-add','iet-pending-update');
+      tr.classList.add('iet-pending-' + (isNew ? 'add' : 'update'));
+      const chg = tr.querySelector('.iet-col-chg');
+      if (chg) chg.innerHTML = '<span class="iet-chg '+(isNew?'add':'edit')+'">'+(isNew?'+':'✎')+'</span>';
+    }
+
+    function cancelEditRow(key) {
+      const tr = trByKey(key); editing.delete(key);
+      if (!tr) return;
+      const wasNew = (pending.get(key) || {}).op === 'add';
+      if (wasNew && !rowCommitted(key)) {
+        pending.delete(key);
+        rows = rows.filter(r => r.__key !== key);
+        tr.remove();
+      } else {
+        const row = rowByKey(key);
+        tr.classList.remove('iet-editing');
+        tr.querySelectorAll('td[data-col]').forEach(td => {
+          const c = columns.find(x => x.key === td.dataset.col);
+          td.textContent = fmt(row[td.dataset.col], c || {});
+        });
+      }
+    }
+    function rowCommitted(key){ const p = pending.get(key); return p && p.__committed; }
+
+    // ── actions ────────────────────────────────────────────────────────────────
+    btnEdit.addEventListener('click', () => {
+      const trs = selectedTrs().filter(tr => !tr.classList.contains('iet-editing'));
+      trs.forEach(openEdit); updateBar();
+      const f = scroll.querySelector('.iet-input'); if (f) f.focus();
+    });
+    btnDone.addEventListener('click', () => {
+      Array.from(editing).forEach(commitEditRow); editing.clear();
+      updateBar(); updateCommit();
+    });
+    btnCancel.addEventListener('click', () => {
+      Array.from(editing).forEach(cancelEditRow); editing.clear();
+      updateBar(); updateCommit();
+    });
+    btnDel.addEventListener('click', () => {
+      selectedTrs().forEach(tr => {
+        const key = tr.dataset.key;
+        if ((pending.get(key)||{}).op === 'add' && !rowCommitted(key)) {
+          pending.delete(key); rows = rows.filter(r => r.__key !== key); tr.remove(); return;
+        }
+        if (tr.classList.contains('iet-editing')) cancelEditRow(key);
+        tr.classList.remove('iet-pending-add','iet-pending-update');
+        tr.classList.add('iet-pending-delete');
+        pending.set(key, { op:'delete', row: rowByKey(key) });
+        const chg = tr.querySelector('.iet-col-chg');
+        if (chg) chg.innerHTML = '<span class="iet-chg del">✕</span>';
+        const cb = tr.querySelector('.iet-rowsel'); if (cb) cb.checked = false;
+      });
+      updateBar(); updateCommit();
+    });
+    btnDup.addEventListener('click', () => {
+      selectedRows().forEach(src => {
+        const copy = normalize(Object.assign({}, src, { __key: undefined }));
+        copy.__key = 'n_' + (++seq) + '_' + Math.random().toString(36).slice(2);
+        rows.push(copy);
+        pending.set(copy.__key, { op:'add', row: copy });
+        const tr = buildRow(copy); tbody.appendChild(tr);
+        openEdit(tr); tr.scrollIntoView({block:'nearest'});
+      });
+      updateBar(); updateCommit();
+    });
+    function addRow() {
+      const blank = {}; columns.forEach(c => blank[c.key] = '');
+      const row = normalize(blank);
+      rows.push(row);
+      pending.set(row.__key, { op:'add', row });
+      const tr = buildRow(row); tbody.appendChild(tr);
+      openEdit(tr); tr.scrollIntoView({block:'nearest'});
+      const f = tr.querySelector('.iet-input'); if (f) f.focus();
+      updateBar(); updateCommit();
+    }
+
+    btnRevert.addEventListener('click', () => {
+      if (!pending.size) return;
+      if (!confirm('Discard all ' + pending.size + ' pending change(s)?')) return;
+      ctrl.refresh(cfg.rows || []);
+    });
+    btnCommit.addEventListener('click', () => {
+      if (editing.size) { Array.from(editing).forEach(commitEditRow); editing.clear(); }
+      const payload = collect();
+      if (cfg.onCommit) cfg.onCommit(payload, ctrl);
+    });
+
+    function collect() {
+      const edited = [], added = [], deleted = [];
+      pending.forEach((p, key) => {
+        const clean = Object.assign({}, p.row); delete clean.__key;
+        if (p.op === 'update') edited.push(clean);
+        else if (p.op === 'add') added.push(clean);
+        else if (p.op === 'delete') deleted.push((p.row && p.row[rowKeyField]) || key);
+      });
+      const allRows = rows.filter(r => (pending.get(r.__key)||{}).op !== 'delete')
+                          .map(r => { const c = Object.assign({}, r); delete c.__key; return c; });
+      return { edited, added, deleted, allRows };
+    }
+
+    // ── controller ───────────────────────────────────────────────────────────
+    const ctrl = {
+      getRows: () => rows.map(r => { const c = Object.assign({}, r); delete c.__key; return c; }),
+      getPending: () => collect(),
+      clearPending: () => { pending.clear(); render(); },
+      refresh: (newRows) => {
+        rows = (newRows || []).map(normalize);
+        editing.clear(); pending.clear(); render();
+      },
+    };
+
+    render();
+    return ctrl;
+  }
+
+  window.InlineEditTable = { create };
+})();
+</script>
