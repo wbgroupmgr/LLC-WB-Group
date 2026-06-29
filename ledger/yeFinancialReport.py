@@ -361,8 +361,8 @@ class YEFinancialReportAgent:
 
         # Build rows grouped by acctType
         rows = self._bs_section_rows()
-        col_w = [3.2*inch, 1.3*inch, 1.3*inch, 1.3*inch]
-        hdr   = [['Account', 'Debit', 'Credit', 'Balance']]
+        col_w = [5.1*inch, 1.3*inch]
+        hdr   = [['Account', 'Balance']]
         data  = hdr + rows
         ts = self._table_style(len(data))
         tbl = Table(data, colWidths=col_w, repeatRows=1)
@@ -408,10 +408,10 @@ class YEFinancialReportAgent:
             HRFlowable(width='100%', thickness=1, color=C_BORDER, spaceAfter=8),
         ]
 
-        col_w = [3.5*inch, 1.2*inch, 1.2*inch, 1.2*inch]
+        col_w = [5.3*inch, 1.2*inch]
         rows = self._is_section_rows()
         ni   = self._is_agg.get('net_income', 0)   # authoritative from taxAggregates
-        hdr  = [['Account', 'Debit', 'Credit', 'Balance']]
+        hdr  = [['Account', 'Balance']]
         data = hdr + rows
         tbl  = Table(data, colWidths=col_w, repeatRows=1)
         tbl.setStyle(self._is_table_style(data))
@@ -722,25 +722,18 @@ class YEFinancialReportAgent:
             if at == 'TOTAL':
                 continue
             if at != cur_type:
-                rows.append([f'── {at} ──', '', '', ''])
+                rows.append([f'── {at} ──', ''])
                 cur_type = at
             acct  = r.get('acct', '') or ''
             minor = r.get('acctMinor', '') or ''
             full_path = f'{acct}.{minor}'.rstrip('.') if minor else acct
             coa_id = self._coa_id(full_path)
             full_code = f'{coa_id}  {full_path}' if coa_id else full_path
-            d = r.get('Debit', 0) or 0
-            c = r.get('Credit', 0) or 0
             b = r.get('Balance', 0) or 0
-            rows.append([f'  {full_code}',
-                         _fmt(d) if d else '',
-                         _fmt(c) if c else '',
-                         _fmt(b, parens=True)])
-        # totals
-        td = sum(r.get('Debit',0) or 0 for r in self._bs_rows if r.get('acctType') != 'TOTAL')
-        tc = sum(r.get('Credit',0) or 0 for r in self._bs_rows if r.get('acctType') != 'TOTAL')
-        tb = round(td - tc, 2)
-        rows.append(['TOTAL', _fmt(td), _fmt(tc), _fmt(tb, parens=True)])
+            rows.append([f'  {full_code}', _fmt(b, parens=True)])
+        # total
+        tb = sum(r.get('Balance', 0) or 0 for r in self._bs_rows if r.get('acctType') != 'TOTAL')
+        rows.append(['TOTAL', _fmt(round(tb, 2), parens=True)])
         return rows
 
     def _is_section_rows(self) -> list:
@@ -769,41 +762,38 @@ class YEFinancialReportAgent:
         income_rows  = [(k, v) for k, v in agg.items() if v['acctType'] == 'Income']
         expense_rows = [(k, v) for k, v in agg.items() if v['acctType'] == 'Expense']
 
-        def _dr(at, acct, d, c, b):
+        def _dr(at, acct, b):
             display_b = -b if at == 'Income' else b
             coa_id = self._coa_id(acct)
             label  = f'{coa_id}  {acct}' if coa_id else acct
-            return [f'  {label}',
-                    _fmt(d) if d else '',
-                    _fmt(c) if c else '',
-                    _fmt(display_b, parens=True)]
+            return [f'  {label}', _fmt(display_b, parens=True)]
 
         rows = []
 
         if income_rows:
-            rows.append(['── Income ──', '', '', ''])
+            rows.append(['── Income ──', ''])
             for (at, acct), data in income_rows:
-                rows.append(_dr(at, acct, data['Debit'], data['Credit'], data['Balance']))
+                rows.append(_dr(at, acct, data['Balance']))
             ri = _tb('rental-income-subtotal')
             oi = _tb('ordinary-income-subtotal')
             if abs(ri) > 0.01:
-                rows.append(['  SubTotal Rental Income', '', '', _fmt(ri, parens=True)])
+                rows.append(['  SubTotal Rental Income', _fmt(ri, parens=True)])
             if abs(oi) > 0.01:
-                rows.append(['  SubTotal Ordinary Income', '', '', _fmt(oi, parens=True)])
+                rows.append(['  SubTotal Ordinary Income', _fmt(oi, parens=True)])
 
         if expense_rows:
-            rows.append(['── Expense ──', '', '', ''])
+            rows.append(['── Expense ──', ''])
             for (at, acct), data in expense_rows:
-                rows.append(_dr(at, acct, data['Debit'], data['Credit'], data['Balance']))
+                rows.append(_dr(at, acct, data['Balance']))
             re = _tb('rental-expense-subtotal')
             oe = _tb('ordinary-expense-subtotal')
             if abs(re) > 0.01:
-                rows.append(['  SubTotal Rental Expense', '', '', _fmt(re, parens=True)])
+                rows.append(['  SubTotal Rental Expense', _fmt(re, parens=True)])
             if abs(oe) > 0.01:
-                rows.append(['  SubTotal Ordinary Expense', '', '', _fmt(oe, parens=True)])
+                rows.append(['  SubTotal Ordinary Expense', _fmt(oe, parens=True)])
 
         ni = _tb('total-net')
-        rows.append(['NET INCOME / (LOSS)', '', '', _fmt(ni, parens=True)])
+        rows.append(['NET INCOME / (LOSS)', _fmt(ni, parens=True)])
         return rows
 
     def _coa_id(self, full_path: str) -> str:
