@@ -1205,6 +1205,7 @@ class llcMgmt:
                     view_by=view_by,
                     view_by_options=view_by_options,
                     bs_check=bs_check,
+                    show_acct_subs=view_by in ('Details', 'ByPropertyDetails', 'PerMemberDetails'),
                 )
 
             # ── Property Equity view ──────────────────────────────────────────
