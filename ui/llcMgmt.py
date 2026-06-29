@@ -60,6 +60,7 @@ from ui.llcLogin_auth       import make_auth_routes
 from ui.llcPropAgent        import bind_propAgent_routes
 from ui.llcExpAgent         import bind_expAgent_routes
 from ui.llcBankIngest       import bind_bankIngest_routes
+from ui.llcMonthlyRecon     import bind_monthly_recon_routes
 
 
 class llcMgmt:
@@ -103,7 +104,8 @@ class llcMgmt:
         "llcFormK1":           "Schedule K-1",
         "llcForm8825":         "Form 8825",
         "llcForm4562":         "Form 4562",
-        "yeFinancialReport":   "Financial Report\nYE Report",
+        "yeFinancialReport":          "Financial Report\nYE Report",
+        "monthly_reconciliation":     "Monthly Reconciliation",
         # LLC Admin directory views
         "llcOwners":           "Members / Owners",
         "llcCustomers":        "Tenants / Customers",
@@ -167,7 +169,7 @@ class llcMgmt:
         {
             "label": "Reports - Analysis",
             "icon":  "📄",
-            "views": ["yeFinancialReport"],
+            "views": ["yeFinancialReport", "monthly_reconciliation"],
         },
     ]
 
@@ -3898,6 +3900,7 @@ class llcMgmt:
         bind_propAgent_routes(app, self.objects, self._sanitize)
         bind_expAgent_routes(app, self.objects, self._sanitize)
         bind_bankIngest_routes(app, self.objects)
+        bind_monthly_recon_routes(app, self.objects)
 
     def run(self, host: str = "127.0.0.1", port: int = 5000, debug: bool = False, notebook: bool = False):
         if notebook:

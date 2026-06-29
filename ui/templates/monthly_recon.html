@@ -1,0 +1,434 @@
+{% extends "base.html" %}
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const CONFIGURED_YEAR = {{ configured_year | tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
+    let _selectedYm = null;
+    let _currentReport = null;
+</script>
+
+<style>
+    /* ── layout ── */
+    .mr-layout {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: 12px;
+        align-items: start;
+    }
+    /* ── sidebar ── */
+    .mr-sidebar {
+        position: sticky;
+        top: 8px;
+    }
+    .mr-sidebar-header {
+        background: #1e40af; color: white;
+        padding: 10px 14px; border-radius: 8px 8px 0 0;
+        font-size: 13px; font-weight: 700;
+    }
+    .mr-month-list {
+        border: 1px solid #e5e7eb; border-top: none;
+        border-radius: 0 0 8px 8px; overflow: hidden;
+    }
+    .mr-month-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 8px 12px; border-bottom: 1px solid #f3f4f6;
+        cursor: pointer; font-size: 12px; background: white;
+        transition: background 0.1s;
+    }
+    .mr-month-item:last-child { border-bottom: none; }
+    .mr-month-item:hover      { background: #eff6ff; }
+    .mr-month-item.active     { background: #dbeafe; font-weight: 700; color: #1e3a8a; }
+    .mr-month-label { font-size: 12px; }
+    .mr-month-meta  { font-size: 10px; color: #6b7280; margin-top: 1px; }
+    .mr-badge-warn  {
+        background: #fef3c7; color: #92400e;
+        padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    }
+    .mr-badge-ok    {
+        background: #d1fae5; color: #065f46;
+        padding: 1px 6px; border-radius: 10px; font-size: 10px;
+    }
+
+    /* ── year selector ── */
+    .mr-year-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 12px; background: #f9fafb;
+        border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px;
+        font-size: 12px;
+    }
+    .mr-year-row select { font-size: 12px; }
+
+    /* ── title bar ── */
+    .title-panel {
+        position: sticky; top: 0; z-index: 20; margin-bottom: 12px;
+        border-radius: 10px; overflow: visible;
+    }
+    .title-toolbar {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        background: #1e40af; padding: 12px 16px; color: white;
+        border-radius: 10px;
+    }
+    .title-left  { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; }
+    .title-name  { font-size: 16px; font-weight: 700; color: white; white-space: nowrap; }
+    .title-sub   { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; }
+    .title-sep   { color: #93c5fd; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .toolbar-row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+        user-select: none; white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827; min-width: 180px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300; overflow: hidden;
+    }
+    .actions-menu .act-dropdown button, .actions-menu .act-dropdown a {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6; text-decoration: none;
+    }
+    .actions-menu .act-dropdown button:last-child,
+    .actions-menu .act-dropdown a:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown button:hover,
+    .actions-menu .act-dropdown a:hover { background: #f3f4f6; }
+    .actions-menu .act-dropdown .act-primary { color: #1d4ed8; font-weight: 600; }
+
+    /* ── report frame ── */
+    .mr-report-panel { min-height: 400px; }
+    .mr-placeholder {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; height: 300px; color: #9ca3af; gap: 8px;
+    }
+    .mr-placeholder .big-icon { font-size: 48px; }
+
+    /* ── section headers ── */
+    .mr-section-hdr {
+        background: #1f2937; color: white; font-size: 12px; font-weight: 700;
+        padding: 6px 12px; border-radius: 6px 6px 0 0; margin-top: 14px;
+        margin-bottom: 0;
+    }
+    .mr-section-body { border: 1px solid #e5e7eb; border-top: none;
+                       border-radius: 0 0 6px 6px; overflow: hidden; }
+
+    /* ── tables ── */
+    .mr-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .mr-table th {
+        background: #374151; color: white; padding: 6px 8px;
+        text-align: left; font-size: 11px; border-bottom: 2px solid #4b5563;
+    }
+    .mr-table th.num { text-align: right; }
+    .mr-table td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; }
+    .mr-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .mr-table tr:hover td { background: #f9fafb; }
+    .mr-table tr.subtotal td {
+        background: #eff6ff; font-weight: 600; color: #1e40af;
+        border-top: 1px solid #bfdbfe;
+    }
+    .mr-table tr.total-row td {
+        background: #1f2937; color: white; font-weight: 700;
+        border-top: 2px solid #374151;
+    }
+    .mr-table tr.warn-row td { background: #fffbeb; color: #92400e; }
+
+    /* ── period totals ── */
+    .mr-totals-grid {
+        display: grid; grid-template-columns: repeat(3,1fr); gap: 8px;
+        padding: 12px;
+    }
+    .mr-tot-chip {
+        background: #f0f9ff; border: 1px solid #bae6fd;
+        border-radius: 8px; padding: 10px 14px; text-align: center;
+    }
+    .mr-tot-chip .label { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; }
+    .mr-tot-chip .value { font-size: 18px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .mr-tot-chip.net-pos .value { color: #15803d; }
+    .mr-tot-chip.net-neg .value { color: #dc2626; }
+
+    /* ── req status banner ── */
+    .req-ok   { background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px;
+                padding: 8px 14px; font-size: 12px; color: #14532d; margin: 8px 0; }
+    .req-warn { background: #fffbeb; border: 1px solid #fbbf24; border-radius: 6px;
+                padding: 8px 14px; font-size: 12px; color: #78350f; margin: 8px 0; }
+
+    @media print {
+        .title-panel, .mr-sidebar, .toolbar-row, .mr-year-row { display: none !important; }
+        .mr-layout { display: block; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ── Title bar ── -->
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-sub">📅 Monthly Reconciliation</span>
+            <span class="title-sep">·</span>
+            <span class="title-name">{{ app_title }}</span>
+        </div>
+        <div class="toolbar-row">
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        <button class="act-primary" onclick="downloadPDF()">🖨️ Download PDF</button>
+                        <button onclick="refreshMonths()">🔄 Refresh</button>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Two-frame layout ── -->
+<div class="mr-layout">
+
+    <!-- ── Frame 1: Month list sidebar ── -->
+    <div class="mr-sidebar panel" style="padding:0">
+        <div class="mr-year-row">
+            <label for="yearSel" style="font-weight:600">Year</label>
+            <select id="yearSel" onchange="changeYear(this.value)" style="flex:1">
+                {% for y in range(configured_year - 2, configured_year + 2) %}
+                <option value="{{ y }}" {% if y == configured_year %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mr-sidebar-header">📋 Months with GL Activity</div>
+        <div class="mr-month-list" id="monthList">
+            <div style="padding:16px;text-align:center;color:#9ca3af;font-size:12px">Loading…</div>
+        </div>
+    </div>
+
+    <!-- ── Frame 2: Report panel ── -->
+    <div class="panel mr-report-panel" id="reportPanel">
+        <div class="mr-placeholder" id="reportPlaceholder">
+            <span class="big-icon">📅</span>
+            <p style="font-size:13px;color:#6b7280;text-align:center">
+                Select a month from the list to view its reconciliation report.
+            </p>
+        </div>
+        <div id="reportContent" style="display:none"></div>
+    </div>
+
+</div>
+
+<script>
+(function(){
+    const _root = _scriptRoot || '';
+    let _months = [];
+
+    function fmtAmt(v) {
+        const n = Number(v);
+        const s = Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        return n < 0 ? `(${s})` : s;
+    }
+    function _esc(s) {
+        return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    window.changeYear = function(y) {
+        loadMonths(parseInt(y));
+    };
+
+    window.refreshMonths = function() {
+        loadMonths(parseInt(document.getElementById('yearSel').value));
+    };
+
+    async function loadMonths(year) {
+        const listEl = document.getElementById('monthList');
+        listEl.innerHTML = '<div style="padding:12px;text-align:center;color:#9ca3af;font-size:12px">Loading…</div>';
+        try {
+            const res  = await fetch(`${_root}/api/monthly_recon/months?year=${year}`);
+            const data = await res.json();
+            if (!data.ok) { listEl.innerHTML = `<div style="padding:12px;color:#dc2626;font-size:12px">Error: ${_esc(data.error)}</div>`; return; }
+            _months = data.months || [];
+            if (!_months.length) {
+                listEl.innerHTML = '<div style="padding:12px;text-align:center;color:#9ca3af;font-size:12px">No GL transactions found for this year.</div>';
+                return;
+            }
+            listEl.innerHTML = _months.map(m => `
+                <div class="mr-month-item" id="mi_${m.ym}" onclick="selectMonth('${m.ym}')">
+                    <div>
+                        <div class="mr-month-label">${_esc(m.label)}</div>
+                        <div class="mr-month-meta">${m.txn_count} transaction${m.txn_count!==1?'s':''}</div>
+                    </div>
+                    ${m.missing_reqs > 0
+                        ? `<span class="mr-badge-warn">⚠ ${m.missing_reqs}</span>`
+                        : `<span class="mr-badge-ok">✓</span>`}
+                </div>`).join('');
+            // Auto-select first (oldest) month
+            if (_months.length) selectMonth(_months[0].ym);
+        } catch(err) {
+            listEl.innerHTML = `<div style="padding:12px;color:#dc2626;font-size:12px">Network error: ${_esc(String(err))}</div>`;
+        }
+    }
+
+    window.selectMonth = async function(ym) {
+        _selectedYm = ym;
+        document.querySelectorAll('.mr-month-item').forEach(el => el.classList.remove('active'));
+        const item = document.getElementById('mi_' + ym);
+        if (item) item.classList.add('active');
+
+        const content = document.getElementById('reportContent');
+        const placeholder = document.getElementById('reportPlaceholder');
+        placeholder.style.display = 'none';
+        content.style.display = 'block';
+        content.innerHTML = '<div style="padding:24px;text-align:center;color:#6b7280">Loading report…</div>';
+
+        try {
+            const res  = await fetch(`${_root}/api/monthly_recon/report?ym=${ym}`);
+            const data = await res.json();
+            if (!data.ok) { content.innerHTML = `<div style="padding:16px;color:#dc2626">Error: ${_esc(data.error)}</div>`; return; }
+            _currentReport = data.report;
+            content.innerHTML = _renderReport(data.report);
+        } catch(err) {
+            content.innerHTML = `<div style="padding:16px;color:#dc2626">Network error: ${_esc(String(err))}</div>`;
+        }
+    };
+
+    window.downloadPDF = function() {
+        if (!_selectedYm) { alert('Select a month first.'); return; }
+        window.open(`${_root}/api/monthly_recon/pdf?ym=${_selectedYm}`, '_blank');
+        const d = document.getElementById('actionsMenu');
+        if (d) d.removeAttribute('open');
+    };
+
+    function _renderReport(r) {
+        let html = `<h3 style="margin:0 0 4px;font-size:15px;color:#1e3a8a">${_esc(r.label)} — Reconciliation Report</h3>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 12px">${r.txn_count} GL transactions · Income ${fmtAmt(r.income_total)} · Expense ${fmtAmt(r.expense_total)}</p>`;
+
+        // Period totals
+        const netCls = r.net >= 0 ? 'net-pos' : 'net-neg';
+        html += `<div class="mr-totals-grid">
+            <div class="mr-tot-chip"><div class="label">Income</div><div class="value amt-pos">${fmtAmt(r.income_total)}</div></div>
+            <div class="mr-tot-chip"><div class="label">Expenses</div><div class="value amt-neg">${fmtAmt(r.expense_total)}</div></div>
+            <div class="mr-tot-chip ${netCls}"><div class="label">Net</div><div class="value">${fmtAmt(r.net)}</div></div>
+        </div>`;
+
+        // Section 1: Transactions
+        html += `<div class="mr-section-hdr">Section 1 — Transaction Listing (${r.txn_count})</div>
+        <div class="mr-section-body"><div class="table-wrap"><table class="mr-table">
+            <thead><tr>
+                <th>Date</th><th>Account</th><th>Description</th>
+                <th>Property</th><th>D/C</th><th class="num">Amount</th>
+            </tr></thead><tbody>`;
+        if (r.transactions && r.transactions.length) {
+            r.transactions.forEach(t => {
+                html += `<tr>
+                    <td>${_esc(t.dt||'')}</td>
+                    <td style="font-family:monospace;font-size:11px">${_esc(t.acct||'')}</td>
+                    <td>${_esc((t.desc||'').substring(0,55))}</td>
+                    <td>${_esc(t.propNm||'')}</td>
+                    <td>${_esc((t.aType||'')[0]||'')}</td>
+                    <td class="num">${fmtAmt(t.amt||0)}</td>
+                </tr>`;
+            });
+        } else {
+            html += '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:12px">No transactions.</td></tr>';
+        }
+        html += '</tbody></table></div></div>';
+
+        // Section 2: Account Summary
+        html += `<div class="mr-section-hdr">Section 2 — Account Summary</div>
+        <div class="mr-section-body"><div class="table-wrap"><table class="mr-table">
+            <thead><tr>
+                <th>Account</th><th>Type</th><th class="num">Txns</th>
+                <th class="num">Debits</th><th class="num">Credits</th>
+            </tr></thead><tbody>`;
+        let totD = 0, totC = 0;
+        (r.summary_by_acct || []).forEach(s => {
+            totD += s.debit; totC += s.credit;
+            html += `<tr>
+                <td style="font-family:monospace;font-size:11px">${_esc(s.acct||'')}</td>
+                <td>${_esc(s.acctType||'')}</td>
+                <td class="num">${s.txn_count}</td>
+                <td class="num">${s.debit ? fmtAmt(s.debit) : ''}</td>
+                <td class="num">${s.credit ? fmtAmt(s.credit) : ''}</td>
+            </tr>`;
+        });
+        html += `<tr class="total-row">
+            <td colspan="3">TOTAL</td>
+            <td class="num">${fmtAmt(totD)}</td>
+            <td class="num">${fmtAmt(totC)}</td>
+        </tr></tbody></table></div></div>`;
+
+        // Section 3: Requisition Status
+        html += `<div class="mr-section-hdr">Section 3 — Requisition Status (CIP / Capital Expenditures)</div>
+        <div class="mr-section-body" style="padding:10px">`;
+        if (r.outstanding_reqs && r.outstanding_reqs.length) {
+            html += `<div class="req-warn">⚠ ${r.outstanding_reqs.length} CIP transaction(s) missing requisitions — documentation required before filing (IRC §263).</div>
+            <table class="mr-table"><thead><tr>
+                <th>tID</th><th>Date</th><th class="num">Amount</th><th>Description</th><th>Property</th>
+            </tr></thead><tbody>`;
+            r.outstanding_reqs.forEach(m => {
+                html += `<tr class="warn-row">
+                    <td style="font-family:monospace;font-size:10px">${_esc(m.tID||'')}</td>
+                    <td>${_esc(m.dt||'')}</td>
+                    <td class="num">${fmtAmt(m.amt||0)}</td>
+                    <td>${_esc((m.desc||'').substring(0,45))}</td>
+                    <td>${_esc(m.propNm||'')}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+        } else {
+            html += '<div class="req-ok">✅ All CIP transactions have requisitions on file.</div>';
+        }
+        if (r.requisitions && r.requisitions.length) {
+            html += `<p style="font-size:12px;margin:8px 0 4px;font-weight:600">${r.requisitions.length} requisition(s) on file:</p>
+            <table class="mr-table"><thead><tr>
+                <th>tID</th><th>Date</th><th class="num">Amount</th><th>Purpose</th><th>Property</th>
+            </tr></thead><tbody>`;
+            r.requisitions.forEach(q => {
+                html += `<tr>
+                    <td style="font-family:monospace;font-size:10px">${_esc(q.tID||'')}</td>
+                    <td>${_esc(q.dt||'')}</td>
+                    <td class="num">${fmtAmt(q.amt||0)}</td>
+                    <td>${_esc((q.purpose||'').substring(0,50))}</td>
+                    <td>${_esc(q.propNm||'')}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        html += '</div>';
+
+        html += `<p style="font-size:11px;color:#6b7280;margin-top:12px">
+            IRS: Retain monthly reconciliation records for ≥ 3 years (IRC §6001).
+            Aggregate monthly totals to populate Schedule K / Form 8825 line items.
+        </p>`;
+
+        return html;
+    }
+
+    // Init
+    loadMonths(CONFIGURED_YEAR);
+    document.querySelectorAll('.act-dropdown button, .act-dropdown a').forEach(b => {
+        b.addEventListener('click', () => {
+            const d = b.closest('details'); if (d) d.removeAttribute('open');
+        });
+    });
+})();
+</script>
+{% endblock %}
