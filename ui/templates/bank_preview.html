@@ -63,11 +63,15 @@
       _reqYear = j.req_year || j.csv_year || null;
       const navReq = document.getElementById('navReq');
       if (navReq && _reqYear) navReq.href = _scriptRoot + '/view/requisitions?year=' + _reqYear;
-      // Stash NEED rows (req required, none yet) keyed by year so the Requisition
-      // view auto-populates them without an explicit NewRequisition click.
       stashNeedRows(j.rows);
-      // remember a disk-CSV selection so returning to this view auto-refreshes
-      if (sel.value !== '__upload__') {
+      // If file was uploaded and saved to BankStmts, add it to the dropdown and select it
+      if (j.saved_path) {
+        const name = j.saved_path.split('/').pop().split('\\').pop();
+        const opt = new Option('✅ ' + name + ' · just uploaded', j.saved_path, true, true);
+        sel.insertBefore(opt, sel.querySelector('option[value="__upload__"]'));
+        sessionStorage.setItem('bank_last_csv', JSON.stringify({ path: j.saved_path, propNm: prop }));
+        document.getElementById('uploadRow').style.display = 'none';
+      } else if (sel.value !== '__upload__') {
         sessionStorage.setItem('bank_last_csv', JSON.stringify({ path: sel.value, propNm: prop }));
       }
       renderStats(j.stats, j.source);

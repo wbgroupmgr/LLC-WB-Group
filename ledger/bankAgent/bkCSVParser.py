@@ -2,8 +2,13 @@
 ledger/bankAgent/bkCSVParser.py — multi-bank CSV → list[RawRow]
 
 Supported formats (auto-detected):
-  Wells Fargo  — no header; columns: Date, Amount, -, CheckNo, Description
   Chase        — header row "Details,Posting Date,Description,Amount,Type,..."
+                 Details col: DEBIT = money out, CREDIT = money in.
+  Wells Fargo  — no header; columns: Date, Amount, -, CheckNo, Description
+                 Amount sign: positive = debit (out), negative = credit (in).
+
+If both structured parsers return 0 rows, falls back to pandas read_csv()
+using column-name heuristics for the date/amount/description fields.
 """
 from __future__ import annotations
 
@@ -31,15 +36,15 @@ def _norm_date(raw: str) -> str:
 def _is_chase_header(first_row: list[str]) -> bool:
     if not first_row:
         return False
-    h = [c.strip().lower() for c in first_row]
-    return h[0] in ('details', 'transaction date', 'post date')
+    h = first_row[0].strip().lower()
+    return h in ('details', 'transaction date', 'post date')
 
 
 def _parse_chase(data: str) -> list[dict[str, Any]]:
     """
-    Chase checking CSV format:
+    Chase checking CSV:
       Details, Posting Date, Description, Amount, Type, Balance, Check or Slip #
-    Amount sign: negative = debit (money out), positive = credit (money in).
+    Details col: DEBIT = money leaving account; CREDIT = money arriving.
     """
     rows: list[dict[str, Any]] = []
     reader = csv.reader(io.StringIO(data))
@@ -51,41 +56,50 @@ def _parse_chase(data: str) -> list[dict[str, Any]]:
         if headers is None:
             headers = [c.strip().lower() for c in line]
             continue
-
         if len(line) < 4:
             continue
+
+        def col(name: str, fallback: int) -> str:
+            for i, h in enumerate(headers or []):
+                if name in h and i < len(line):
+                    return line[i].strip()
+            return line[fallback].strip() if fallback < len(line) else ''
+
         try:
-            # Map by header position
-            def col(name: str, fallback_idx: int) -> str:
-                if headers:
-                    for i, h in enumerate(headers):
-                        if name in h and i < len(line):
-                            return line[i].strip()
-                return line[fallback_idx].strip() if fallback_idx < len(line) else ''
-
+            details = col('details', 0).upper()
             raw_dt  = col('posting date', 1) or col('post date', 1) or col('transaction date', 0)
-            raw_amt = col('amount', 3)
             desc    = col('description', 2)
-
+            raw_amt = col('amount', 3)
             if not raw_dt or not raw_amt:
                 continue
-
             amt_f = float(raw_amt.replace(',', '').replace('$', ''))
         except (ValueError, IndexError):
             continue
 
-        # Chase: negative = debit (outflow), positive = credit (inflow)
-        a_type = 'Credit' if amt_f < 0 else 'Debit'
-        amt    = abs(round(amt_f, 2))
-        dt     = _norm_date(raw_dt)
+        # Primary signal: Details column text; back up with amount sign
+        if details.startswith('DEBIT') or details in ('ACH_DEBIT', 'DEBIT_CARD', 'CHECK'):
+            a_type = 'Debit'
+        elif details.startswith('CREDIT') or details in ('ACH_CREDIT', 'DIRECT_DEP'):
+            a_type = 'Credit'
+        else:
+            # Fall back to sign: Chase negative = money out = Debit
+            a_type = 'Debit' if amt_f < 0 else 'Credit'
 
-        rows.append({'dt': dt, 'amt': amt, 'aType': a_type, 'desc': desc, 'refDoc': desc})
+        rows.append({
+            'dt': _norm_date(raw_dt),
+            'amt': abs(round(amt_f, 2)),
+            'aType': a_type,
+            'desc': desc,
+            'refDoc': desc,
+        })
 
     return sorted(rows, key=lambda r: r['dt'])
 
 
 def _parse_wf(data: str) -> list[dict[str, Any]]:
-    """Wells Fargo no-header CSV: Date, Amount, -, CheckNo, Description."""
+    """Wells Fargo no-header CSV: Date, Amount, -, CheckNo, Description.
+    Amount sign: positive = debit (outflow), negative = credit (inflow).
+    """
     rows: list[dict[str, Any]] = []
     reader = csv.reader(io.StringIO(data))
     for line in reader:
@@ -97,18 +111,78 @@ def _parse_wf(data: str) -> list[dict[str, Any]]:
             desc    = line[4].strip()
         except (ValueError, IndexError):
             continue
-
-        amt    = abs(raw_amt)
+        # WF: positive = debit (expense out), negative = credit (income in)
         a_type = 'Debit' if raw_amt >= 0 else 'Credit'
-        dt     = _norm_date(raw_dt)
+        rows.append({
+            'dt': _norm_date(raw_dt),
+            'amt': abs(round(raw_amt, 2)),
+            'aType': a_type,
+            'desc': desc,
+            'refDoc': desc,
+        })
+    return sorted(rows, key=lambda r: r['dt'])
 
-        rows.append({'dt': dt, 'amt': round(amt, 2), 'aType': a_type, 'desc': desc, 'refDoc': desc})
+
+def _parse_pandas_fallback(path: Path) -> list[dict[str, Any]]:
+    """Last-resort: use pandas to read any CSV and map columns by name heuristic."""
+    try:
+        import pandas as pd
+        df = pd.read_csv(path, encoding='utf-8', on_bad_lines='skip')
+    except Exception:
+        try:
+            import pandas as pd
+            df = pd.read_csv(path, encoding='latin-1', on_bad_lines='skip')
+        except Exception:
+            return []
+
+    rows: list[dict[str, Any]] = []
+    cols_lower = {c.lower().strip(): c for c in df.columns}
+
+    def find_col(*candidates: str) -> str | None:
+        for c in candidates:
+            for k, orig in cols_lower.items():
+                if c in k:
+                    return orig
+        return None
+
+    date_col = find_col('posting date', 'post date', 'transaction date', 'date')
+    amt_col  = find_col('amount')
+    desc_col = find_col('description', 'memo', 'desc')
+    det_col  = find_col('details', 'type')
+
+    if not date_col or not amt_col:
+        return []
+
+    for _, row in df.iterrows():
+        try:
+            raw_dt = str(row[date_col]).strip()
+            raw_amt_s = str(row[amt_col]).replace(',', '').replace('$', '').strip()
+            amt_f = float(raw_amt_s)
+            desc = str(row[desc_col]).strip() if desc_col else ''
+        except (ValueError, TypeError):
+            continue
+
+        details = str(row[det_col]).upper().strip() if det_col else ''
+        if details.startswith('DEBIT'):
+            a_type = 'Debit'
+        elif details.startswith('CREDIT'):
+            a_type = 'Credit'
+        else:
+            a_type = 'Debit' if amt_f < 0 else 'Credit'
+
+        rows.append({
+            'dt': _norm_date(raw_dt),
+            'amt': abs(round(amt_f, 2)),
+            'aType': a_type,
+            'desc': desc,
+            'refDoc': desc,
+        })
 
     return sorted(rows, key=lambda r: r['dt'])
 
 
 class BankCSVParser:
-    """Auto-detects bank format (Chase or Wells Fargo) and parses to raw row dicts."""
+    """Auto-detects bank CSV format and parses to raw row dicts."""
 
     @staticmethod
     def parse(csv_path: str | Path) -> list[dict[str, Any]]:
@@ -116,7 +190,6 @@ class BankCSVParser:
         with open(path, encoding='utf-8', errors='replace') as fh:
             data = fh.read()
 
-        # Detect format from first non-empty row
         first_row: list[str] = []
         for line in csv.reader(io.StringIO(data)):
             if any(c.strip() for c in line):
@@ -127,6 +200,10 @@ class BankCSVParser:
             rows = _parse_chase(data)
         else:
             rows = _parse_wf(data)
+
+        # Pandas fallback if structured parsers produced nothing
+        if not rows:
+            rows = _parse_pandas_fallback(path)
 
         for row in rows:
             row['tID'] = _make_tID(row['dt'], row['amt'], row['aType'])

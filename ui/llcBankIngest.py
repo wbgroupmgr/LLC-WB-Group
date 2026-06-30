@@ -126,18 +126,81 @@ def _req_rid_map(year: int, llc) -> dict:
 
 
 def _detect_csv_year(csv_path: str) -> int | None:
+    """Detect year from WF (col 0 = date) or Chase (col 1 = posting date) CSV."""
     try:
         import csv as _csv
         with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
             for row in _csv.reader(f):
-                if row:
+                for cell in row[:3]:  # check cols 0-2 for a date
                     try:
-                        return datetime.datetime.strptime(row[0].strip(), '%m/%d/%Y').year
+                        return datetime.datetime.strptime(cell.strip(), '%m/%d/%Y').year
                     except ValueError:
                         pass
     except Exception:
         pass
     return None
+
+
+def _bankstmts_dir(year: int) -> Path | None:
+    """Return books/<year>/BankStmts/, creating it if needed."""
+    try:
+        from ledger import setup_paths
+        top = setup_paths.TOP
+        if not top:
+            return None
+        d = Path(top) / 'books' / str(year) / 'BankStmts'
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    except Exception:
+        return None
+
+
+def _save_upload_to_bankstmts(file_storage, original_name: str) -> tuple[Path, str] | None:
+    """Save uploaded file to books/<year>/BankStmts/WBGroupLLC_<bank>_<date>.csv.
+    Returns (saved_path, bank_source_name) or None on failure."""
+    try:
+        import csv as _csv, io as _io
+        data = file_storage.read()
+        file_storage.seek(0)  # reset so BankAgent can re-read via the path
+
+        text = data.decode('utf-8', errors='replace')
+        first_row = next(iter(_csv.reader(_io.StringIO(text))), [])
+
+        # Detect bank from header
+        h0 = first_row[0].strip().lower() if first_row else ''
+        is_chase = h0 in ('details', 'transaction date', 'post date')
+        bank_tag = 'Chase' if is_chase else 'WF'
+
+        # Detect year from CSV content
+        year: int | None = None
+        for row in _csv.reader(_io.StringIO(text)):
+            for cell in row[:3]:
+                try:
+                    year = datetime.datetime.strptime(cell.strip(), '%m/%d/%Y').year
+                    break
+                except ValueError:
+                    pass
+            if year:
+                break
+        if not year:
+            year = datetime.date.today().year
+
+        dest_dir = _bankstmts_dir(year)
+        if not dest_dir:
+            return None
+
+        today = datetime.date.today().strftime('%Y%m%d')
+        dest = dest_dir / f'WBGroupLLC_{bank_tag}_{today}.csv'
+        # avoid overwrite — append counter if file exists
+        counter = 1
+        while dest.exists():
+            dest = dest_dir / f'WBGroupLLC_{bank_tag}_{today}_{counter}.csv'
+            counter += 1
+
+        dest.write_bytes(data)
+        return dest, f'BankStmts/{year}'
+    except Exception:
+        return None
 
 
 def _list_csv_candidates() -> list[dict]:
@@ -220,12 +283,20 @@ def bind_bankIngest_routes(app, objects: dict):
             from ledger.bankAgent.BankAgent import BankAgent
 
             csv_path_str = None
-            tmp_upload = None
+            saved_path_str = None
             if 'csv_file' in request.files and request.files['csv_file'].filename:
                 f = request.files['csv_file']
-                tmp_upload = Path(tempfile.mktemp(suffix='.csv', prefix='bank_upload_'))
-                f.save(str(tmp_upload))
-                csv_path_str = str(tmp_upload)
+                orig_name = f.filename or 'upload.csv'
+                saved = _save_upload_to_bankstmts(f, orig_name)
+                if saved:
+                    csv_path_str = str(saved[0])
+                    saved_path_str = str(saved[0])
+                else:
+                    # fallback: temp file (shouldn't normally happen)
+                    tmp = Path(tempfile.mktemp(suffix='.csv', prefix='bank_upload_'))
+                    f.seek(0)
+                    f.save(str(tmp))
+                    csv_path_str = str(tmp)
                 propNm_default = request.form.get('propNm_default', 'LLC') or 'LLC'
             else:
                 body = request.get_json(force=True) or {}
@@ -236,9 +307,6 @@ def bind_bankIngest_routes(app, objects: dict):
                 return jsonify({'ok': False, 'error': 'No CSV provided'}), 400
 
             result = BankAgent(llc).preview(csv_path_str, propNm_default=propNm_default)
-
-            if tmp_upload and tmp_upload.exists():
-                tmp_upload.unlink()
 
             rows_dicts = [_cr_to_dict(cr) for cr in result.rows]
             _store_preview(result._token, rows_dicts, result.stats.as_dict(),
@@ -257,6 +325,7 @@ def bind_bankIngest_routes(app, objects: dict):
                 'csv_year': csv_year, 'configured_year': configured_year,
                 'year_warn': bool(csv_year and configured_year and csv_year != configured_year),
                 'req_map': req_map, 'req_year': req_year,
+                'saved_path': saved_path_str,  # non-null when upload was saved to BankStmts
             })
         except Exception as err:
             import traceback
