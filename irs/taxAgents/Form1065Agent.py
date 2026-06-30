@@ -1078,24 +1078,44 @@ class AgentF1065_Distr(_SectionAgent):
       IRC §469(c)(2) — rental activity is passive; it never produces ordinary
       income. Line 1 = Form 1065 Page 1 Line 23 = $0 for rental LLC.
 
-    Line 2 (Net Rental Real Estate Income/Loss): The central line.
-      This is the NET from all rental properties after all rental expenses.
-      IRS: Derived from Form 8825 Line 21 (sum of all properties' net).
+    Line 2 (Net Rental Real Estate Income/Loss): The ONLY active income line.
+      IRS Instructions: "Enter the net income or loss from rental real estate
+      activities of the partnership. Use the amounts from Form 8825, Line 21."
       Books-First: Schedule K Line 2 = IS.net_rental (total_income − total_expenses).
       It is NET, not gross. IS.rent_income (gross) ≠ Schedule K Line 2.
 
-    Lines 1–11 (income/loss items): Each sourced from books independently.
-      IRC §702(a): partners are taxed on their distributive share of each
-      separately stated item. The partnership must report each item separately.
+    Lines 3–11 (other income/loss items): Must ALL be blank for W&B Group.
+      These lines cover income types the LLC does not have:
+        Line 3  — net rental income from non-real-estate (equipment, IP)
+        Line 4  — net rental income from other activities
+        Line 5a — interest income (portfolio)
+        Line 5b — ordinary dividends
+        Line 5c — qualified dividends
+        Line 5d — dividend equivalents
+        Line 5e — royalties
+        Line 5f — net short-term capital gain/loss
+        Line 8  — net long-term capital gain/loss
+        Line 9a — collectibles gain/loss
+        Line 9b — unrecaptured §1250 gain
+        Line 10 — net §1231 gain/loss
+        Line 11 — other income (loss)
+      Filing a non-zero value here would misrepresent the LLC's income
+      character and create a mismatch with partner K-1 reporting.
 
-    IRC §704(b) allocation: All Schedule K totals must sum to 100% across
-      all K-1s. The allocation mechanism (pro-rata or special) must match
-      the LLC's operating agreement.
+    Lines 12–13 (deductions): Must be $0 — rental deductions go on Form 8825.
 
     Line 14 (Self-Employment Income): Must be $0.
-      IRC §1402(a)(13): limited partners and members of rental LLCs are
-      not subject to self-employment tax on rental income. Rental income
-      is not "net earnings from self-employment" by statute.
+      IRC §1402(a)(13): limited partners are not subject to SE tax.
+      IRC §1402(a)(1): rental income is not net SE earnings by statute.
+
+    Lines 15–16 (credits/AMT): Must be blank.
+      Line 16d (AMT gross income/gain): partnerships do NOT file corporate AMT
+      (IRC §55 applies to C-corps and individuals, not pass-through entities).
+      Each partner computes their own AMT adjustment on Form 6251 — it is NOT
+      reported on the partnership's Schedule K.
+
+    IRC §704(b) allocation: All Schedule K totals must sum to 100% across
+      all K-1s. The allocation mechanism must match the LLC's operating agreement.
 
     Books-First (IRC §446 + §703): all values from stmtIS.taxAggregates().
     """
@@ -1109,6 +1129,7 @@ class AgentF1065_Distr(_SectionAgent):
             self._rule_k1_must_be_zero,
             self._rule_k2_matches_books,
             self._rule_k2_is_net_not_gross,
+            self._rule_k3_11_must_be_blank,
             self._rule_partner_alloc_100,
             self._rule_no_se_income,
             self._rule_k19a_cash_distributions,
@@ -1209,6 +1230,49 @@ class AgentF1065_Distr(_SectionAgent):
                 "Change bookNS_IS.json K_2 mapping from IS.rent_income → IS.net_rental. "
                 "Re-run BookToIRS pipeline.",
                 fids=['K_2'])
+
+    def _rule_k3_11_must_be_blank(self):
+        """
+        IRS Rule: Schedule K Lines 3–11 and Line 16d must be blank for W&B Group.
+        W&B Group is a pure rental real estate LLC — it has no portfolio income,
+        capital gains, royalties, non-real-estate rentals, or other separately
+        stated items.  Filing a value on Lines 3–11 would misrepresent income
+        character and create K-1 mismatch issues.
+        Line 16d (AMT): partnerships do not file corporate AMT (IRC §55 applies
+        to C-corps and individuals). Partner AMT adjustments are computed on each
+        partner's Form 6251 — not on the partnership return.
+        IRS fid mapping: F247 = Sch K Line 7 (other income); F248 = Sch K Line 16d.
+        Both must be blank.
+        """
+        fill = self._load_fill_dict()
+        # fids for Schedule K Lines 3–11 and 16d known from 2025 namespace
+        blank_checks = {
+            'F247': 'Schedule K Line 7 (Other income/loss)',
+            'F248': 'Schedule K Line 16d (AMT gross income/gain)',
+        }
+        violations = []
+        fids_hit = []
+        for fid, label in blank_checks.items():
+            val = _safe_float(fill.get(fid))
+            if abs(val) > 0.01:
+                violations.append(f"  • {label} = ${val:,.2f} — must be blank for a rental-only LLC.")
+                fids_hit.append(fid)
+        if violations:
+            return self.format_issue(
+                'KD-R07', self.ERROR,
+                "⚠ Schedule K Lines 3–11 / 16d contain non-zero values — these must be blank for W&B Group.\n"
+                + "\n".join(violations)
+                + "\n  • W&B Group has no portfolio income, capital gains, royalties, non-real-estate rentals, or AMT items.\n"
+                + "  • Remove the bookNS mappings for F247 and F248 (already removed in bookNS_IS.json 2026-06-30).\n"
+                + "  • If the FILL.pdf still shows these values, re-run REGENERATE to pick up the corrected bookNS.",
+                'Form 1065 Instructions Schedule K Lines 3–11; IRC §702(a); IRC §55 (AMT)',
+                "Verify F247 and F248 are absent from bookNS_IS.json Form1065 section. Re-run REGENERATE.",
+                fids=fids_hit)
+        return self.format_issue(
+            'KD-R07', self.INFO,
+            "✓ Schedule K Lines 3–11 and Line 16d are blank — correct for a rental-only LLC with no portfolio income.",
+            'Form 1065 Instructions Schedule K Lines 3–11',
+            None, fids=list(blank_checks.keys()))
 
     def _rule_partner_alloc_100(self):
         """
