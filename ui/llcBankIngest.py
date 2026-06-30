@@ -141,7 +141,7 @@ def _detect_csv_year(csv_path: str) -> int | None:
 
 
 def _list_csv_candidates() -> list[dict]:
-    """{name, path, source, year, age_days} from BankStmts/<year>/ + ~/Downloads (≤15d)."""
+    """{name, path, source, year, age_days} from BankStmts/<year>/ + ~/Downloads (≤90d)."""
     candidates: list[dict] = []
     seen: set[str] = set()
     now = datetime.datetime.now()
@@ -175,7 +175,7 @@ def _list_csv_candidates() -> list[dict]:
     try:
         dl = Path.home() / 'Downloads'
         if dl.exists():
-            cutoff = now - datetime.timedelta(days=15)
+            cutoff = now - datetime.timedelta(days=90)
             for csv_file in sorted(dl.glob('*.csv')):
                 ap = str(csv_file.resolve())
                 if ap in seen:
