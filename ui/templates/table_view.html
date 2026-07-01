@@ -396,7 +396,7 @@
             else if (TYPEAHEAD_FIELDS.has(col)) { inp.setAttribute("list", `fv-datalist-${col}`); attachTypeAheadClear(inp); }
 
             td.innerHTML = "";
-            td.appendChild(inp);
+            td.appendChild(buildEditCell(inp));
         });
 
         tr.classList.remove("row-pending-update", "row-pending-add");
@@ -409,6 +409,40 @@
             const first = tr.querySelector(".inline-input");
             if (first) first.focus();
         }
+    }
+
+    // ── Global Change (issue #49 enhancement) ─────────────────────────────────
+    // When multiple rows are open for inline edit, a 🌐 button next to each
+    // input copies that field's value into the same column on every other
+    // currently-editing row — a one-click bulk-edit for the "balance 2026
+    // books across many rows" workflow. Hidden when only one row is editing.
+    function buildEditCell(inp) {
+        const wrap = document.createElement("span");
+        wrap.className = "iet-cell-edit";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "iet-global-btn";
+        btn.title = "Apply this value to all rows currently being edited";
+        btn.textContent = "🌐";
+        btn.tabIndex = -1;
+        btn.addEventListener("click", () => applyToAllEditingRows(inp));
+        wrap.appendChild(inp);
+        wrap.appendChild(btn);
+        return wrap;
+    }
+
+    function applyToAllEditingRows(sourceInput) {
+        const col = sourceInput.dataset.col;
+        const val = sourceInput.value;
+        document.querySelectorAll(`tr.row-editing .inline-input[data-col="${CSS.escape(col)}"]`)
+            .forEach(inp => { if (inp !== sourceInput) inp.value = val; });
+    }
+
+    function refreshGlobalButtons() {
+        const multi = document.querySelectorAll("tr.row-editing").length > 1;
+        document.querySelectorAll(".iet-global-btn").forEach(b => {
+            b.style.display = multi ? "inline-block" : "none";
+        });
     }
 
     // ── Capture one row's edits → pendingOps (called by doneEdit) ────────────
@@ -563,6 +597,7 @@
         if (!toEdit.length) return;
         toEdit.forEach(({key}, i) => startInlineEdit(key, i === 0));
         updateSelectionBarMode();
+        refreshGlobalButtons();
     }
 
     function actionDelete() {
@@ -629,7 +664,7 @@
             if (COA_FIELDS.has(col)) { inp.setAttribute("list", "coa-datalist"); attachTypeAheadClear(inp); }
             else if (TYPEAHEAD_FIELDS.has(col)) { inp.setAttribute("list", `fv-datalist-${col}`); attachTypeAheadClear(inp); }
             td.innerHTML = "";
-            td.appendChild(inp);
+            td.appendChild(buildEditCell(inp));
         });
 
         tbody.insertBefore(newTr, tbody.firstChild);
@@ -640,6 +675,7 @@
         if (first) first.focus();
         updateSelectionBarMode();
         updateCommitBar();
+        refreshGlobalButtons();
     }
 
     // ── Build a display-mode row (used by Dup and addInlineRow) ──────────────
@@ -973,6 +1009,15 @@
         font-size: 13px; font-family: inherit; background: white;
     }
     .inline-input:focus { outline: 2px solid #3b82f6; outline-offset: -1px; }
+    /* ── Global-Change button (issue #49 enhancement) ── */
+    .iet-cell-edit { display: flex; align-items: center; gap: 3px; width: 100%; }
+    .iet-cell-edit .inline-input { flex: 1 1 auto; min-width: 0; }
+    .iet-global-btn {
+        display: none; flex: 0 0 auto; border: 1px solid #93c5fd; border-radius: 3px;
+        background: #eff6ff; cursor: pointer; font-size: 11px; line-height: 1;
+        padding: 3px 4px;
+    }
+    .iet-global-btn:hover { background: #dbeafe; }
     /* ── COA badge ── */
     .coa-badge { display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 4px;
                  margin-left: 6px; vertical-align: middle; font-weight: 600; }
