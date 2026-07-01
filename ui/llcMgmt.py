@@ -1306,6 +1306,32 @@ class llcMgmt:
                 return jsonify({"ok": False, "error": "COA engine not available"}), 500
             return jsonify({"ok": True, "data": self._sanitize(engine.coa_all())})
 
+        # ── Type-ahead field values (issue #49) ─────────────────────────────────
+        # llcAssets/llcExpRev/llcPayables/llcReceivables share one continuous
+        # ledger across fiscal years (ACCTS_DIR is not year-partitioned), so a
+        # single pass over the currently loaded records covers all years.
+        @app.route("/api/fieldValues/all")
+        def field_values_all():
+            fields = ["propNm", "propID", "propAddr", "propOwners", "acctSub"]
+            values = {f: set() for f in fields}
+            for key in ("llcAssets", "llcExpRev", "llcPayables", "llcReceivables"):
+                mgr = self.objects.get(key)
+                if mgr is None:
+                    continue
+                try:
+                    rows = mgr.load()
+                except Exception:
+                    continue
+                for row in rows:
+                    for f in fields:
+                        v = row.get(f)
+                        if v is not None and str(v).strip():
+                            values[f].add(str(v).strip())
+            return jsonify({
+                "ok": True,
+                "data": {f: sorted(v) for f, v in values.items()},
+            })
+
         # ── Bank CSV upload ───────────────────────────────────────────────────
         @app.route("/api/llcBank/upload_csv", methods=["POST"])
         def upload_bank_csv():

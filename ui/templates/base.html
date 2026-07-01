@@ -164,5 +164,15 @@
     <div class="page">
         {% block content %}{% endblock %}
     </div>
+
+    <script>
+    // Close ☰ nav / Actions <details> dropdowns once the pointer leaves them
+    // (issue #51): native <details> otherwise stays open until clicked again.
+    document.addEventListener('mouseover', function (e) {
+        document.querySelectorAll('.menu details[open], .actions-menu details[open]').forEach(function (d) {
+            if (!d.contains(e.target)) d.removeAttribute('open');
+        });
+    });
+    </script>
 </body>
 </html>

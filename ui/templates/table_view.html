@@ -132,6 +132,9 @@
     // ── COA validation (modal field editor) ───────────────────────────────────
     const COA_FIELDS = new Set(["acct", "Ledger"]);
 
+    // ── Type-ahead fields (issue #49) — datalist id = "fv-datalist-<field>" ────
+    const TYPEAHEAD_FIELDS = new Set(["propNm", "propID", "propAddr", "propOwners", "acctSub"]);
+
     async function validateCoaField(input, col) {
         const val = input.value.trim();
         const badge = document.getElementById(`coa-badge-${col}`);
@@ -171,6 +174,20 @@
 
     function _esc(s) {
         return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    // ── Type-ahead datalists (inline edit) — issue #49 ────────────────────────
+    async function loadFieldValueLists() {
+        try {
+            const res  = await fetch(`${_scriptRoot}/api/fieldValues/all`);
+            const data = await res.json();
+            if (!data.ok) return;
+            Object.entries(data.data || {}).forEach(([field, values]) => {
+                const dl = document.getElementById(`fv-datalist-${field}`);
+                if (!dl) return;
+                dl.innerHTML = values.map(v => `<option value="${_esc(v)}"></option>`).join("");
+            });
+        } catch (e) { /* silent */ }
     }
 
     // ── Backdrop helpers (JSON dialog) ────────────────────────────────────────
@@ -354,12 +371,18 @@
             const strVal = raw !== undefined && raw !== null
                 ? (typeof raw === "object" ? JSON.stringify(raw) : String(raw)) : "";
 
+            // Lock the cell to its pre-edit rendered width so the column doesn't
+            // collapse when the text content is swapped for a narrow <input> —
+            // table-layout:auto otherwise resizes columns to the input's min-content.
+            td.style.minWidth = td.offsetWidth + "px";
+
             const inp = document.createElement("input");
             inp.type = "text";
             inp.className = "inline-input";
             inp.value = strVal;
             inp.dataset.col = col;
             if (COA_FIELDS.has(col)) inp.setAttribute("list", "coa-datalist");
+            else if (TYPEAHEAD_FIELDS.has(col)) inp.setAttribute("list", `fv-datalist-${col}`);
 
             td.innerHTML = "";
             td.appendChild(inp);
@@ -593,6 +616,7 @@
             inp.value = "";
             inp.dataset.col = col;
             if (COA_FIELDS.has(col)) inp.setAttribute("list", "coa-datalist");
+            else if (TYPEAHEAD_FIELDS.has(col)) inp.setAttribute("list", `fv-datalist-${col}`);
             td.innerHTML = "";
             td.appendChild(inp);
         });
@@ -745,8 +769,8 @@
             }
         });
 
-        // Load COA list for inline datalist
-        if (!CURRENT_READ_ONLY) loadCoaList();
+        // Load COA list + type-ahead value lists for inline datalist
+        if (!CURRENT_READ_ONLY) { loadCoaList(); loadFieldValueLists(); }
 
         // Close action dropdowns when any button inside them is clicked
         document.querySelectorAll(".act-dropdown button").forEach(b => {
@@ -955,6 +979,12 @@
 {% block content %}
 <!-- COA datalist (populated on load) -->
 <datalist id="coa-datalist"></datalist>
+<!-- Type-ahead datalists (issue #49) — populated on load from historical values -->
+<datalist id="fv-datalist-propNm"></datalist>
+<datalist id="fv-datalist-propID"></datalist>
+<datalist id="fv-datalist-propAddr"></datalist>
+<datalist id="fv-datalist-propOwners"></datalist>
+<datalist id="fv-datalist-acctSub"></datalist>
 
 <div class="panel title-panel">
     <div class="title-toolbar">
