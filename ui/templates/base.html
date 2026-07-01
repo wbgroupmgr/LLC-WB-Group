@@ -168,9 +168,16 @@
     <script>
     // Close ☰ nav / Actions <details> dropdowns once the pointer leaves them
     // (issue #51): native <details> otherwise stays open until clicked again.
-    document.addEventListener('mouseover', function (e) {
-        document.querySelectorAll('.menu details[open], .actions-menu details[open]').forEach(function (d) {
-            if (!d.contains(e.target)) d.removeAttribute('open');
+    // The dropdown panel is absolutely positioned below the summary, so there's
+    // a visual gap between them the pointer must cross — a bare mouseleave (or
+    // a document-wide mouseover check) fires the instant the cursor is over
+    // that gap, closing the menu before the user can reach it. A short grace
+    // delay (cleared by mouseenter) tolerates that transit.
+    document.querySelectorAll('.menu details, .actions-menu details').forEach(function (d) {
+        let closeTimer;
+        d.addEventListener('mouseenter', function () { clearTimeout(closeTimer); });
+        d.addEventListener('mouseleave', function () {
+            closeTimer = setTimeout(function () { d.removeAttribute('open'); }, 400);
         });
     });
     </script>

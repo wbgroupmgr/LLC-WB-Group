@@ -371,11 +371,6 @@
             const strVal = raw !== undefined && raw !== null
                 ? (typeof raw === "object" ? JSON.stringify(raw) : String(raw)) : "";
 
-            // Lock the cell to its pre-edit rendered width so the column doesn't
-            // collapse when the text content is swapped for a narrow <input> —
-            // table-layout:auto otherwise resizes columns to the input's min-content.
-            td.style.minWidth = td.offsetWidth + "px";
-
             const inp = document.createElement("input");
             inp.type = "text";
             inp.className = "inline-input";
@@ -733,8 +728,24 @@
         if (pendingOps.size > 0) { e.preventDefault(); e.returnValue = ""; }
     });
 
+    // ── Lock column widths to their View-mode rendering (issue #51) ──────────
+    // Measured once, from the initial display-mode render, then applied via
+    // table-layout:fixed so Edit-mode inputs can never widen/narrow a column —
+    // Edit width always equals View width, and it can't ratchet wider on
+    // repeated edit/cancel cycles the way a per-cell min-width lock could.
+    function lockColumnWidths() {
+        const table = document.querySelector(".records-table");
+        if (!table) return;
+        const ths = table.querySelectorAll("thead th");
+        const widths = Array.from(ths).map(th => th.getBoundingClientRect().width);
+        table.style.tableLayout = "fixed";
+        ths.forEach((th, i) => { th.style.width = widths[i] + "px"; });
+    }
+
     // ── DOMContentLoaded ──────────────────────────────────────────────────────
     document.addEventListener("DOMContentLoaded", () => {
+        lockColumnWidths();
+
         // Sticky col offset for Chg column
         const selTh = document.querySelector(".records-table th.col-sel");
         if (selTh) {
