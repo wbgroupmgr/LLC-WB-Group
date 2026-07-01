@@ -21,6 +21,24 @@
     return PROP_NAMES.map(p => ({ value: p, label: p }));
   }
 
+  // ── Type-ahead for acctSub (issue #49 — consistency across all table views) ─
+  function _esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  async function loadFieldValueLists() {
+    try {
+      const res  = await fetch(`${_scriptRoot}/api/fieldValues/all`);
+      const data = await res.json();
+      if (!data.ok) return;
+      Object.entries(data.data || {}).forEach(([field, values]) => {
+        const dl = document.getElementById(`fv-datalist-${field}`);
+        if (!dl) return;
+        dl.innerHTML = values.map(v => `<option value="${_esc(v)}"></option>`).join("");
+      });
+    } catch (e) { /* silent */ }
+  }
+  document.addEventListener('DOMContentLoaded', loadFieldValueLists);
+
   function _statusClass(row) {
     const f = (row.flag || '').toUpperCase();
     if (f === 'DUPLICATE')       return 'iet-dup';
@@ -175,7 +193,7 @@
         { key: 'desc',    label: 'Description' },
         { key: 'txn_type',label: 'Txn Type' },
         { key: 'acct',    label: 'Account',  editable: true, input: 'select', options: _acctOptions() },
-        { key: 'acctSub', label: 'Sub',      editable: true, input: 'text' },
+        { key: 'acctSub', label: 'Sub',      editable: true, input: 'text', list: 'fv-datalist-acctSub' },
         { key: 'propNm',  label: 'Property', editable: true, input: 'select', options: _propOptions() },
         { key: 'confPid', label: 'Conf:pID' },
         { key: 'reqID',   label: 'ReqID' },
@@ -286,6 +304,7 @@
 {% endblock %}
 
 {% block content %}
+<datalist id="fv-datalist-acctSub"></datalist>
 <div class="bp-panel">
   <div class="bp-title">
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>

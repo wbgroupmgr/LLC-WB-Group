@@ -63,6 +63,12 @@
   .iet-input { width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #60a5fa;
                border-radius:3px; font-size:13px; font-family:inherit; background:white; }
   .iet-input:focus { outline:2px solid #3b82f6; outline-offset:-1px; }
+  /* ── Global-Change button (issue #49) ── */
+  .iet-cell-edit { display:flex; align-items:center; gap:3px; width:100%; }
+  .iet-cell-edit .iet-input { flex:1 1 auto; min-width:0; }
+  .iet-global-btn { display:none; flex:0 0 auto; border:1px solid #93c5fd; border-radius:3px;
+                    background:#eff6ff; cursor:pointer; font-size:11px; line-height:1; padding:3px 4px; }
+  .iet-global-btn:hover { background:#dbeafe; }
   .iet-empty { text-align:center; color:#6b7280; padding:24px; }
   .iet-col-num { width:1%; white-space:nowrap; text-align:right; color:#6b7280; font-variant-numeric:tabular-nums; }
   .iet-col-ord { width:1%; white-space:nowrap; text-align:center; }
@@ -304,6 +310,46 @@
       btnCommit.textContent = commitLabel + ' (' + n + ')';
     }
 
+    // ── Type-ahead (datalist) + Global Change — parity with table_view.html ────
+    // Column config: { ..., list: 'datalist-element-id' } enables type-ahead on
+    // a text input. Browsers filter <datalist> suggestions to the input's
+    // current value, so clear-on-focus/restore-on-blur is needed to show the
+    // full option list rather than just what's already typed.
+    function attachTypeAheadClear(inp) {
+      inp.addEventListener('focus', function () {
+        this.dataset.taOrig = this.value;
+        this.value = '';
+      });
+      inp.addEventListener('blur', function () {
+        if (this.value === '' && this.dataset.taOrig) this.value = this.dataset.taOrig;
+      });
+    }
+
+    // Global Change: a 🌐 button next to each editable field, shown only when
+    // more than one row is open for edit. Clicking it copies that field's
+    // value into the same column on every other currently-editing row.
+    function buildEditCell(inp) {
+      const wrap = el('span', 'iet-cell-edit');
+      const btn = el('button', 'iet-global-btn', '🌐');
+      btn.type = 'button'; btn.tabIndex = -1;
+      btn.title = 'Apply this value to all rows currently being edited';
+      btn.addEventListener('click', () => applyToAllEditingRows(inp));
+      wrap.appendChild(inp); wrap.appendChild(btn);
+      return wrap;
+    }
+    function applyToAllEditingRows(sourceInput) {
+      const col = sourceInput.dataset.col;
+      const val = sourceInput.value;
+      scroll.querySelectorAll(`tr.iet-editing .iet-input[data-col="${CSS.escape(col)}"]`)
+        .forEach(inp => { if (inp !== sourceInput) inp.value = val; });
+    }
+    function refreshGlobalButtons() {
+      const multi = scroll.querySelectorAll('tr.iet-editing').length > 1;
+      scroll.querySelectorAll('.iet-global-btn').forEach(b => {
+        b.style.display = multi ? 'inline-block' : 'none';
+      });
+    }
+
     // ── edit mechanics ─────────────────────────────────────────────────────────
     function openEdit(tr) {
       const key = tr.dataset.key;
@@ -324,9 +370,10 @@
         } else {
           inp = el('input', 'iet-input'); inp.type = 'text';
           inp.value = row[c.key] != null ? row[c.key] : '';
+          if (c.list) { inp.setAttribute('list', c.list); attachTypeAheadClear(inp); }
         }
         inp.dataset.col = c.key;
-        td.innerHTML = ''; td.appendChild(inp);
+        td.innerHTML = ''; td.appendChild(buildEditCell(inp));
       });
       tr.classList.add('iet-editing');
       editing.add(key);
@@ -374,6 +421,7 @@
     btnEdit.addEventListener('click', () => {
       const trs = selectedTrs().filter(tr => !tr.classList.contains('iet-editing'));
       trs.forEach(openEdit); updateBar();
+      refreshGlobalButtons();
       const f = scroll.querySelector('.iet-input'); if (f) f.focus();
     });
     btnDone.addEventListener('click', () => {
@@ -410,6 +458,7 @@
         openEdit(tr); tr.scrollIntoView({block:'nearest'});
       });
       updateBar(); updateCommit();
+      refreshGlobalButtons();
     });
     function addRow() {
       const blank = {}; columns.forEach(c => blank[c.key] = '');
@@ -420,6 +469,7 @@
       openEdit(tr); tr.scrollIntoView({block:'nearest'});
       const f = tr.querySelector('.iet-input'); if (f) f.focus();
       updateBar(); updateCommit();
+      refreshGlobalButtons();
     }
 
     btnRevert.addEventListener('click', () => {

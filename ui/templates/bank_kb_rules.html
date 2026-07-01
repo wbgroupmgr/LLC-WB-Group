@@ -21,6 +21,24 @@
     return '';
   }
 
+  // ── Type-ahead for acctSub (issue #49 — consistency across all table views) ─
+  function _esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  async function loadFieldValueLists() {
+    try {
+      const res  = await fetch(`${_scriptRoot}/api/fieldValues/all`);
+      const data = await res.json();
+      if (!data.ok) return;
+      Object.entries(data.data || {}).forEach(([field, values]) => {
+        const dl = document.getElementById(`fv-datalist-${field}`);
+        if (!dl) return;
+        dl.innerHTML = values.map(v => `<option value="${_esc(v)}"></option>`).join("");
+      });
+    } catch (e) { /* silent */ }
+  }
+  document.addEventListener('DOMContentLoaded', loadFieldValueLists);
+
   async function loadRules() {
     const res = await fetch(_scriptRoot + '/api/bank/kb/rules');
     const j = await res.json();
@@ -57,7 +75,7 @@
       columns: [
         { key: 'pattern',    label: 'Pattern (regex, lowercase)', editable: true, input: 'text', filter: true },
         { key: 'acct',       label: 'Account',  editable: true, input: 'select', options: _acctOpts(), filter: true },
-        { key: 'acctSub',    label: 'Sub',      editable: true, input: 'text', filter: true },
+        { key: 'acctSub',    label: 'Sub',      editable: true, input: 'text', filter: true, list: 'fv-datalist-acctSub' },
         { key: 'txn_type',   label: 'Txn Type', editable: true, input: 'select', options: _opts(TXN_TYPES) },
         { key: 'confidence', label: 'Conf',     editable: true, input: 'select', options: _opts(CONFIDENCES) },
       ],
@@ -113,6 +131,7 @@
 {% endblock %}
 
 {% block content %}
+<datalist id="fv-datalist-acctSub"></datalist>
 <div class="bp-panel">
   <div class="bp-title">
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
