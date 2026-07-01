@@ -33,7 +33,9 @@ class BkVendorKB:
     def lookup_indexed(self, desc: str):
         """Return (index, rule) of the first matching rule, or None. Index is the
         0-based position in the ordered rule list — the operator-facing pID is index+1."""
-        dl = desc.lower()
+        import re as _re
+        # Collapse runs of whitespace so "NICOLA  ROJAS" matches pattern "nicola rojas"
+        dl = _re.sub(r'\s+', ' ', desc.lower().strip())
         for i, rule in enumerate(self._rules):
             try:
                 if re.search(rule['pattern'], dl):
@@ -45,7 +47,8 @@ class BkVendorKB:
 
     def matched_pattern(self, desc: str) -> str:
         """Return the matched pattern string, or '' on no match."""
-        dl = desc.lower()
+        import re as _re
+        dl = _re.sub(r'\s+', ' ', desc.lower().strip())
         for rule in self._rules:
             try:
                 if re.search(rule['pattern'], dl):

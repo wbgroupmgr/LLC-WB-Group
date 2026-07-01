@@ -33,11 +33,17 @@ def _norm_date(raw: str) -> str:
         return raw
 
 
-def _is_chase_header(first_row: list[str]) -> bool:
+def _detect_header_format(first_row: list[str]) -> str:
+    """Return 'chase', 'wf_new', or 'wf_old' based on the first CSV row."""
     if not first_row:
-        return False
-    h = first_row[0].strip().lower()
-    return h in ('details', 'transaction date', 'post date')
+        return 'wf_old'
+    h0 = first_row[0].strip().lower()
+    if h0 in ('details', 'transaction date', 'post date'):
+        return 'chase'
+    # New WF format: header row starting with "DATE" (quoted or not)
+    if h0 in ('date',):
+        return 'wf_new'
+    return 'wf_old'
 
 
 def _parse_chase(data: str) -> list[dict[str, Any]]:
@@ -96,9 +102,41 @@ def _parse_chase(data: str) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda r: r['dt'])
 
 
+def _parse_wf_new(data: str) -> list[dict[str, Any]]:
+    """New Wells Fargo header CSV: DATE, DESCRIPTION, AMOUNT, CHECK #, STATUS.
+    Amount sign: positive = Debit (income IN), negative = Credit (expense OUT).
+    """
+    rows: list[dict[str, Any]] = []
+    reader = csv.reader(io.StringIO(data))
+    headers: list[str] | None = None
+    for line in reader:
+        if not any(c.strip() for c in line):
+            continue
+        if headers is None:
+            headers = [c.strip().lower() for c in line]
+            continue
+        if len(line) < 3:
+            continue
+        try:
+            raw_dt  = line[0].strip()
+            desc    = line[1].strip()
+            raw_amt = float(line[2].strip().replace(',', '').replace('$', ''))
+        except (ValueError, IndexError):
+            continue
+        a_type = 'Debit' if raw_amt >= 0 else 'Credit'
+        rows.append({
+            'dt': _norm_date(raw_dt),
+            'amt': abs(round(raw_amt, 2)),
+            'aType': a_type,
+            'desc': desc,
+            'refDoc': desc,
+        })
+    return sorted(rows, key=lambda r: r['dt'])
+
+
 def _parse_wf(data: str) -> list[dict[str, Any]]:
-    """Wells Fargo no-header CSV: Date, Amount, -, CheckNo, Description.
-    Amount sign: positive = debit (outflow), negative = credit (inflow).
+    """Old Wells Fargo no-header CSV: Date, Amount, -, CheckNo, Description.
+    Amount sign: positive = Debit (income IN), negative = Credit (expense OUT).
     """
     rows: list[dict[str, Any]] = []
     reader = csv.reader(io.StringIO(data))
@@ -196,8 +234,11 @@ class BankCSVParser:
                 first_row = line
                 break
 
-        if _is_chase_header(first_row):
+        fmt = _detect_header_format(first_row)
+        if fmt == 'chase':
             rows = _parse_chase(data)
+        elif fmt == 'wf_new':
+            rows = _parse_wf_new(data)
         else:
             rows = _parse_wf(data)
 
