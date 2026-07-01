@@ -182,10 +182,10 @@
             const dl = document.getElementById("coa-datalist");
             if (dl) {
                 // value must be the account path (acct/Ledger fields store
-                // "Acct.x.y...", not the numeric acctID) — label still shows
-                // acctID + acctDesc so it's searchable by number or name too.
+                // "Acct.x.y...", not the numeric acctID). Keep the visible
+                // suggestion to one line — acctID/acctDesc are minor detail.
                 dl.innerHTML = coaList.map(a =>
-                    `<option value="${_esc(a.acct)}">${_esc(a.acct)} — ${_esc(a.acctID)} ${_esc(a.acctDesc || "")}</option>`
+                    `<option value="${_esc(a.acct)}"></option>`
                 ).join("");
             }
         } catch (e) { /* silent */ }
