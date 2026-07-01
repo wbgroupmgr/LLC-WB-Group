@@ -135,6 +135,22 @@
     // ── Type-ahead fields (issue #49) — datalist id = "fv-datalist-<field>" ────
     const TYPEAHEAD_FIELDS = new Set(["propNm", "propID", "propAddr", "propOwners", "acctSub"]);
 
+    // Browsers filter <datalist> suggestions to those matching the input's
+    // current value, so a field pre-filled with "LLC" only offers options
+    // starting with "LLC" instead of the full list. Clear the value on focus
+    // (saving it) so every option shows, then restore it on blur if the field
+    // is untouched — selecting a datalist option or typing overwrites it
+    // normally, so restore is a no-op in that case.
+    function attachTypeAheadClear(inp) {
+        inp.addEventListener("focus", function () {
+            this.dataset.taOrig = this.value;
+            this.value = "";
+        });
+        inp.addEventListener("blur", function () {
+            if (this.value === "" && this.dataset.taOrig) this.value = this.dataset.taOrig;
+        });
+    }
+
     async function validateCoaField(input, col) {
         const val = input.value.trim();
         const badge = document.getElementById(`coa-badge-${col}`);
@@ -376,8 +392,8 @@
             inp.className = "inline-input";
             inp.value = strVal;
             inp.dataset.col = col;
-            if (COA_FIELDS.has(col)) inp.setAttribute("list", "coa-datalist");
-            else if (TYPEAHEAD_FIELDS.has(col)) inp.setAttribute("list", `fv-datalist-${col}`);
+            if (COA_FIELDS.has(col)) { inp.setAttribute("list", "coa-datalist"); attachTypeAheadClear(inp); }
+            else if (TYPEAHEAD_FIELDS.has(col)) { inp.setAttribute("list", `fv-datalist-${col}`); attachTypeAheadClear(inp); }
 
             td.innerHTML = "";
             td.appendChild(inp);
@@ -610,8 +626,8 @@
             inp.className = "inline-input";
             inp.value = "";
             inp.dataset.col = col;
-            if (COA_FIELDS.has(col)) inp.setAttribute("list", "coa-datalist");
-            else if (TYPEAHEAD_FIELDS.has(col)) inp.setAttribute("list", `fv-datalist-${col}`);
+            if (COA_FIELDS.has(col)) { inp.setAttribute("list", "coa-datalist"); attachTypeAheadClear(inp); }
+            else if (TYPEAHEAD_FIELDS.has(col)) { inp.setAttribute("list", `fv-datalist-${col}`); attachTypeAheadClear(inp); }
             td.innerHTML = "";
             td.appendChild(inp);
         });
