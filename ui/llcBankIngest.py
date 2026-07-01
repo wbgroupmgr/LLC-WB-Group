@@ -25,21 +25,36 @@ from pathlib import Path
 
 from flask import current_app, jsonify, render_template, request
 
-# COA accounts offered in the editable preview dropdown
-_KNOWN_ACCTS: list[tuple[str, str]] = [
-    ('Acct.Cash.Bank',                     'Cash — Bank'),
-    ('Acct.Exp.Ins',                       'Expense — Insurance'),
-    ('Acct.Exp.Other',                     'Expense — Other'),
-    ('Acct.Exp.Repair',                    'Expense — Repair/Maint'),
-    ('Acct.Exp.Tax.Prop',                  'Expense — Property Tax'),
-    ('Acct.Exp.Util',                      'Expense — Utilities'),
-    ('Acct.Rev.Fees.Other',                'Revenue — Fees/Other'),
-    ('Acct.Rev.Rent',                      'Revenue — Rent'),
-    ('Acct.Fixed.Tangible.InConstruction', 'Fixed Asset — CIP (In Construction)'),
-    ('Acct.Fixed.Tangible.InService',      'Fixed Asset — In Service'),
-    ('Acct.Equity.Capital.Member',         'Equity — Member Capital'),
-    ('Acct.Liab.Loan.Mortgage',            'Liability — Mortgage'),
-]
+def _coa_accts() -> list[tuple[str, str]]:
+    """Return full COA as [(acct_path, 'ID — description'), ...] sorted by acctID.
+    Falls back to a minimal hardcoded list if the COA cannot be loaded."""
+    try:
+        llc = _get_llc()
+        if llc is None:
+            raise RuntimeError('LLC not initialised')
+        from ledger.llcCOA import ChartOfAccounts
+        entries = ChartOfAccounts(llc).load()  # {acct_path: {acctID, acctDesc}}
+        return sorted(
+            [(path, f"{meta['acctID']} — {meta['acctDesc']}")
+             for path, meta in entries.items()
+             if meta.get('acctID')],
+            key=lambda t: t[1],
+        )
+    except Exception:
+        return [
+            ('Acct.Cash.Bank',                     '1010 — Cash (Operating Bank Account)'),
+            ('Acct.Exp.Ins',                       'Expense — Insurance'),
+            ('Acct.Exp.Other',                     'Expense — Other'),
+            ('Acct.Exp.Repair',                    'Expense — Repair/Maint'),
+            ('Acct.Exp.Tax.Prop',                  'Expense — Property Tax'),
+            ('Acct.Exp.Util',                      'Expense — Utilities'),
+            ('Acct.Rev.Fees.Other',                'Revenue — Fees/Other'),
+            ('Acct.Rev.Rent',                      'Revenue — Rent'),
+            ('Acct.Fixed.Tangible.InConstruction', 'Fixed Asset — CIP (In Construction)'),
+            ('Acct.Fixed.Tangible.InService',      'Fixed Asset — In Service'),
+            ('Acct.Equity.Capital.Member',         'Equity — Member Capital'),
+            ('Acct.Liab.Loan.Mortgage',            'Liability — Mortgage'),
+        ]
 
 _TXN_TYPES = ['ROUTINE_EXPENSE', 'RENT_INCOME', 'MEMBER_INVEST', 'SPECIAL_WIRE',
               'RETURN_PAIR', 'ACH_VERIFY', 'BANK_DEPOSIT', 'BANK_BONUS', 'UNKNOWN']
@@ -270,7 +285,7 @@ def bind_bankIngest_routes(app, objects: dict):
             prop_names=_get_prop_names(objects),
             csv_candidates=_list_csv_candidates(),
             configured_year=getattr(setup_paths, 'YEAR', None),
-            known_accts=_KNOWN_ACCTS,
+            known_accts=_coa_accts(),
         )
 
     @app.route('/api/bank/ingest/preview', methods=['POST'])
@@ -412,7 +427,7 @@ def bind_bankIngest_routes(app, objects: dict):
         return render_template(
             'bank_kb_rules.html',
             prop_names=_get_prop_names(objects),
-            known_accts=_KNOWN_ACCTS,
+            known_accts=_coa_accts(),
             txn_types=_TXN_TYPES,
             confidences=_CONFIDENCES,
         )
@@ -493,7 +508,7 @@ def bind_bankIngest_routes(app, objects: dict):
         return render_template(
             'requisitions.html',
             prop_names=_get_prop_names(objects),
-            known_accts=_KNOWN_ACCTS,
+            known_accts=_coa_accts(),
             configured_year=year,
         )
 
