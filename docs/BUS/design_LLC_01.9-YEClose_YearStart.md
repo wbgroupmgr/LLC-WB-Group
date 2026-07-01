@@ -360,3 +360,64 @@ After YearStart runs, commit `LLC-WBGroup` repo and sync to PA (`wsCmd.py --sync
 - Backfilling `acctOwner` on prior equity entries — Phase 2 task
 - Full K-1 Item L automation — Phase 3 task
 - Password-protect lock (PA-level access control is sufficient for this LLC)
+
+---
+
+## 10. Issue #50 — Beginning Balance Marker Not Carried Forward (investigation)
+
+**Symptom:** After running `/api/admin/year_start` for 2026, `llcAssets` shows no
+`"YR.2026.Beginning Balance: Cash"` row, and the 2025 Acct.Cash.Bank balance
+appears not to carry into the 2026 view.
+
+**Root cause — the GL is continuous, so nothing is actually lost.**
+`ledger.setup_paths.ACCTS_DIR` is shared across all years (§3.1 of the LLC
+CLAUDE.md) — `llcAssets_WBGroupLLC.json` is one running ledger, not
+year-partitioned. Acct.Cash.Bank's running balance therefore already includes
+every 2025 transaction; there is no "carry-forward" step required for the GL
+itself to stay correct.
+
+What's actually missing is the **marker transaction**. The 2025 book opens
+with a zero-amount landmark entry:
+
+```
+2025.08.20 | 0.0 | Debit | Acct.Cash.Bank | Equity | Acct.Equity.Earnings.PnL | YR.2025.Begining Balance: Cash
+```
+
+`amt = 0.0` means it does not move the trial balance — it exists purely so the
+UI/reports can locate "where year N's book starts" inside the continuous
+ledger. `api_admin_year_start()` (`ui/llcMgmt.py:3876`) currently only creates
+`books/<year>/{Forms,BankStmts,Expenses}/` and registers the year in
+`config.json` — it never posts this marker for the new year, so nothing marks
+where 2026 begins.
+
+**Second, unrelated bug found during investigation:** `llcAssets._BegBal()`
+(`ledger/llcAssets.py:207`) is looking for the wrong data and is dead code
+today:
+- It matches `aDict['acct'] == 'Acct.Cash.Balance'` — the real marker rows use
+  `'Acct.Cash.Bank'`. This condition never matches, so `_BegBal()` always
+  falls through to the `WARNING` branch and returns `0.0`.
+- Its `kDesc = f"YR.{yr}.Beg.Cash"` is checked via `kDesc in aDict['desc']`,
+  but the actual marker description is `"YR.{yr}.Begining Balance: Cash"` —
+  `"YR.2025.Beg.Cash"` is not a substring of that string, so even with the
+  right `acct` this would still never match.
+
+**Decision:** Fix both, scoped to Phase 1-E task 1.5 (`POST
+/api/admin/year_start`):
+
+1. `api_admin_year_start()` posts one zero-amount marker row into `llcAssets`
+   for the new year, matching the 2025 shape exactly:
+   `{dt: "<new_year>.01.01", amt: 0.0, aType: "Debit", acct: "Acct.Cash.Bank",
+   Ledger: "Equity", acctSub: "Acct.Equity.Earnings.PnL",
+   desc: "YR.<new_year>.Begining Balance: Cash", propNm: "LLC"}`.
+   `amt = 0.0` keeps the GL in equilibrium — this is a landmark, not a
+   balance-transfer entry.
+2. Guard against double-posting: skip if a row with that exact `desc` already
+   exists in `llcAssets` (idempotent — safe to re-run YearStart).
+3. Fix `llcAssets._BegBal()` to match the real data: `acct == 'Acct.Cash.Bank'`
+   and `f"YR.{yr}.Begining Balance: Cash" == aDict['desc']` (exact match, not
+   substring-of-prefix). This is what makes the 2025 case "work" today only by
+   accident (nothing currently calls `_BegBal()` in a path the user has hit —
+   confirm no caller depends on the old broken behavior before changing it).
+
+Not implemented in this pass per the issue's ask to investigate + record the
+decision; tracked as a follow-up on issue #50.
