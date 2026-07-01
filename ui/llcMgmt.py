@@ -1319,7 +1319,13 @@ class llcMgmt:
                 if mgr is None:
                     continue
                 try:
-                    rows = mgr.load()
+                    # mgr.load() goes through utilWorkingDB, which filters to
+                    # the active session year (utilWorkingDB.load() filters
+                    # dt.startswith(self.llc.yr)) even though the underlying
+                    # DB is one continuous multi-year ledger. Type-ahead needs
+                    # every year's values, so read the unfiltered real DB via
+                    # load_object() instead.
+                    rows = mgr.load_object()
                 except Exception:
                     continue
                 for row in rows:
