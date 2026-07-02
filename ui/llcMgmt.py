@@ -622,7 +622,11 @@ class llcMgmt:
         unfiltered view) every record matches and the behaviour is identical to
         a plain replace-save.
         '''
-        all_rows = manager.load()   # always loads from the working file (full, unfiltered)
+        # load_object() reads the real DB directly, unfiltered — manager.load()
+        # now filters to the active session year (utilWorkingDB.load(), added
+        # for multi-year support), so using it here would silently drop every
+        # other year's records on save.
+        all_rows = manager.load_object()
 
         def _key(row: Dict[str, Any], idx: int) -> str:
             k = row.get('tID') or row.get('id') or row.get('oID')
@@ -1392,7 +1396,11 @@ class llcMgmt:
 
             if cmd == "save_object":
                 payload = request.values.get("payload")
-                payload = self._parse_payload(payload, manager.load()) if payload is not None else manager.load()
+                # load_object() — see _merge_save() comment: manager.load()
+                # is year-filtered, and this becomes the full save payload
+                # when the caller doesn't supply one, so it must be unfiltered.
+                default_rows = manager.load_object()
+                payload = self._parse_payload(payload, default_rows) if payload is not None else default_rows
                 return jsonify({"ok": True, "data": s(manager.save_object(payload))})
 
             if cmd == "reset_from_object":
@@ -1403,7 +1411,10 @@ class llcMgmt:
 
             if cmd == "add":
                 payload = self._parse_payload(request.values.get("payload", "{}"), {})
-                rows = manager.load()
+                # load_object() — see _merge_save() comment: manager.load()
+                # is year-filtered, and saving that subset back would wipe
+                # every other year's records from the real DB.
+                rows = manager.load_object()
                 # System assigns a unique tID — user-supplied tID is ignored.
                 payload['tID'] = self._gen_unique_tid(payload, rows)
                 rows.append(payload)
@@ -1414,23 +1425,26 @@ class llcMgmt:
             if cmd == "update":
                 record_id = request.values.get("id")
                 payload   = self._parse_payload(request.values.get("payload", "{}"), {})
-                rows = manager.load()
-                idx = self._row_index_arg(len(rows))
+                # load_object() — see _merge_save() comment. Also: idx is a
+                # position within the client's (year-filtered) view, which no
+                # longer matches positions in this unfiltered set, so id/tID
+                # match must take precedence over the positional idx fast path.
+                rows = manager.load_object()
                 updated = False
-                if idx is not None:
-                    # tID is immutable — preserve the original tID from the stored record.
-                    orig_tid = rows[idx].get('tID')
-                    payload['tID'] = orig_tid
-                    rows[idx] = payload
-                    updated = True
-                else:
-                    for i, row in enumerate(rows):
-                        if self._row_id(row, i) == str(record_id):
-                            orig_tid = row.get('tID')
-                            payload['tID'] = orig_tid
-                            rows[i] = payload
-                            updated = True
-                            break
+                for i, row in enumerate(rows):
+                    if self._row_id(row, i) == str(record_id):
+                        orig_tid = row.get('tID')
+                        payload['tID'] = orig_tid
+                        rows[i] = payload
+                        updated = True
+                        break
+                if not updated:
+                    idx = self._row_index_arg(len(rows))
+                    if idx is not None:
+                        orig_tid = rows[idx].get('tID')
+                        payload['tID'] = orig_tid
+                        rows[idx] = payload
+                        updated = True
                 if not updated:
                     return jsonify({"ok": False, "error": "Record not found"}), 404
                 saved = s(manager.save(rows))
@@ -1438,17 +1452,16 @@ class llcMgmt:
 
             if cmd == "delete":
                 record_id = request.values.get("id")
-                rows      = manager.load()
-                idx = self._row_index_arg(len(rows))
+                rows      = manager.load_object()
                 target = None
-                if idx is not None:
-                    if 0 <= idx < len(rows):
+                for i, row in enumerate(rows):
+                    if self._row_id(row, i) == str(record_id):
+                        target = i
+                        break
+                if target is None:
+                    idx = self._row_index_arg(len(rows))
+                    if idx is not None and 0 <= idx < len(rows):
                         target = idx
-                else:
-                    for i, row in enumerate(rows):
-                        if self._row_id(row, i) == str(record_id):
-                            target = i
-                            break
                 if target is None:
                     return jsonify({"ok": False, "error": "Record not found"}), 404
                 stamp = datetime.date.today().isoformat()
@@ -1467,7 +1480,12 @@ class llcMgmt:
                 if not ops:
                     return jsonify({"ok": False, "error": "no ops in batch"}), 400
 
-                rows   = list(manager.load())
+                # load_object() — see _merge_save() comment. Also: op["idx"]
+                # is a position within the client's (year-filtered) view,
+                # which no longer matches positions in this unfiltered set,
+                # so id/tID match must take precedence over the positional
+                # idx fast path.
+                rows   = list(manager.load_object())
                 errors = []
                 delete_ids: Set[str] = set()
                 adds: List[Dict[str, Any]] = []
@@ -1479,7 +1497,13 @@ class llcMgmt:
                         rid     = str(op.get("id", ""))
                         payload = dict(op.get("payload") or {})
                         updated = False
-                        if idx_raw is not None:
+                        for i, row in enumerate(rows):
+                            if self._row_id(row, i) == rid:
+                                payload['tID'] = row.get('tID')
+                                rows[i] = payload
+                                updated = True
+                                break
+                        if not updated and idx_raw is not None:
                             try:
                                 i = int(idx_raw)
                                 if 0 <= i < len(rows):
@@ -1488,13 +1512,6 @@ class llcMgmt:
                                     updated = True
                             except (TypeError, ValueError):
                                 pass
-                        if not updated:
-                            for i, row in enumerate(rows):
-                                if self._row_id(row, i) == rid:
-                                    payload['tID'] = row.get('tID')
-                                    rows[i] = payload
-                                    updated = True
-                                    break
                         if not updated:
                             errors.append(f"update: record not found (id={rid!r})")
                     elif sub == "add":
@@ -3183,7 +3200,10 @@ class llcMgmt:
                 if mgr is None:
                     return jsonify({"ok": False, "error": "llcAssets not available"}), 500
 
-                existing = mgr.load() or []
+                # load_object() — see _merge_save() comment: mgr.load() is
+                # year-filtered, and existing+to_add becomes the full save
+                # payload below, so the merge base must be unfiltered.
+                existing = mgr.load_object() or []
 
                 # Strip _replace_tID from each record, collect tIDs to delete first
                 replace_tids = set()
@@ -3780,7 +3800,10 @@ class llcMgmt:
                 if mgr is None:
                     return jsonify({"ok": False, "error": "llcAssets not available"}), 500
 
-                existing = mgr.load() or []
+                # load_object() — see _merge_save() comment: mgr.load() is
+                # year-filtered, and kept+to_add becomes the full save
+                # payload below, so the merge base must be unfiltered.
+                existing = mgr.load_object() or []
                 ye_dt    = f"{year}.12.31"
 
                 # Remove all prior YE closing entries for this year

@@ -137,7 +137,10 @@ def bind_propAgent_routes(app, objects, sanitize):
             if mgr is None:
                 return jsonify({'ok': False, 'error': 'llcAssets object not available'}), 500
 
-            existing = mgr.load() or []
+            # load_object() reads the real DB unfiltered — mgr.load() filters
+            # to the active session year, and filtered+records becomes the
+            # full save payload below, so the merge base must be unfiltered.
+            existing = mgr.load_object() or []
             # Remove overridden records; dup-mode records stay alongside new ones
             filtered = [r for r in existing if r.get('tID') not in override_tids]
             mgr.save(filtered + records)
