@@ -415,7 +415,19 @@ def bind_monthly_recon_routes(app, objects: dict) -> None:
             missing = _missing_reqs_for_year(objects, year, req_map)
 
             report = _build_month_report(gl_rows, year, ym, req_map, missing)
-            return jsonify({'ok': True, 'report': report})
+
+            # BookState (issue #53/#57) — surface whether this report's GL
+            # snapshot is currently in sync with RealDB, so drift is visible
+            # on the one view an operator checks month to month.
+            book_state_status = None
+            if llc is not None:
+                from ledger import bookState
+                books = getattr(es, 'books', None)
+                book_state_status = books.book_state_status() if books else {
+                    'inSync': None, 'current': bookState.compute(llc),
+                }
+
+            return jsonify({'ok': True, 'report': report, 'bookState': book_state_status})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),

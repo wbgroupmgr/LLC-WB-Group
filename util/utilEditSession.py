@@ -67,21 +67,50 @@ class BooksContext:
 
     Stored on both eSession.books AND llc.books so IRS agents (which receive
     only llc) can reach it without needing eSession passed in.
+
+    BookState staleness check (issue #53, Dimension 1): an out-of-band change
+    to the RealDB files (a git pull, a manual recovery, any process other
+    than this app writing to Accts/*.json) previously left this cached
+    snapshot silently stale until a server restart — unlike utilWorkingDB
+    .load(), which already self-heals via an mtime compare. _source_state
+    records the BookState the cache was built from; every gl_rows access
+    re-computes the current BookState and forces a recompute if they differ.
     """
 
     def __init__(self, llc):
-        self._llc    = llc
-        self._gl_rows = None  # None = invalidated; list = live snapshot
+        self._llc           = llc
+        self._gl_rows        = None  # None = invalidated; list = live snapshot
+        self._source_state   = None  # BookState snapshot the cache was built from
 
     def invalidate(self):
-        self._gl_rows = None
+        self._gl_rows      = None
+        self._source_state = None
 
     @property
     def gl_rows(self):
+        from ledger import bookState
+        current = bookState.compute(self._llc)
+        if self._gl_rows is not None and bookState.diff(self._source_state, current):
+            self._gl_rows = None  # RealDB changed since this snapshot was built — stale
+
         if self._gl_rows is None:
             from ledger.stmtGL import stmtGL
-            self._gl_rows = list(stmtGL(self._llc)._rows or [])
+            self._gl_rows      = list(stmtGL(self._llc)._rows or [])
+            self._source_state = current
         return self._gl_rows
+
+    def book_state_status(self) -> dict:
+        """Diagnostic: is the cached GL snapshot currently in sync with RealDB?"""
+        from ledger import bookState
+        current = bookState.compute(self._llc)
+        changed = bookState.diff(self._source_state, current) if self._source_state else []
+        return {
+            "inSync":        self._gl_rows is not None and not changed,
+            "computed":      self._gl_rows is not None,
+            "changedSince":  changed,
+            "current":       current,
+            "sourceState":   self._source_state,
+        }
 
 
 class utilEditSession():

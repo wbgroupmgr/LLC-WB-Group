@@ -1342,6 +1342,32 @@ class llcMgmt:
                 "data": {f: sorted(v) for f, v in values.items()},
             })
 
+        # ── BookState diagnostic (issue #53) ────────────────────────────────────
+        @app.route("/api/bookState")
+        def api_book_state():
+            from ledger import bookState
+            llc = getattr(self.eSession, "llc", None)
+            if llc is None:
+                return jsonify({"ok": False, "error": "LLC not initialised"}), 500
+            books = getattr(self.eSession, "books", None)
+            status = books.book_state_status() if books is not None else None
+            return jsonify({
+                "ok":         True,
+                "current":    bookState.compute(llc),
+                "cacheStatus": status,
+                "lastLogged": bookState.last_logged(),
+            })
+
+        @app.route("/api/bookState/log", methods=["POST"])
+        def api_book_state_log():
+            from ledger import bookState
+            llc = getattr(self.eSession, "llc", None)
+            if llc is None:
+                return jsonify({"ok": False, "error": "LLC not initialised"}), 500
+            note  = (request.get_json(silent=True) or {}).get("note", "")
+            entry = bookState.append_log(bookState.compute(llc), note=note)
+            return jsonify({"ok": True, "entry": entry})
+
         # ── Bank CSV upload ───────────────────────────────────────────────────
         @app.route("/api/llcBank/upload_csv", methods=["POST"])
         def upload_bank_csv():
