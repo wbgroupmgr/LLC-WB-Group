@@ -217,13 +217,34 @@ is 14 records, trial balance verified against PA truth: assets=226,396.83, expen
 **2025 book status: audited-safe — books match PA truth.** Year is currently UNLOCKED (user ran
 Unlock Year 2025 prior to Phase 1). Re-locking is a separate decision, not yet done.
 
+**Phase 2 — DONE.** llcRentalTracker commit f96c75b (#60, BookState Log frame) +
+c5307c0 (#62, critical blocking bug) + BUS commit f9043f5 (#61).
+
+Mid-phase, found and fixed a second, independent, more severe bug (#62): `stmtGL.
+_load_default_sources()` — the default-path GL loader behind BooksContext/stmtIS/stmtBS/every
+IRS-form agent — loaded llcAssets/llcExpRev/llcPayables/llcReceivables with **no year filter at
+all**, merging 2025 and 2026 transactions together. Caught because Form1065Agent's own audit
+flagged Schedule K Line 2 = $667.55 (form) vs "books show $3,717.18" (fresh compute, contaminated).
+Fixed and verified: stmtIS now matches PA truth exactly. This means every IS/BS/IRS-form view was
+silently wrong (mixing years) any time 2026 had transactions in it, until this fix — a more
+consequential bug than the original YE-close corruption, purely by coincidence of both surfacing
+in the same recovery effort.
+
+All 4 IRS forms (Form1065, Form4562, Form8825, Sch K-1 ×3) regenerated from the corrected,
+de-contaminated books — all GO, zero halts. Checked the K-1s actually emailed to members
+(06-17, commit 7456ac4): extracted the exact PDF that was on disk at that time (git blob
+c4cea07) — already shows the correct split ($640.85/$13.35/$13.35). No re-send needed.
+
 **Not yet done:**
-- Phase 2 (regenerate Form4562/Form8825/Form1065/Sch K-1 from the restored books — the FILL.pdfs on
-  disk still reflect the pre-06-30 state, need a fresh regenerate + integrity check)
+- IRS_Submission_2025/ package is stale (assembled before this session's fixes) — needs
+  `POST /api/tax/package` before actual filing; operator's call on when
 - Phase 3 (#53 BookState Dimensions 2-4, #57 BookAgent, #54 YearStart, #55 ingestion, #56 HomeFS)
 - Re-lock 2025 (operator decision, once satisfied with the restored state)
 - Cosmetic-only, not blocking: the 3 RE-closing entries' `desc` field still says "H_805HighMesa"
   even though `propNm` is now "Cash_LLC" — inconsistent label, no numeric/form impact
+- Pre-existing CPA-review items surfaced by the fresh form audit (not new, not corruption-related):
+  cash distributions Line 19a ($0 form vs $100 GL), blank Line H/I on Form 1065, Form 4562 closing-
+  cost classification review, Form 8825 double-post forensic flags (F8NI-R05a-d, already tracked)
 
 
 ## GIT LLC-WBGroup
