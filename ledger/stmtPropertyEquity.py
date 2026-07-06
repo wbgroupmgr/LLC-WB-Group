@@ -212,9 +212,14 @@ class stmtPropertyEquity(stmtDB):
         '''
         owners_map: Dict[str, str] = self._owners_map_from_list(owner_list)
 
+        # Group by propNm — the consistently-populated per-property identifier
+        # (enforced going forward by issue #64's ownership-rule gate). propID
+        # is not a genuine shared per-property key in existing data: it is
+        # either empty or a copy of that individual record's own tID, which
+        # would put every transaction in its own single-row group (issue #69).
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for rec in asset_list:
-            pid = str(rec.get('propID') or rec.get('tID') or '')
+            pid = str(rec.get('propNm') or rec.get('propID') or rec.get('tID') or '')
             groups.setdefault(pid, []).append(rec)
 
         rows: List[Dict[str, Any]] = []

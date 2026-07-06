@@ -3213,7 +3213,12 @@ class llcMgmt:
                         "Ledger":     "Acct.Equity.Owner.Capital.Funds",  # double-entry: keeps A=L+E+NI balanced
                         "acctOwner":  oID,   # per-member equity tracking (Phase 2)
                         "propNm":     RE_PNM,
-                        "propOwners": {oID: pct},
+                        # 100 = fully attributed to this owner (the dollar split
+                        # already happened via member_share/amt above) — matches
+                        # the {oID: 100} convention used by every other record
+                        # type (purchase closings, contributions, depreciation).
+                        # NOT the owner's ownership pct (issue #68).
+                        "propOwners": {oID: 100},
                         "tDB":        "llcAsset",
                         "acctSub":    "YE Net Income",
                         "refDB":      f"General Ledger - {ye_dt}",
