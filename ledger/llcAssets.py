@@ -193,10 +193,16 @@ class llcAssets(balanceSheet):
         super().__init__(llc, **kwargs)
         if self.debug: print(f"llc:{self.oID} {type(self).__name__} Init Done")
             
-    def FN(self): 
+    def FN(self):
         fn = os.path.join(self.llc.acctDir(), 'Accts', f"{self.oID}_{self.llc.objName}.json")
         if self.debug: print(f"{self.oID} ledgerObject.FN: {fn}")
         return fn
+
+    def save(self, tList):
+        """Hard-reject gate — Equity/Liability ownership rules (issue #64)."""
+        from ledger.ledgerCommitRules import validate_ownership_rules
+        validate_ownership_rules(tList)
+        return super().save(tList)
 
     def toDF(self):
         return super().toDF()

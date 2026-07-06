@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ledger import setup_paths as _sp
+from ledger.ledgerCommitRules import OwnershipRuleViolation
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 
@@ -700,6 +701,13 @@ class llcMgmt:
 
     def _bind_routes(self):
         app = self.app
+
+        @app.errorhandler(OwnershipRuleViolation)
+        def _handle_ownership_violation(err):
+            # Hard-reject gate (issue #64) — surfaced as a clean 422, not a
+            # raw 500 traceback, for any route that doesn't already wrap
+            # manager.save()/save_object() in its own try/except.
+            return jsonify({"ok": False, "error": str(err)}), 422
 
         @app.before_request
         def _require_login():

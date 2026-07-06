@@ -46,6 +46,8 @@ class llcExpRev(ledgerDB):
 
     def save(self, tList):
         """Write records list while preserving LogHistory in the new format."""
+        from ledger.ledgerCommitRules import validate_ownership_rules
+        validate_ownership_rules(tList)
         raw = self.load_raw()
         log = raw.get("LogHistory", []) if isinstance(raw, dict) else []
         return super().save({"records": list(tList), "LogHistory": log})
