@@ -91,6 +91,26 @@
     }
     .bs-chip-ok   { background: #dcfce7; color: #15803d; }
     .bs-chip-warn { background: #fef3c7; color: #92400e; }
+
+    /* ── YE Close (issue #63 — moved here from IRS Submission) ── */
+    .badge {
+        display: inline-block; font-size: 11px; font-weight: 700;
+        border-radius: 4px; padding: 2px 8px; letter-spacing: 0.04em;
+    }
+    .badge-go   { background: #dcfce7; color: #15803d; }
+    .badge-none { background: #f3f4f6; color: #6b7280; }
+    .chk-list { list-style: none; margin: 0; padding: 0; }
+    .chk-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; }
+    .chk-icon { font-size: 14px; line-height: 1.4; }
+    .chk-label { font-size: 13px; font-weight: 600; color: #111827; }
+    .chk-action { font-size: 12px; color: #6b7280; }
+    .btn {
+        font-size: 13px; padding: 6px 14px; border-radius: 6px;
+        border: none; cursor: pointer; font-weight: 600;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary   { background: #16a34a; color: white; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
 </style>
 
 <script>
@@ -133,7 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <span class="admin-title">{{ app_title }}</span>
         <span class="admin-title-sub" style="color:#9ca3af">·</span>
-        <span class="admin-title-sub">⚙️ LLC Admin</span>
+        <span class="admin-title-sub">📚 Books Manager-Admin Agent</span>
         <a href="{{ url_for('home') }}"
            style="margin-left:auto;font-size:13px;color:#6b7280;text-decoration:none">
             ← Home
@@ -215,6 +235,98 @@ async function doUnlock(year) {
         }
     } catch(e) { adminNotify('✗ Network error: ' + e, true); }
 }
+
+/* ── YE Close (issue #63 — moved here from IRS Submission Dashboard) ── */
+let _yePreviewData = null;
+
+async function yePreviewLoad() {
+    document.getElementById('ye-preview-spinner').style.display = '';
+    document.getElementById('ye-preview-area').innerHTML = '<p style="color:#6b7280;font-size:13px;">Loading preview…</p>';
+    document.getElementById('ye-apply-btn').disabled = true;
+    try {
+        const r = await fetch(_adminRoot + '/api/llcAssets/ye/preview');
+        const d = await r.json();
+        if (!d.ok) { adminNotify('✗ Preview failed: ' + (d.error || 'unknown'), true); return; }
+        _yePreviewData = d;
+        _yeRenderPreview(d);
+        document.getElementById('ye-apply-btn').disabled = false;
+    } catch(e) {
+        adminNotify('✗ Network error: ' + e, true);
+    } finally {
+        document.getElementById('ye-preview-spinner').style.display = 'none';
+    }
+}
+
+function _yeRenderPreview(d) {
+    const year = d.year;
+    let html = `<div style="font-size:13px;margin-bottom:10px;color:#374151;">
+        <b>Year:</b> ${year} &nbsp;|&nbsp; <b>Net Income:</b> $${d.net_income.toFixed(2)}</div>`;
+    for (const prop of (d.properties || [])) {
+        html += `<div style="margin-bottom:12px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${prop.propNm}</div>`;
+        for (const item of (prop.items || [])) {
+            const statusColor = item.status === 'exists' ? '#15803d' : item.status === 'new' ? '#1d4ed8' : '#d97706';
+            html += `<div style="font-size:12px;margin-bottom:4px;">
+                <span style="color:${statusColor};font-weight:600;">[${item.status.toUpperCase()}]</span>
+                <b>${item.label}</b>`;
+            if (item.amount != null) html += ` — $${Math.abs(item.amount).toFixed(2)}`;
+            if (item.note)           html += `<br><span style="color:#6b7280;margin-left:16px;">${item.note}</span>`;
+            if (item.members) {
+                for (const m of item.members) {
+                    const mc = m.status === 'exists' ? '#15803d' : '#1d4ed8';
+                    html += `<br><span style="margin-left:16px;color:${mc};">[${m.status.toUpperCase()}] ${m.name} (${m.pct}%) — $${m.amount.toFixed(2)}</span>`;
+                }
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+    document.getElementById('ye-preview-area').innerHTML = html;
+}
+
+function _yeCollectRecords(d) {
+    const recs = [];
+    for (const prop of (d.properties || [])) {
+        for (const item of (prop.items || [])) {
+            if (item.record) recs.push(item.record);
+            if (item.members) {
+                for (const m of item.members) {
+                    if (m.record) recs.push(m.record);
+                }
+            }
+        }
+    }
+    return recs;
+}
+
+async function yeApply() {
+    if (!_yePreviewData) { adminNotify('Load preview first.', true); return; }
+    const records = _yeCollectRecords(_yePreviewData);
+    if (!records.length) { adminNotify('No new records to post.', false); return; }
+    if (!confirm(`Apply ${records.length} YE closing record(s) and lock year ${_yePreviewData.year}?\n\nThis will:\n• Remove existing ${_yePreviewData.year}.12.31 depr/RE entries\n• Post updated depr + retained-earnings entries\n• Lock the year against further edits\n\nContinue?`)) return;
+    document.getElementById('ye-close-spinner').style.display = '';
+    document.getElementById('ye-apply-btn').disabled = true;
+    try {
+        const r = await fetch(_adminRoot + '/api/tax/ye_close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: _yePreviewData.year, records }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+            adminNotify(`✓ YE Close applied — added ${d.added}, removed ${d.removed}. Year ${d.year} locked.`, false);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            adminNotify('✗ ' + (d.error || 'YE Close failed'), true);
+            document.getElementById('ye-apply-btn').disabled = false;
+        }
+    } catch(e) {
+        adminNotify('✗ Network error: ' + e, true);
+        document.getElementById('ye-apply-btn').disabled = false;
+    } finally {
+        document.getElementById('ye-close-spinner').style.display = 'none';
+    }
+}
 </script>
 
 {% if current_year %}
@@ -227,21 +339,60 @@ async function doUnlock(year) {
             {% if year_locked %}<span style="color:#15803d;font-weight:700;">✓ Locked</span>{% else %}<span style="color:#d97706;font-weight:700;">Open</span>{% endif %}
         </span>
     </summary>
-    <div class="admin-table-wrap" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;padding:18px;">
-        <div style="flex:1;min-width:220px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
-            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">Current Year: {{ current_year }}</div>
-            <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
-                Status: {% if year_locked %}<span style="color:#15803d;font-weight:600;">Locked (YE Close applied)</span>{% else %}<span style="color:#d97706;font-weight:600;">Open (editable)</span>{% endif %}
+    <div class="admin-table-wrap" style="padding:18px;">
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <span style="font-size:13px;font-weight:700;">🔒 Year-End Close — {{ current_year }}</span>
+                {% if year_locked %}<span class="badge badge-go">✓ Locked</span>{% else %}<span class="badge badge-none">Open</span>{% endif %}
             </div>
+
             {% if year_locked %}
+            <div style="padding:8px 12px;background:#dcfce7;border-radius:6px;font-size:13px;color:#15803d;margin-bottom:10px;">
+                ✓ Year {{ current_year }} is locked. YE closing entries are posted.
+            </div>
             <button class="frame-edit-btn" style="background:#d97706;" onclick="doUnlock({{ current_year }})">🔓 Unlock {{ current_year }}</button>
             {% else %}
-            <a href="/view/tax_prep" class="frame-edit-btn" style="background:#16a34a;text-decoration:none;">🔒 YE Close {{ current_year }}</a>
+            <div style="padding:8px 12px;background:#fef9c3;border-radius:6px;font-size:13px;color:#92400e;margin-bottom:10px;">
+                ⚠ Year {{ current_year }} is open. Complete all transactions before applying YE Close.
+            </div>
+
+            <ul class="chk-list" style="margin-bottom:12px;">
+                <li class="chk-item">
+                    <span class="chk-icon">⬜</span>
+                    <div>
+                        <div class="chk-label">All transactions entered and reconciled</div>
+                        <div class="chk-action">Verify llcAssets, llcExpRev, llcPayables, llcReceivables</div>
+                    </div>
+                </li>
+                <li class="chk-item">
+                    <span class="chk-icon">⬜</span>
+                    <div>
+                        <div class="chk-label">Depreciation schedule confirmed (PropAgent / Form 4562)</div>
+                        <div class="chk-action">Preview will compute MACRS from GL basis</div>
+                    </div>
+                </li>
+                <li class="chk-item">
+                    <span class="chk-icon">⬜</span>
+                    <div>
+                        <div class="chk-label">Net Income verified on Income Statement</div>
+                        <div class="chk-action">BS equation_diff should equal NI before close</div>
+                    </div>
+                </li>
+            </ul>
+
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                <button class="btn btn-secondary" onclick="yePreviewLoad()">🔍 Preview Closing Entries</button>
+                <button class="btn btn-primary" id="ye-apply-btn" disabled onclick="yeApply()">✔ Apply YE Close &amp; Lock</button>
+                <span id="ye-preview-spinner" style="display:none;font-size:13px;color:#6b7280;">⏳ Loading…</span>
+                <span id="ye-close-spinner" style="display:none;font-size:13px;color:#6b7280;">⏳ Applying…</span>
+            </div>
+            <div id="ye-preview-area"></div>
             {% endif %}
         </div>
+
         {% if next_year %}
-        <div style="flex:1;min-width:220px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
-            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">Next Year: {{ next_year }}</div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">🆕 Next Year: {{ next_year }}</div>
             <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
                 Creates Forms/, BankStmts/, Expenses/ directories and registers year in config.json.
             </div>
