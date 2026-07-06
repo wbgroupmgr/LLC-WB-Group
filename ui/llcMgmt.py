@@ -206,6 +206,7 @@ class llcMgmt:
         'stmtGeneralLedger': ['All', 'By Dups', 'ByAsset', 'ByLiability', 'ByEquity', 'ByIncome', 'ByExpense'],
         'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity', 'Details'],
         'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember', 'PerMemberDetails'],
+        'stmtOwnerEquity':   ['All', 'Details'],
         # IRS Form 1065 / Sch K-1 are now PDF-embed views (v0.2.4.7) — no
         # row-level publish filter at the view layer; the publish flag is
         # baked into the underlying FILL.pdf.
@@ -1158,6 +1159,36 @@ class llcMgmt:
 
             # ── Financial Statement views ─────────────────────────────────────
             if obj_type in self.FINANCIAL_VIEWS:
+
+                # ── OE Capital Rollforward: members-as-columns (issue #66) ──
+                # Default view for Owner Equity — the old row-per-member-
+                # account breakdown is still reachable via viewBy=Details.
+                if obj_type == "stmtOwnerEquity" and view_by != "Details":
+                    cr_rows, member_names, cr_summary = manager.load_capital_rollforward()
+                    return render_template(
+                        "oe_capital_view.html",
+                        title=self.title,
+                        obj_type=obj_type,
+                        view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                        rows=self._view_rows(cr_rows),
+                        raw_rows=cr_rows,
+                        member_names=member_names,
+                        book_value=cr_summary.get('llc_book_value', 0.0),
+                        year=getattr(self.eSession.llc, 'yr', ''),
+                        stats={
+                            'LLC Book Value': cr_summary.get('llc_book_value', 0.0),
+                            'Net Income':      cr_summary.get('net_income', 0.0),
+                            'Members':         cr_summary.get('members', 0),
+                        },
+                        stats_labels=self._stats_labels({
+                            'LLC Book Value': cr_summary.get('llc_book_value', 0.0),
+                            'Net Income':      cr_summary.get('net_income', 0.0),
+                            'Members':         cr_summary.get('members', 0),
+                        }),
+                        meta=meta,
+                        view_by="All",
+                        view_by_options=view_by_options,
+                    )
 
                 # ── IS ByProperty / ByPropertyDetails: unstacked property view ──
                 if obj_type == "stmtIncomeStmt" and view_by in ("ByProperty", "ByPropertyDetails"):

@@ -364,3 +364,78 @@ class stmtOwnerEquity(stmtDB):
             'Members':       members,
             'Total Balance': total.get('Balance', 0),
         }
+
+    # ── Capital rollforward — members as columns (issue #66 TOBE) ────────────
+    #
+    # NOTE: this is an additive, read-only method. self._rows/_columns (the
+    # row-per-member-account shape built by _build()) are left untouched,
+    # because irs/Form1065.py's PUBLISH_MAP reads this class's TOTAL/Balance
+    # row directly for Sched L L21 / Sched M-2 L9 — replacing the row shape
+    # here would silently break that Books-First IRS sourcing.
+
+    def capital_rollforward(self,
+                            owners: Optional[List[Dict[str, Any]]] = None
+                            ) -> Tuple[List[Dict[str, Any]], List[str], Dict[str, Any]]:
+        '''
+        Item L-style member capital rollforward — one column per member (+
+        Total), matching Section 5 of the YE Financial Report exactly:
+        Beginning Capital / Contributions / Net Income Share / Other
+        Increases / Withdrawals-Distributions / Ending Capital.
+
+        GL-sourced via the same irs.taxAgents.FormSchK1Agent helpers Section
+        5 and Sch K-1 Box L use (gl_contributions/gl_distributions read
+        stmtGL, not llcAssets directly) — Books-First, IRC §705/§722.
+
+        Returns (rows, member_names, summary). summary['llc_book_value'] is
+        the Total Ending Capital — the LLC's book value as of this fiscal
+        year (issue #66's explicit ask).
+        '''
+        from irs.taxAgents.FormSchK1Agent import gl_contributions, gl_distributions
+
+        owners = list(owners if owners is not None else (self._init_owners or []))
+
+        def _first_name(o: Dict[str, Any]) -> str:
+            nm = o.get('nm', '')
+            if isinstance(nm, list):
+                return nm[0] if nm else o.get('oID', '')
+            return str(nm) if nm else o.get('oID', '')
+
+        names = [_first_name(o) for o in owners]
+        ni = float((self._meta or {}).get('net_income', 0.0) or 0.0)
+
+        beg_vals, cont_vals, dist_vals, ni_vals = [], [], [], []
+        for o in owners:
+            oID = o.get('oID', '')
+            pct = float(o.get('pct', 0) or 0)
+            attributed, _ = gl_contributions(self.llc, oID)
+            beg_vals.append(0.0)   # matches Section 5 — LLC's first fiscal year
+            cont_vals.append(attributed)
+            dist_vals.append(gl_distributions(self.llc, oID))
+            ni_vals.append(round(ni * pct, 2))
+
+        end_vals = [beg_vals[i] + cont_vals[i] + ni_vals[i] - dist_vals[i]
+                    for i in range(len(owners))]
+        other_vals = [0.0] * len(owners)
+
+        def _row(label: str, row_key: str, vals: List[float]) -> Dict[str, Any]:
+            r: Dict[str, Any] = {'item': label, 'row_key': row_key,
+                                  'Total': round(sum(vals), 2)}
+            for nm, v in zip(names, vals):
+                r[nm] = round(v, 2)
+            return r
+
+        rows = [
+            _row('Beginning Capital',            'beg',     beg_vals),
+            _row('Contributions',                'contrib', cont_vals),
+            _row('Net Income/(Loss) Share',       'ni',      ni_vals),
+            _row('Other Increases',               'other',   other_vals),
+            _row('Withdrawals/Distributions',     'dist',    dist_vals),
+            _row('Ending Capital',                'end',     end_vals),
+        ]
+        book_value = round(sum(end_vals), 2)
+        summary = {
+            'llc_book_value': book_value,
+            'net_income':     round(ni, 2),
+            'members':        len(owners),
+        }
+        return rows, names, summary

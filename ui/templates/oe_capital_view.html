@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const CURRENT_VIEW_BY = {{ view_by|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
+
+    function applyViewBy(selectEl) {
+        const vb = selectEl.value;
+        const params = new URLSearchParams();
+        if (vb && vb !== "All") params.set("viewBy", vb);
+        const q = params.toString();
+        window.location.href = `${_scriptRoot}/view/${OBJ_TYPE}${q ? "?" + q : ""}`;
+    }
+    function toggleJsonPane() {
+        const pane = document.getElementById("jsonPane");
+        pane.open = !pane.open;
+        if (pane.open) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+</script>
+
+<style>
+    .title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 18px; border-radius: 10px;
+        display: flex; flex-direction: column; gap: 0;
+        padding: 0 !important;
+        overflow: visible;
+    }
+    .title-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
+        background: #1e40af; padding: 12px 16px; color: white;
+        border-top-left-radius: 10px; border-top-right-radius: 10px; }
+    .stats-sub     { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .meta-row      { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
+    .title-left    { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep  { color: #93c5fd; font-size: 15px; }
+    .title-sub  { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row {
+        display: flex; align-items: center; gap: 8px;
+        flex-wrap: wrap; margin-left: auto; flex-shrink: 0;
+    }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a;
+        border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    .json-pane summary, .meta-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+
+    /* ── Book Value banner (issue #66) ── */
+    .book-value-banner {
+        display: flex; align-items: center; justify-content: space-between;
+        background: #1e3a8a; color: white; border-radius: 10px;
+        padding: 16px 20px; margin-bottom: 18px;
+    }
+    .book-value-banner .label { font-size: 14px; font-weight: 600; color: #bfdbfe; }
+    .book-value-banner .amount { font-size: 28px; font-weight: 800; }
+    .book-value-banner .sub { font-size: 12px; color: #93c5fd; margin-top: 2px; }
+
+    /* ── Capital rollforward table ── */
+    .oe-table { border-collapse: collapse; width: 100%; }
+    .oe-table th {
+        background: #1f2937; color: white;
+        padding: 10px 12px; text-align: left; font-size: 13px;
+        white-space: nowrap;
+    }
+    .oe-table th.num { text-align: right; }
+    .oe-table th.member-col { background: #1e3a8a; }
+    .oe-table th.total-col  { background: #111827; }
+    .oe-table td { padding: 9px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .oe-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .oe-table tr:hover td { background: #f9fafb; }
+    .oe-table tr.row-ni td {
+        background: #eff6ff; font-weight: 600; color: #1e40af;
+        border-top: 1px solid #bfdbfe;
+    }
+    .oe-table tr.row-end td {
+        background: #1e3a8a; color: white;
+        font-weight: 800; font-size: 14px;
+        border-top: 3px solid #1e3a8a;
+    }
+    .amt-pos { color: #166534; }
+    .amt-neg { color: #991b1b; }
+    .row-end .amt-pos, .row-end .amt-neg { color: white; }
+
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none;
+        white-space: nowrap;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu summary:hover { background: rgba(255,255,255,0.28); }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827;
+        min-width: 170px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300; overflow: hidden;
+    }
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .actions-menu .act-dropdown button:last-child { border-bottom: 0; }
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+
+    @media print {
+        @page { size: portrait; margin: 10mm; }
+        html { zoom: 65%; }
+        .toolbar-row, .menu, #jsonPane { display: none !important; }
+        .title-panel { position: static; box-shadow: none; }
+        .title-toolbar { background: #1e40af; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details>
+                    <summary>☰</summary>
+                    {% include '_nav_dropdown.html' %}
+                </details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">👥 {{ view_title }} — Capital Rollforward</span>
+        </div>
+        <div class="toolbar-row">
+            {% if view_by_options %}
+            <label for="viewBySelect"><strong>ViewBy</strong></label>
+            <select id="viewBySelect" onchange="applyViewBy(this)">
+                {% for opt in view_by_options %}
+                <option value="{{ opt }}" {% if view_by == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.location.reload()">🔄 Refresh</button>
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); toggleJsonPane()">{ } JSON</button>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}
+            <span class="muted">No stats available.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary>🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+<div class="book-value-banner">
+    <div>
+        <div class="label">LLC Book Value — Total Members' Equity (Ending Capital, FY {{ year }})</div>
+        <div class="sub">Beginning Capital + Contributions + Net Income Share + Other Increases − Distributions</div>
+    </div>
+    <div class="amount">${{ "%.2f"|format(book_value) }}</div>
+</div>
+
+<div class="panel">
+    <h3>Member Capital Account Analysis</h3>
+    <div class="table-wrap">
+        <table class="oe-table">
+            <thead>
+                <tr>
+                    <th style="width:220px">Equity Component</th>
+                    {% for nm in member_names %}
+                    <th class="num member-col">{{ nm }}</th>
+                    {% endfor %}
+                    <th class="num total-col">Total LLC Equity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                {% set rkey = row.data.get("row_key", "") %}
+                <tr class="{% if rkey == 'ni' %}row-ni{% elif rkey == 'end' %}row-end{% endif %}">
+                    <td><strong>{{ row.data.get("item", "") }}</strong></td>
+                    {% for nm in member_names %}
+                        {% set v = row.data.get(nm, 0) | float %}
+                        <td class="num {% if v > 0 %}amt-pos{% elif v < 0 %}amt-neg{% endif %}">
+                            {{ "%.2f"|format(v) }}
+                        </td>
+                    {% endfor %}
+                    {% set tv = row.data.get("Total", 0) | float %}
+                    <td class="num {% if tv > 0 %}amt-pos{% elif tv < 0 %}amt-neg{% endif %}">
+                        <strong>{{ "%.2f"|format(tv) }}</strong>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not rows %}
+                <tr><td colspan="{{ member_names|length + 2 }}" class="muted">No data available.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    <p style="font-size:12px; color:#6b7280; margin-top:10px;">
+        Ending Capital per member must match Schedule K-1 Item L(f). Same source as Section 5 of the YE Financial Report
+        (IRC §705/§722 — GL-sourced via stmtGL, not llcAssets directly).
+    </p>
+</div>
+
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary>💾 Raw Data</summary>
+        <pre>{{ raw_rows | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

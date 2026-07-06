@@ -86,6 +86,29 @@ class stmtOwnerEquity:
             self.load()
         return self._stmt.stats() if self._stmt else {}
 
+    def load_capital_rollforward(self):
+        '''
+        Item L-style member capital rollforward (issue #66 TOBE) — members
+        as columns, matching Section 5 of the YE Financial Report.
+
+        Returns (rows, member_names, summary) — same shape convention as
+        stmtIS_View.load_per_member().
+        '''
+        asset_list = self.engine._load_source('llcAssets')
+        owners     = self.engine.load_owners()
+        _, is_sum  = self.engine.buildIS()
+        net_income = float(is_sum.get('net_income', 0.0) or 0.0)
+
+        self._stmt = _stmtOwnerEquity(
+            self.eSession.llc,
+            asset_records=asset_list,
+            owners=owners,
+            net_income=net_income,
+        )
+        rows, names, summary = self._stmt.capital_rollforward(owners=owners)
+        self._summary = summary
+        return rows, names, summary
+
     def meta(self) -> Dict[str, Any]:
         # Keep the legacy UI meta() shape so the existing template renders.
         return {
