@@ -64,7 +64,14 @@ class llcReportEngine:
                 return []
             yr = str(getattr(self.eSession.llc, 'yr', '') or '')
             if yr:
-                data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+                # Coarse, pre-expansion filter only (issue #54) — see
+                # ledger.yearFilter module docstring. getGLList() applies the
+                # precise post-expansion Income/Expense period filter;
+                # stmtOwnerEquity/stmtPropertyEquity read this raw list
+                # directly (no expansion) and want cumulative-to-date, which
+                # is exactly what this stage gives them.
+                from ledger.yearFilter import filter_cumulative
+                data = filter_cumulative(data, yr)
             return data
         except Exception:
             return []
@@ -91,10 +98,19 @@ class llcReportEngine:
         ar_expanded    = self.gl.toDoubleEntry(ar_list)
 
         # Order matters on tID collisions: first source wins the dedup.
-        self._gl_cache = self.gl.mergeGL(
+        merged = self.gl.mergeGL(
             [asset_expanded, er_expanded, ap_expanded, ar_expanded],
             resolve_dups=resolve_dups,
         )
+        # Precise post-expansion year filter (issue #54) — each row now has
+        # exactly one `acct`, so stale prior-year Income/Expense rows can be
+        # dropped unambiguously without touching a permanent account's side
+        # of the same original dual-account record.
+        yr = str(getattr(self.eSession.llc, 'yr', '') or '')
+        if yr:
+            from ledger.yearFilter import filter_period_rows
+            merged = filter_period_rows(merged, self.eSession.llc, yr)
+        self._gl_cache = merged
         return self._gl_cache
 
     def getGLListWithDups(self) -> List[Dict[str, Any]]:
@@ -107,10 +123,15 @@ class llcReportEngine:
         asset_expanded = self.gl.toDoubleEntry(asset_list)
         ap_expanded    = self.gl.toDoubleEntry(ap_list)
         ar_expanded    = self.gl.toDoubleEntry(ar_list)
-        return self.gl.mergeGL(
+        merged = self.gl.mergeGL(
             [er_expanded, asset_expanded, ap_expanded, ar_expanded],
             resolve_dups=False,
         )
+        yr = str(getattr(self.eSession.llc, 'yr', '') or '')
+        if yr:
+            from ledger.yearFilter import filter_period_rows
+            merged = filter_period_rows(merged, self.eSession.llc, yr)
+        return merged
 
     def toDF(self) -> 'pd.DataFrame':
         '''Return GL as a pandas DataFrame with acctType column.'''

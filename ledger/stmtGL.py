@@ -397,6 +397,16 @@ class stmtGL(stmtDB):
         _load_source() already filter this way; this was the one default-path
         loader that didn't, silently doubling (or worse) income/expense
         totals on every stmtIS/stmtBS/IRS-form view once a 2nd year existed.
+
+        This is a coarse cumulative-to-date filter only (issue #54) — every
+        record dated on or before the active year's end is kept, regardless
+        of account type. Excluding by account type here would drop the
+        permanent-account side of any dual-account record that also touches
+        a temporary account (e.g. a prior-year expense's Cash.Bank side),
+        under-stating carried-forward balances. The precise per-account-type
+        exclusion of stale Income/Expense rows happens after double-entry
+        expansion, in _expand_and_merge() (ledger.yearFilter.filter_period_rows),
+        where each row has exactly one unambiguous `acct`.
         '''
         yr = str(getattr(self.llc, 'yr', '') or '')
 
@@ -410,7 +420,8 @@ class stmtGL(stmtDB):
                 if not isinstance(data, list):
                     return []
                 if yr:
-                    data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+                    from ledger.yearFilter import filter_cumulative
+                    data = filter_cumulative(data, yr)
                 return data
             except Exception as err:
                 print(f"stmtGL: could not load {cls_path}: {err}")
@@ -426,9 +437,15 @@ class stmtGL(stmtDB):
                           sources: Dict[str, List[Dict[str, Any]]],
                           resolve_dups: bool
                           ) -> List[Dict[str, Any]]:
-        '''Double-entry-expand each source then merge via ledgerGeneral.'''
+        '''Double-entry-expand each source then merge via ledgerGeneral.
+
+        Post-expansion, each row has exactly one `acct` — this is where the
+        precise per-account-type year filter (issue #54) drops stale Income/
+        Expense rows, now unambiguous (unlike the pre-expansion dual-account
+        source records; see _load_default_sources()).
+        '''
         gl = ledgerGeneral(self.llc)
-        return gl.mergeGL(
+        merged = gl.mergeGL(
             [
                 gl.toDoubleEntry(sources.get('asset',      []) or []),
                 gl.toDoubleEntry(sources.get('expRev',     []) or []),
@@ -437,6 +454,11 @@ class stmtGL(stmtDB):
             ],
             resolve_dups=resolve_dups,
         )
+        yr = str(getattr(self.llc, 'yr', '') or '')
+        if yr:
+            from ledger.yearFilter import filter_period_rows
+            merged = filter_period_rows(merged, self.llc, yr)
+        return merged
 
     # ── COA seed (one Debit-0 row per COA acct) ──────────────────────────
 
