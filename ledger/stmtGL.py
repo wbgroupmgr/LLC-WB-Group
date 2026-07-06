@@ -388,7 +388,18 @@ class stmtGL(stmtDB):
     # ── Source loading (default path: read ledger DB files) ──────────────
 
     def _load_default_sources(self) -> Dict[str, List[Dict[str, Any]]]:
-        '''Load the four canonical source DBs.  Same paths as v0.2.'''
+        '''Load the four canonical source DBs.  Same paths as v0.2.
+
+        Year-filtered to self.llc.yr: the shared Accts/*.json files hold every
+        registered year in one flat array (multi-year single-DB design), so an
+        unfiltered load() here would merge every other year's transactions
+        into "this year's" GL. utilWorkingDB.load() and llcReportEngine.
+        _load_source() already filter this way; this was the one default-path
+        loader that didn't, silently doubling (or worse) income/expense
+        totals on every stmtIS/stmtBS/IRS-form view once a 2nd year existed.
+        '''
+        yr = str(getattr(self.llc, 'yr', '') or '')
+
         def _safe_load(cls_path: str) -> List[Dict[str, Any]]:
             try:
                 module_name, cls_name = cls_path.rsplit('.', 1)
@@ -396,7 +407,11 @@ class stmtGL(stmtDB):
                 cls = getattr(mod, cls_name)
                 obj = cls(self.llc)
                 data = obj.load()
-                return data if isinstance(data, list) else []
+                if not isinstance(data, list):
+                    return []
+                if yr:
+                    data = [r for r in data if str(r.get('dt', '')).startswith(yr)]
+                return data
             except Exception as err:
                 print(f"stmtGL: could not load {cls_path}: {err}")
                 return []
