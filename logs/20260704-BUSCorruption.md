@@ -202,6 +202,29 @@ bugs above again.
 2. Manually confirm switching 2025⇄2026 in the UI doesn't reintroduce the wsCmd/utilWorkingDB
    year-filter issue from this session.
 
+## Status (2026-07-06)
+
+**Phase 0 — DONE.** llcRentalTracker commit 46fbb73 (issue #58). wsCmd year default, ye_preview
+propNm/existing-check bugs, and ye_close's blanket-delete all fixed and verified live.
+
+**Phase 1 — DONE.** BUS commit a32b2c9 (issue #59). User hand-corrected the 3 RE-closing entries'
+propNm (Cash_LLC — confirmed zero IRS-form impact, these are acctType=Equity and Form 8825 only
+reads Income/Expense). Missing depreciation entry restored via the now-fixed ye/apply. 2025 llcAssets
+is 14 records, trial balance verified against PA truth: assets=226,396.83, expenses=3,732.45
+(incl. depreciation), income=4,400.00, net_income=667.55 — exact match. BookState logged
+(POST /api/bookState/log, 2026-07-05T23:16 snapshot) as the new verified checkpoint.
+
+**2025 book status: audited-safe — books match PA truth.** Year is currently UNLOCKED (user ran
+Unlock Year 2025 prior to Phase 1). Re-locking is a separate decision, not yet done.
+
+**Not yet done:**
+- Phase 2 (regenerate Form4562/Form8825/Form1065/Sch K-1 from the restored books — the FILL.pdfs on
+  disk still reflect the pre-06-30 state, need a fresh regenerate + integrity check)
+- Phase 3 (#53 BookState Dimensions 2-4, #57 BookAgent, #54 YearStart, #55 ingestion, #56 HomeFS)
+- Re-lock 2025 (operator decision, once satisfied with the restored state)
+- Cosmetic-only, not blocking: the 3 RE-closing entries' `desc` field still says "H_805HighMesa"
+  even though `propNm` is now "Cash_LLC" — inconsistent label, no numeric/form impact
+
 
 ## GIT LLC-WBGroup
 
