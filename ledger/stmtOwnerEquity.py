@@ -48,7 +48,6 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from ledger.stmtDB import stmtDB
-from irs.publishMap import PubEntry, F_TEXT
 
 
 class stmtOwnerEquity(stmtDB):
@@ -63,28 +62,25 @@ class stmtOwnerEquity(stmtDB):
     COLUMNS = ['acctType', 'acct', 'acctSub', 'Debit', 'Credit', 'Balance']
     VIEW_BY_OPTIONS: List[str] = []
 
-    # ── Form 1065 publish map (DataModelGuide § 4 / Phase 5) ─────────────────
+    # ── Form 1065 publish map: intentionally empty ───────────────────────────
     #
-    # The TOTAL row's Balance column is the sum of all member capital
-    # balances + their net-income shares — i.e. partners' capital accounts
-    # at end of year.  That matches Form 1065:
-    #   • Sched L L21 col(d) — Partners' capital accounts — end of year
-    #   • Sched M-2 L9      — Balance at end of year
-    #
-    # Per-member contribution/distribution breakdowns (for M2_2a / M2_6a
-    # etc.) are NOT bound here because they require filtering by owner and
-    # account type; irs.Form1065.nSpaceMap() falls back to the legacy
-    # ``_FILL_MAP`` + ``stmtFinancialReport`` aggregator for those keys.
-    PUBLISH_MAP = {
-        "Form1065": [
-            PubEntry(src_row="TOTAL", src_col="Balance",
-                     logicalKey="L_21_2", fType=F_TEXT, sign=+1,
-                     note="Sched L L21 col(d) — Partners' capital accts EOY"),
-            PubEntry(src_row="TOTAL", src_col="Balance",
-                     logicalKey="M2_9",   fType=F_TEXT, sign=+1,
-                     note="Sched M-2 L9 — Balance at end of year"),
-        ],
-    }
+    # PREVIOUSLY declared L_21_2 (Sched L L21 — partners' capital, EOY) and
+    # M2_9 (Sched M-2 L9 — balance at EOY) here, sourced from this class's
+    # TOTAL/Balance row. Removed (2026-07-06, service-independence review):
+    # Form1065.nSpaceMap()'s resolution order gives PUBLISH_MAP entries
+    # priority over its legacy _FILL_MAP fallback, and that fallback already
+    # sources total_equity independently and correctly from stmtBS (Books-
+    # First — see irs/Form1065.py::_resolveTaxData(), which explicitly reads
+    # stmtBS(llc).taxAggregates(), not this class). Declaring the same keys
+    # here meant a bug in this class's llcAssets-direct aggregation (see the
+    # module FIXME above) could have silently overridden a correct,
+    # independent source — the opposite of what a Books-First cross-check
+    # is for. In practice this had no live impact (irs/BookToIRS.py's actual
+    # FILL.pdf pipeline never used nSpaceMap()/PUBLISH_MAP for this class —
+    # AID_SOURCES = ("Profile","BS","IS","GL"), no "owners" source — and
+    # ui/llcForm1065.py's PDF-embed view stopped calling nSpaceMap()
+    # entirely), but the declaration was still a latent hazard.
+    PUBLISH_MAP: Dict[str, List[Any]] = {}
 
     # ── Construction ─────────────────────────────────────────────────────────
 
