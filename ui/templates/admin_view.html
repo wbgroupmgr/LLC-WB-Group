@@ -302,8 +302,15 @@ function _yeCollectRecords(d) {
 async function yeApply() {
     if (!_yePreviewData) { adminNotify('Load preview first.', true); return; }
     const records = _yeCollectRecords(_yePreviewData);
-    if (!records.length) { adminNotify('No new records to post.', false); return; }
-    if (!confirm(`Apply ${records.length} YE closing record(s) and lock year ${_yePreviewData.year}?\n\nThis will:\n• Remove existing ${_yePreviewData.year}.12.31 depr/RE entries\n• Post updated depr + retained-earnings entries\n• Lock the year against further edits\n\nContinue?`)) return;
+    // Zero records is normal and expected once everything is already posted
+    // (every item shows status "exists") — that must still lock the year,
+    // not silently do nothing. Previously this bailed out here with a
+    // notice and never called the API, so "Apply YE Close & Lock" appeared
+    // to do nothing whenever the closing entries were already correct.
+    const confirmMsg = records.length
+        ? `Apply ${records.length} YE closing record(s) and lock year ${_yePreviewData.year}?\n\nThis will:\n• Remove existing ${_yePreviewData.year}.12.31 depr/RE entries\n• Post updated depr + retained-earnings entries\n• Lock the year against further edits\n\nContinue?`
+        : `All YE closing entries for ${_yePreviewData.year} already match the books (nothing new to post). Lock year ${_yePreviewData.year} against further edits?`;
+    if (!confirm(confirmMsg)) return;
     document.getElementById('ye-close-spinner').style.display = '';
     document.getElementById('ye-apply-btn').disabled = true;
     try {
