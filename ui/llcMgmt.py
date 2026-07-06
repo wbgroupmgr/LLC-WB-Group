@@ -959,6 +959,23 @@ class llcMgmt:
             except Exception:
                 pass
 
+            # ── BookState log (issue #60) — operator-visible trust checkpoint history ──
+            bookstate_log: list = []
+            bookstate_current: dict = {}
+            try:
+                from ledger import bookState as _bs
+                llc = getattr(self.eSession, 'llc', None)
+                bookstate_current = _bs.compute(llc) if llc else {}
+                cur_objs = bookstate_current.get('objects', {})
+                for entry in _bs.load_log_lifo():
+                    entry_objs = entry.get('objects', {})
+                    changed = [oid for oid in _bs.RECORD_OBJECTS
+                               if entry_objs.get(oid, {}).get('sha256')
+                               != cur_objs.get(oid, {}).get('sha256')]
+                    bookstate_log.append({**entry, 'inSync': not changed, 'changedSince': changed})
+            except Exception:
+                app.logger.exception("llc_admin: bookstate log load failed")
+
             return render_template(
                 "admin_view.html",
                 title=self.title,
@@ -968,6 +985,8 @@ class llcMgmt:
                 next_year=(int(cur_year) + 1) if cur_year else None,
                 year_locked=year_locked,
                 bus_info=bus_info,
+                bookstate_log=bookstate_log,
+                bookstate_current=bookstate_current,
             )
 
         # ── View ──────────────────────────────────────────────────────────────

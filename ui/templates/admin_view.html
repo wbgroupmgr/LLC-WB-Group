@@ -84,6 +84,13 @@
         padding: 1px 5px; margin-left: 4px; text-transform: uppercase;
         letter-spacing: 0.05em; vertical-align: middle;
     }
+    /* ── BookState log (issue #60) ── */
+    .bs-chip {
+        display: inline-block; font-size: 11px; font-weight: 700;
+        border-radius: 4px; padding: 2px 8px; white-space: nowrap;
+    }
+    .bs-chip-ok   { background: #dcfce7; color: #15803d; }
+    .bs-chip-warn { background: #fef3c7; color: #92400e; }
 </style>
 
 <script>
@@ -244,6 +251,69 @@ async function doUnlock(year) {
     </div>
 </details>
 {% endif %}
+
+<!-- ── BookState Log (issue #60) ───────────────────────────────────── -->
+<details class="admin-frame" open>
+    <summary>
+        <span class="collapse-chevron">▼</span>
+        <span class="frame-title">🔒 BookState Log</span>
+        <span class="frame-count">
+            {{ bookstate_log | length }} snapshot{{ 's' if bookstate_log | length != 1 else '' }}
+            {% if current_year %}· Year {{ current_year }}{% endif %}
+        </span>
+        <a href="/api/bookState" class="frame-edit-btn" style="background:#4b5563;" target="_blank">🔍 Raw /api/bookState</a>
+    </summary>
+    <div class="admin-table-wrap">
+        <p style="font-size:12px;color:#6b7280;margin:0 0 10px;">
+            Each row is a verified checkpoint of the RealDB files (SHA256 + record count),
+            logged via <code>POST /api/bookState/log</code> — most recent first.
+            <b>In sync</b> means nothing has changed in that object since this checkpoint was logged.
+        </p>
+        {% if bookstate_log %}
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Logged At</th>
+                    <th>Year</th>
+                    <th>llcAssets</th>
+                    <th>llcExpRev</th>
+                    <th>llcPayables</th>
+                    <th>llcReceivables</th>
+                    <th>Note</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in bookstate_log %}
+                {% set objs = entry.objects | default({}) %}
+                <tr>
+                    <td>{{ entry.computedAt or '—' }}</td>
+                    <td>{{ entry.year or '—' }}</td>
+                    {% for oid in ['llcAssets', 'llcExpRev', 'llcPayables', 'llcReceivables'] %}
+                    {% set o = objs.get(oid, {}) %}
+                    <td class="num-cell {{ 'cell-computed' if oid in entry.changedSince else '' }}"
+                        title="{{ (o.get('sha256') or '')[:12] }}">
+                        {{ o.get('recordCount', '—') }}
+                        {% if oid in entry.changedSince %}<span title="changed since this checkpoint">✎</span>{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td>{{ entry.note or '—' }}</td>
+                    <td>
+                        {% if entry.inSync %}
+                        <span class="bs-chip bs-chip-ok">🟢 In sync</span>
+                        {% else %}
+                        <span class="bs-chip bs-chip-warn" title="Changed: {{ entry.changedSince | join(', ') }}">🟡 Changed since</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="admin-empty">No BookState snapshots logged yet. Use <code>POST /api/bookState/log</code> (e.g. after a YE close or a data recovery) to record a verified checkpoint.</p>
+        {% endif %}
+    </div>
+</details>
 
 <!-- ── Collapsible frames ──────────────────────────────────────────── -->
 {% for frame in frames %}

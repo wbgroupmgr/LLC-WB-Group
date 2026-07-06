@@ -54,6 +54,7 @@ def compute(llc) -> Dict[str, Any]:
     return {
         "objects":    objects,
         "computedAt": datetime.datetime.now().isoformat(),
+        "year":       getattr(llc, "yr", None),
     }
 
 
@@ -100,3 +101,8 @@ def load_log() -> List[Dict[str, Any]]:
 def last_logged() -> Dict[str, Any] | None:
     log = load_log()
     return log[-1] if log else None
+
+
+def load_log_lifo() -> List[Dict[str, Any]]:
+    """Log entries, most recent first — for display (issue #60)."""
+    return list(reversed(load_log()))
