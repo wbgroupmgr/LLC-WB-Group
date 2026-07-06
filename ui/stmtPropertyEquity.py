@@ -85,6 +85,26 @@ class stmtPropertyEquity:
             self.load()
         return self._stmt.stats() if self._stmt else {}
 
+    def load_property_report(self) -> List[Dict[str, Any]]:
+        '''
+        YTD Property Performance Report (issue #67 TOBE) — one summary block
+        per property. Returns a list of report dicts (see
+        ledger.stmtPropertyEquity.property_report()).
+        '''
+        from ui.stmtIS_View import stmtIS_View
+
+        asset_list = self.engine._load_source('llcAssets')
+        owners     = self.engine.load_owners()
+
+        is_rows, is_prop_names, _ = stmtIS_View(self.eSession).load_by_property(view_by='ByProperty')
+
+        self._stmt = _stmtPropertyEquity(
+            self.eSession.llc,
+            asset_records=asset_list,
+            owners=owners,
+        )
+        return self._stmt.property_report(owners=owners, is_by_property=(is_rows, is_prop_names))
+
     def meta(self) -> Dict[str, Any]:
         # Keep the legacy UI meta() shape so the existing template renders.
         return {

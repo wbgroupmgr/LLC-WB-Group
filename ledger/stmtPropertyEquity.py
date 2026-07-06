@@ -346,3 +346,121 @@ class stmtPropertyEquity(stmtDB):
             'TotalCredit':  s.get('total_credit', 0.0),
             'NetBalance':   s.get('net_balance',  0.0),
         }
+
+    # ── YTD Property Performance Report (issue #67 TOBE) ─────────────────────
+    #
+    # Summary-per-property, not a transaction list: Overview / YTD Financial
+    # Performance / Balance Sheet Summary / Year-End Equity Allocation.
+
+    def property_report(self,
+                        owners: Optional[List[Dict[str, Any]]] = None,
+                        is_by_property: Optional[
+                            Tuple[List[Dict[str, Any]], List[str]]] = None
+                        ) -> List[Dict[str, Any]]:
+        '''
+        Returns one report dict per rental property (Cash_LLC and any
+        propNm-less records excluded — not real estate).
+
+        Financial Performance figures (gross revenue / operating expenses /
+        depreciation / net rental income) come from the per-property Income
+        Statement pipeline (``stmtIS._unstack_by_property`` via
+        ``is_by_property``) — the same, already year-filtered (issue #54)
+        GL every other view uses. Overview / Balance Sheet figures (land,
+        building, accumulated depreciation) are cumulative-to-date sums
+        straight off this property's llcAssets records, matching how
+        permanent (Asset) accounts are meant to carry forward.
+        '''
+        owners = list(owners if owners is not None else (self._init_owners or []))
+        asset_records = list(self._init_asset_records or [])
+
+        def _owner_name(o: Dict[str, Any]) -> str:
+            nm = o.get('nm', '')
+            if isinstance(nm, list):
+                return nm[0] if nm else o.get('oID', '')
+            return str(nm) if nm else o.get('oID', '')
+
+        ownership = [
+            {'name': _owner_name(o), 'pct': round(float(o.get('pct', 0) or 0) * 100, 1)}
+            for o in owners
+        ]
+
+        by_prop: Dict[str, List[Dict[str, Any]]] = {}
+        for r in asset_records:
+            pnm = str(r.get('propNm') or '').strip()
+            if not pnm or pnm == 'Cash_LLC':
+                continue
+            by_prop.setdefault(pnm, []).append(r)
+
+        is_rows, is_prop_names = is_by_property if is_by_property else ([], [])
+        is_summary: Dict[str, Dict[str, Any]] = {
+            r.get('row_type', ''): r for r in is_rows if r.get('row_type', '') != 'data'
+        }
+        depr_by_prop: Dict[str, float] = {p: 0.0 for p in is_prop_names}
+        for r in is_rows:
+            if r.get('row_type') == 'data' and r.get('acct') == 'Acct.Exp.Depreciation':
+                for pnm in is_prop_names:
+                    depr_by_prop[pnm] = depr_by_prop.get(pnm, 0.0) + float(r.get(pnm, 0) or 0)
+
+        def _amt_sum(recs: List[Dict[str, Any]], acct: str) -> float:
+            return sum(float(r.get('amt', 0) or 0) for r in recs if r.get('acct') == acct)
+
+        reports: List[Dict[str, Any]] = []
+        for pnm in sorted(by_prop.keys()):
+            recs = by_prop[pnm]
+            addr = next(
+                (r.get('propAddr') for r in recs
+                 if r.get('propAddr') and str(r.get('propAddr')).lower() not in ('null', 'none', '')),
+                ''
+            )
+
+            land       = _amt_sum(recs, 'Acct.Fixed.Land')
+            in_service = _amt_sum(recs, 'Acct.Fixed.Tangible.InService')
+            in_constr  = _amt_sum(recs, 'Acct.Fixed.Tangible.InConstruction')
+            depr_records = sorted((r for r in recs if r.get('_is_depr')), key=lambda r: r.get('dt', ''))
+            accum_depr = sum(float(r.get('amt', 0) or 0) for r in depr_records)
+
+            classification = ('Residential Rental Property' if in_service > 0
+                              else 'Property Under Construction / Not Yet in Service')
+            coa_account = ('Acct.Fixed.Tangible.InService' if in_service > 0
+                          else 'Acct.Fixed.Tangible.InConstruction')
+
+            # rental-income-subtotal's per-property column is already flipped
+            # to positive display convention by _unstack_by_property() — do
+            # not negate again here.
+            gross_revenue = round(float(is_summary.get('rental-income-subtotal', {}).get(pnm, 0.0)), 2)
+            total_expense = round(float(is_summary.get('rental-expense-subtotal', {}).get(pnm, 0.0)), 2)
+            depreciation  = round(depr_by_prop.get(pnm, 0.0), 2)
+            operating_exp = round(total_expense - depreciation, 2)
+            net_rental    = round(float(is_summary.get('net-rental', {}).get(pnm, 0.0)), 2)
+
+            equity_allocation = [
+                {'name': o['name'], 'amount': round(net_rental * o['pct'] / 100.0, 2)}
+                for o in ownership
+            ]
+
+            reports.append({
+                'propNm': pnm,
+                'addr':   addr,
+                'overview': {
+                    'classification':    classification,
+                    'coa_account':       coa_account,
+                    'acquisition_cost':  round(land + in_service + in_constr, 2),
+                    'placed_in_service': depr_records[0].get('dt', '') if depr_records else '',
+                    'ownership':         ownership,
+                },
+                'performance': {
+                    'gross_revenue':      gross_revenue,
+                    'operating_expenses': operating_exp,
+                    'depreciation':       depreciation,
+                    'net_rental_income':  net_rental,
+                },
+                'balance_sheet': {
+                    'land':               round(land, 2),
+                    'building':           round(in_service + in_constr, 2),
+                    'accum_depreciation': round(accum_depr, 2),
+                    'net_book_value':     round(land + in_service + in_constr - accum_depr, 2),
+                },
+                'equity_allocation':       equity_allocation,
+                'total_equity_allocation': round(sum(e['amount'] for e in equity_allocation), 2),
+            })
+        return reports

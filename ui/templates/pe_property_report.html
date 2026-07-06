@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block topbar %}{% endblock %}
+
+{% block head_extra %}
+<script>
+    const OBJ_TYPE = {{ obj_type|tojson }};
+    const _scriptRoot = {{ request.script_root | tojson }};
+    function toggleJsonPane() {
+        const pane = document.getElementById("jsonPane");
+        pane.open = !pane.open;
+        if (pane.open) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+</script>
+
+<style>
+    .title-panel {
+        position: sticky; top: 0; z-index: 20;
+        margin-bottom: 18px; border-radius: 10px;
+        display: flex; flex-direction: column; gap: 0;
+        padding: 0 !important; overflow: visible;
+    }
+    .title-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
+        background: #1e40af; padding: 12px 16px; color: white;
+        border-top-left-radius: 10px; border-top-right-radius: 10px; }
+    .stats-sub     { border-top: 2px solid #3b82f6; padding: 8px 16px; }
+    .meta-row      { border-top: 1px solid #e5e7eb; padding: 6px 16px 10px; }
+    .title-left    { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+    .title-left .menu details { position: relative; }
+    .title-left .menu summary {
+        list-style: none; cursor: pointer; font-size: 18px;
+        background: rgba(255,255,255,0.2); color: white; border-radius: 4px;
+        padding: 4px 10px; user-select: none;
+    }
+    .title-name { font-size: 16px; font-weight: 700; white-space: nowrap; color: white; }
+    .title-sep  { color: #93c5fd; font-size: 15px; }
+    .title-sub  { font-size: 18px; font-weight: 600; color: #bfdbfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; flex-shrink: 0; }
+    .stats-window { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stat-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 12px; border-radius: 999px;
+        background: #eef2ff; color: #1e3a8a; border: 1px solid #c7d2fe; font-size: 14px;
+    }
+    .stat-chip .value { font-weight: 700; font-size: 15px; }
+    .json-pane summary, .meta-pane summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+
+    .actions-menu { position: relative; display: inline-block; }
+    .actions-menu > details { position: relative; }
+    .actions-menu summary {
+        list-style: none; cursor: pointer;
+        background: rgba(255,255,255,0.15); color: white;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 6px; padding: 6px 12px;
+        font-size: 13px; font-weight: 600; user-select: none;
+    }
+    .actions-menu summary::-webkit-details-marker { display: none; }
+    .actions-menu .act-dropdown {
+        position: absolute; top: calc(100% + 4px); right: 0;
+        background: white; color: #111827; min-width: 170px;
+        border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(0,0,0,.15);
+        border-radius: 8px; z-index: 300; overflow: hidden;
+    }
+    .actions-menu .act-dropdown button {
+        display: block; width: 100%; text-align: left;
+        padding: 9px 14px; border: 0; background: white;
+        font-size: 13px; color: #374151; cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .actions-menu .act-dropdown button:hover { background: #f3f4f6; }
+
+    /* ── Property card ── */
+    .prop-card {
+        border: 1px solid #d1d5db; border-radius: 10px;
+        margin-bottom: 22px; overflow: hidden;
+    }
+    .prop-card-header {
+        background: #1e3a8a; color: white; padding: 14px 18px;
+        display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    }
+    .prop-card-header .name { font-size: 18px; font-weight: 800; }
+    .prop-card-header .addr { font-size: 12px; color: #bfdbfe; }
+    .prop-card-body { padding: 16px 18px; }
+
+    .overview-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px 20px; margin-bottom: 18px; font-size: 13px;
+    }
+    .overview-grid .k { color: #6b7280; font-weight: 600; }
+    .overview-grid .v { color: #111827; }
+
+    .sec-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+        color: #374151; margin: 14px 0 6px; }
+
+    .pe-table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+    .pe-table th {
+        background: #f3f4f6; color: #374151; padding: 7px 10px; text-align: left;
+        font-size: 12px; font-weight: 700; border-bottom: 2px solid #d1d5db;
+    }
+    .pe-table th.num { text-align: right; }
+    .pe-table td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .pe-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pe-table tr.row-total td { font-weight: 800; background: #eff6ff; border-top: 2px solid #93c5fd; }
+    .amt-pos { color: #166534; } .amt-neg { color: #991b1b; }
+
+    @media print {
+        @page { size: portrait; margin: 10mm; }
+        html { zoom: 65%; }
+        .toolbar-row, .menu, #jsonPane { display: none !important; }
+        .title-panel { position: static; box-shadow: none; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="panel title-panel">
+    <div class="title-toolbar">
+        <div class="title-left">
+            <div class="menu">
+                <details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details>
+            </div>
+            <span class="title-name">{{ app_title }}</span>
+            <span class="title-sep">·</span>
+            <span class="title-sub">🏠 {{ view_title }} — YTD Property Performance</span>
+        </div>
+        <div class="toolbar-row">
+            <div class="actions-menu">
+                <details id="actionsMenu">
+                    <summary>Actions ▾</summary>
+                    <div class="act-dropdown">
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); window.location.reload()">🔄 Refresh</button>
+                        <button onclick="document.getElementById('actionsMenu').removeAttribute('open'); toggleJsonPane()">{ } JSON</button>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+    <div class="stats-sub">
+        <div class="stats-window">
+            {% for item in stats_labels %}
+            <span class="stat-chip" title="{{ item.group }}">
+                <span class="value">{{ item.value }}</span>
+                <span class="text">{{ item.text }}</span>
+            </span>
+            {% endfor %}
+            {% if not stats_labels %}<span class="muted">No properties found.</span>{% endif %}
+        </div>
+    </div>
+    <div class="meta-row">
+        <details class="meta-pane">
+            <summary>🗂️ Metadata</summary>
+            <pre>{{ meta | tojson(indent=2) }}</pre>
+        </details>
+    </div>
+</div>
+
+{% for p in reports %}
+<div class="prop-card">
+    <div class="prop-card-header">
+        <span class="name">{{ p.propNm }}</span>
+        <span class="addr">{{ p.addr }}</span>
+    </div>
+    <div class="prop-card-body">
+        <div class="sec-title">1. Property Overview</div>
+        <div class="overview-grid">
+            <div><div class="k">Asset Classification</div><div class="v">{{ p.overview.classification }}</div></div>
+            <div><div class="k">COA Account</div><div class="v">{{ p.overview.coa_account }}</div></div>
+            <div><div class="k">Acquisition Cost</div><div class="v">${{ "%.2f"|format(p.overview.acquisition_cost) }}</div></div>
+            <div><div class="k">Placed in Service</div><div class="v">{{ p.overview.placed_in_service or "—" }}</div></div>
+            <div style="grid-column: 1 / -1;">
+                <div class="k">Ownership Breakdown</div>
+                <div class="v">
+                    {% for o in p.overview.ownership %}{{ o.name }} ({{ "%.1f"|format(o.pct) }}%){% if not loop.last %}, {% endif %}{% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="sec-title">2. Year-End Financial Performance (YTD)</div>
+        <table class="pe-table">
+            <tbody>
+                <tr><td>Gross Rental Revenue</td><td class="num amt-pos">${{ "%.2f"|format(p.performance.gross_revenue) }}</td></tr>
+                <tr><td>Less: Operating Expenses</td><td class="num amt-neg">(${{ "%.2f"|format(p.performance.operating_expenses) }})</td></tr>
+                <tr><td>Less: Property Depreciation</td><td class="num amt-neg">(${{ "%.2f"|format(p.performance.depreciation) }})</td></tr>
+                <tr class="row-total"><td>Net Rental Income (Form 8825 / Schedule K)</td>
+                    <td class="num {% if p.performance.net_rental_income >= 0 %}amt-pos{% else %}amt-neg{% endif %}">${{ "%.2f"|format(p.performance.net_rental_income) }}</td></tr>
+            </tbody>
+        </table>
+
+        <div class="sec-title">3. Balance Sheet Summary (Property Asset Valuation)</div>
+        <table class="pe-table">
+            <tbody>
+                <tr><td>Land Value (non-depreciable)</td><td class="num">${{ "%.2f"|format(p.balance_sheet.land) }}</td></tr>
+                <tr><td>Building Value (depreciable)</td><td class="num">${{ "%.2f"|format(p.balance_sheet.building) }}</td></tr>
+                <tr><td><em>Less: Accumulated Depreciation</em></td><td class="num amt-neg">(${{ "%.2f"|format(p.balance_sheet.accum_depreciation) }})</td></tr>
+                <tr class="row-total"><td>Net Book Value of Property Asset</td><td class="num">${{ "%.2f"|format(p.balance_sheet.net_book_value) }}</td></tr>
+            </tbody>
+        </table>
+
+        <div class="sec-title">4. Year-End Equity Allocation (this property's Net Rental Income, by ownership %)</div>
+        <table class="pe-table">
+            <thead><tr><th>Member</th><th class="num">Allocated Equity</th></tr></thead>
+            <tbody>
+                {% for e in p.equity_allocation %}
+                <tr><td>{{ e.name }}</td><td class="num {% if e.amount >= 0 %}amt-pos{% else %}amt-neg{% endif %}">${{ "%.2f"|format(e.amount) }}</td></tr>
+                {% endfor %}
+                <tr class="row-total"><td>Total</td><td class="num">${{ "%.2f"|format(p.total_equity_allocation) }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+{% if not reports %}
+<div class="panel"><p class="muted">No rental properties found in llcAssets.</p></div>
+{% endif %}
+
+<div class="panel">
+    <details id="jsonPane" class="json-pane">
+        <summary>💾 Raw Data</summary>
+        <pre>{{ reports | tojson(indent=2) }}</pre>
+    </details>
+</div>
+{% endblock %}

@@ -207,6 +207,7 @@ class llcMgmt:
         'stmtBalanceSheet':  ['All', 'ByAsset', 'ByLiability', 'ByEquity', 'Details'],
         'stmtIncomeStmt':    ['All', 'ByIncome', 'ByExpense', 'ByProperty', 'ByPropertyDetails', 'PerMember', 'PerMemberDetails'],
         'stmtOwnerEquity':   ['All', 'Details'],
+        'stmtPropertyEquity':['All', 'Details'],
         # IRS Form 1065 / Sch K-1 are now PDF-embed views (v0.2.4.7) — no
         # row-level publish filter at the view layer; the publish flag is
         # baked into the underlying FILL.pdf.
@@ -1274,6 +1275,25 @@ class llcMgmt:
 
             # ── Property Equity view ──────────────────────────────────────────
             if obj_type in self.PROPERTY_VIEWS:
+                # Default: YTD Property Performance Report — per-property
+                # summary, not a transaction list (issue #67). The old
+                # transaction-list view is still reachable via viewBy=Details.
+                if view_by != "Details":
+                    reports = manager.load_property_report()
+                    pr_stats = {
+                        'Properties':  len(reports),
+                        'Net Rental Income': round(sum(p['performance']['net_rental_income'] for p in reports), 2),
+                    }
+                    return render_template(
+                        "pe_property_report.html",
+                        title=self.title,
+                        obj_type=obj_type,
+                        view_title=self.VIEW_TITLES.get(obj_type, obj_type),
+                        reports=reports,
+                        stats_labels=self._stats_labels(pr_stats),
+                        meta=meta,
+                    )
+
                 return render_template(
                     "property_equity.html",
                     title=self.title,
