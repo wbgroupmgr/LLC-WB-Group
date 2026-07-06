@@ -2977,17 +2977,29 @@ class llcMgmt:
                         pnm = r.get('propNm', '')
                         existing_depr_rows.setdefault(pnm, []).append(r)
 
-                # ── Existing YE retained-earnings per propNm+owner ──────────
-                existing_re = set()   # (propNm, oID) pairs already posted
+                # ── Existing YE retained-earnings per owner ─────────────────
+                # YE close is LLC-level, not per-property (issue #39: "propNm:
+                # H_805HighMesa -> LLC ... YE close is LLC-level") — keyed by
+                # oID only.  (Previously keyed by (propNm, oID), but new
+                # postings always carry propNm="LLC" while this scan reads
+                # the stored propNm; comparing against a per-property loop
+                # variable never matched, so already-posted entries were
+                # always reported "new" here — the bug that let 06-30's
+                # re-apply silently duplicate/corrupt them.)
+                existing_re = set()   # oIDs already posted for this year
                 for r in records:
                     if (r.get('acctSub') == 'YE Net Income'
                             and str(r.get('dt', '')).startswith(str(year))):
-                        pnm = r.get('propNm', '')
-                        po  = _parse_prop_owners(r.get('propOwners', {}))
+                        po = _parse_prop_owners(r.get('propOwners', {}))
                         for oID in po:
-                            existing_re.add((pnm, oID))
+                            existing_re.add(oID)
 
-                result_props = []
+                # ── Pre-pass: depreciation per property ─────────────────────
+                # (Computed before RE closing: RE needs the LLC-wide total
+                # pending depreciation across ALL properties, not just one,
+                # to compute adjusted NI correctly — see depr_pending_total
+                # below.)
+                depr_calc = {}   # pnm -> computed depreciation fields
                 for pnm, pdata in props.items():
                     cost_rows = pdata['cost_rows']
 
@@ -3087,7 +3099,6 @@ class llcMgmt:
 
                     prop_addr   = cost_rows[0].get('propAddr', '') if cost_rows else ''
                     prop_owners_raw = cost_rows[0].get('propOwners', {}) if cost_rows else {}
-                    prop_owners = _parse_prop_owners(prop_owners_raw)
                     pnm_slug    = pnm.replace(' ', '_').replace('/', '-')
 
                     depr_record = {
@@ -3102,52 +3113,6 @@ class llcMgmt:
                         "tID": f"{year}.12.31_depr_{pnm_slug}",
                     }
 
-                    # ── Adjusted NI for RE: if depr is new in this batch, subtract it now
-                    # so RE amounts are based on post-depr NI in a one-shot apply.
-                    depr_pending = not depr_exists and depr_amt != 0
-                    adjusted_ni  = round(net_income - (depr_amt if depr_pending else 0.0), 2)
-
-                    # ── YE Retained Earnings — split by llcOwners pct, not propOwners ─
-                    # Closing entry: Acct.Equity.Earnings.PnL (P&L clearing, 3100)
-                    #                → Acct.Equity.Owner.Capital.Funds (member capital, 3010)
-                    # gain: Dr PnL / Cr Capital — clears credit P&L balance, builds capital
-                    # loss: Cr PnL / Dr Capital — records loss, reduces capital
-                    re_members = []
-                    re_atype = 'Debit' if adjusted_ni >= 0 else 'Credit'
-                    for o in owners_list:
-                        oID  = o.get('oID', '')
-                        pct  = float(o.get('pct', 0) or 0) * 100  # llcOwners.pct is 0–1
-                        if pct <= 0:
-                            continue
-                        member_share = round(abs(adjusted_ni) * pct / 100.0, 2)
-                        oname  = _owner_name(oID)
-                        re_exists = (pnm, oID) in existing_re
-                        re_record = {
-                            "dt":         ye_dt,
-                            "desc":       f"YE Net Income - {pnm} - {oname} ({pct:.0f}%)",
-                            "amt":        member_share,
-                            "aType":      re_atype,
-                            "acct":       "Acct.Equity.Earnings.PnL",
-                            "Ledger":     "Acct.Equity.Owner.Capital.Funds",  # double-entry: keeps A=L+E+NI balanced
-                            "acctOwner":  oID,   # per-member equity tracking (Phase 2)
-                            "propNm":     pnm,
-                            "propAddr":   prop_addr,
-                            "propOwners": {oID: pct},
-                            "tDB":        "llcAsset",
-                            "acctSub":    "YE Net Income",
-                            "refDB":      f"General Ledger - {ye_dt}",
-                            "tID":        f"{ye_dt}_re_{oID}_{pnm_slug}",
-                        }
-                        re_members.append({
-                            "oID":    oID,
-                            "name":   oname,
-                            "pct":    pct,
-                            "amount": member_share,
-                            "atype":  re_atype,
-                            "status": "exists" if re_exists else "new",
-                            "record": re_record if not re_exists else None,
-                        })
-
                     # ── Depreciation item — include replacement record when discrepancy exists
                     depr_status = "exists" if depr_exists else "new"
                     depr_record_out = None
@@ -3160,28 +3125,106 @@ class llcMgmt:
                         depr_record_out = replace_rec
                         depr_status = "replace"
 
-                    items = [
-                        {
-                            "item":          "depreciation",
-                            "label":         "Depreciation & Amortization",
-                            "status":        depr_status,
-                            "amount":        existing_amt if depr_exists else depr_amt,
-                            "note":          note,
-                            "discrepancy":   discrepancy,
-                            "record":        depr_record_out,
+                    depr_calc[pnm] = {
+                        "prop_addr":   prop_addr,
+                        "pnm_slug":    pnm_slug,
+                        "depr_amt":    depr_amt,
+                        "pending":     not depr_exists and depr_amt != 0,
+                        "item": {
+                            "item":        "depreciation",
+                            "label":       "Depreciation & Amortization",
+                            "status":      depr_status,
+                            "amount":      existing_amt if depr_exists else depr_amt,
+                            "note":        note,
+                            "discrepancy": discrepancy,
+                            "record":      depr_record_out,
                         },
-                        {
-                            "item":    "retained_earnings",
-                            "label":   "YE Retained Earnings (Net Income → Member Capital)",
-                            "status":  "new" if any(m['status'] == 'new' for m in re_members)
-                                       else ("exists" if re_members else "review"),
-                            "amount":  adjusted_ni,
-                            "note":    (f"Net {'Income' if adjusted_ni >= 0 else 'Loss'} "
-                                        f"${abs(adjusted_ni):,.2f} split per ownership %"
-                                        + (" (incl. pending depr)" if depr_pending else "")),
-                            "members": re_members,
-                            "record":  None,
-                        },
+                    }
+
+                # ── YE Retained Earnings — LLC-level, computed ONCE ─────────
+                # Not per-property: net income belongs to the whole LLC, not
+                # any one property (issue #39, "YE close is LLC-level").
+                # Adjusted for total pending (not-yet-posted) depreciation
+                # across ALL properties, not just one (previously a per-
+                # property loop used only that property's own pending
+                # depreciation — harmless with 1 property, would double/
+                # multi-count net income once a 2nd property is in service).
+                #
+                # tID keeps the historical per-property slug (from whichever
+                # property is first in iteration order) for backward
+                # compatibility with tIDs already posted in llcAssets — only
+                # the propNm FIELD changes to "LLC"; changing the tID scheme
+                # would orphan existing records instead of recognizing them
+                # as already-posted.
+                RE_PNM = 'LLC'
+                first_pnm_slug = next(iter(depr_calc.values()))['pnm_slug'] if depr_calc else 'LLC'
+                depr_pending_total = round(sum(
+                    d['depr_amt'] for d in depr_calc.values() if d['pending']
+                ), 2)
+                adjusted_ni = round(net_income - depr_pending_total, 2)
+
+                # Closing entry: Acct.Equity.Earnings.PnL (P&L clearing, 3100)
+                #                → Acct.Equity.Owner.Capital.Funds (member capital, 3010)
+                # gain: Dr PnL / Cr Capital — clears credit P&L balance, builds capital
+                # loss: Cr PnL / Dr Capital — records loss, reduces capital
+                re_atype   = 'Debit' if adjusted_ni >= 0 else 'Credit'
+                re_members = []
+                for o in owners_list:
+                    oID  = o.get('oID', '')
+                    pct  = float(o.get('pct', 0) or 0) * 100  # llcOwners.pct is 0–1
+                    if pct <= 0:
+                        continue
+                    member_share = round(abs(adjusted_ni) * pct / 100.0, 2)
+                    oname  = _owner_name(oID)
+                    re_exists = oID in existing_re
+                    re_record = {
+                        "dt":         ye_dt,
+                        "desc":       f"YE Net Income - {RE_PNM} - {oname} ({pct:.0f}%)",
+                        "amt":        member_share,
+                        "aType":      re_atype,
+                        "acct":       "Acct.Equity.Earnings.PnL",
+                        "Ledger":     "Acct.Equity.Owner.Capital.Funds",  # double-entry: keeps A=L+E+NI balanced
+                        "acctOwner":  oID,   # per-member equity tracking (Phase 2)
+                        "propNm":     RE_PNM,
+                        "propOwners": {oID: pct},
+                        "tDB":        "llcAsset",
+                        "acctSub":    "YE Net Income",
+                        "refDB":      f"General Ledger - {ye_dt}",
+                        "tID":        f"{ye_dt}_re_{oID}_{first_pnm_slug}",
+                    }
+                    re_members.append({
+                        "oID":    oID,
+                        "name":   oname,
+                        "pct":    pct,
+                        "amount": member_share,
+                        "atype":  re_atype,
+                        "status": "exists" if re_exists else "new",
+                        "record": re_record if not re_exists else None,
+                    })
+
+                retained_earnings_item = {
+                    "item":    "retained_earnings",
+                    "label":   "YE Retained Earnings (Net Income → Member Capital)",
+                    "status":  "new" if any(m['status'] == 'new' for m in re_members)
+                               else ("exists" if re_members else "review"),
+                    "amount":  adjusted_ni,
+                    "note":    (f"Net {'Income' if adjusted_ni >= 0 else 'Loss'} "
+                                f"${abs(adjusted_ni):,.2f} split per ownership %"
+                                + (" (incl. pending depr)" if depr_pending_total else "")),
+                    "members": re_members,
+                    "record":  None,
+                }
+
+                result_props = []
+                is_first_prop = True
+                for pnm, pdata in props.items():
+                    d = depr_calc[pnm]
+
+                    items = [d['item']]
+                    # RE closing is LLC-level, shown once (under the first property)
+                    if is_first_prop:
+                        items.append(retained_earnings_item)
+                    items += [
                         {
                             "item":   "loan_amortization",
                             "label":  "Loan Amortization",
@@ -3203,8 +3246,9 @@ class llcMgmt:
                     ]
 
                     result_props.append({
-                        "propNm": pnm, "propAddr": prop_addr, "items": items,
+                        "propNm": pnm, "propAddr": d['prop_addr'], "items": items,
                     })
+                    is_first_prop = False
 
                 return jsonify({
                     "ok": True, "year": year,
@@ -3812,7 +3856,7 @@ class llcMgmt:
 
         @app.route("/api/tax/ye_close", methods=["POST"])
         def api_tax_ye_close():
-            """Apply YE closing entries (depr + RE) wholesale and lock the year."""
+            """Apply YE closing entries (depr + RE) by tID upsert and lock the year."""
             try:
                 import datetime as _dt, json as _json
                 from ledger import setup_paths as _sp
@@ -3830,26 +3874,33 @@ class llcMgmt:
                 # year-filtered, and kept+to_add becomes the full save
                 # payload below, so the merge base must be unfiltered.
                 existing = mgr.load_object() or []
-                ye_dt    = f"{year}.12.31"
 
-                # Remove all prior YE closing entries for this year
-                def _is_ye_closing(r):
-                    tid = r.get('tID', '') or ''
-                    return (tid.startswith(f"{ye_dt}_depr_") or
-                            tid.startswith(f"{ye_dt}_re_"))
-                removed = [r for r in existing if _is_ye_closing(r)]
-                kept    = [r for r in existing if not _is_ye_closing(r)]
-
-                seen_tids = {r.get('tID') for r in kept if r.get('tID')}
-                to_add    = []
+                # Upsert by exact tID — NEVER blanket-delete by tID-prefix.
+                #
+                # This used to remove every existing record whose tID started
+                # with "{ye_dt}_depr_" or "{ye_dt}_re_", then add back only
+                # whatever this request's payload contained. If the caller
+                # didn't resubmit a record (e.g. the frontend only resubmits
+                # items ye_preview flagged "new"/"replace" — an already-
+                # correct depreciation entry with no discrepancy is flagged
+                # "exists" and never makes it into the payload at all), it
+                # was deleted with nothing to replace it. That is exactly
+                # what happened on 2026-06-30: the depreciation entry was
+                # silently lost because it wasn't part of that request, while
+                # 3 RE entries (wrongly flagged "new" by a since-fixed
+                # ye_preview bug) were re-added. Only ever touch records this
+                # request actually names.
+                clean_recs = []
                 for r in new_recs:
                     if not r or not isinstance(r, dict):
                         continue
                     r.pop('_replace_tID', None)
-                    tid = r.get('tID')
-                    if tid and tid not in seen_tids:
-                        to_add.append(r)
-                        seen_tids.add(tid)
+                    clean_recs.append(r)
+                new_tids = {r.get('tID') for r in clean_recs if r.get('tID')}
+
+                removed = [r for r in existing if r.get('tID') in new_tids]
+                kept    = [r for r in existing if r.get('tID') not in new_tids]
+                to_add  = clean_recs
 
                 mgr.save(kept + to_add)
 

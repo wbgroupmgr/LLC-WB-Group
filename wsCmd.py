@@ -68,6 +68,20 @@ def _latest_config_year(llc_name: str):
     years = _sp.available_years(llc_name)
     return years[0] if years else None
 
+
+def _default_config_year(llc_name: str):
+    """Return config.json's declared default year for llc_name, or None.
+
+    Falls back to the latest registered year only if no default entry
+    matches this llc_name — mirrors wsgi.py's get_default() so `wsCmd.py
+    --start` (no --year) boots into the same year production does, instead
+    of always picking the numerically-latest registered year.
+    """
+    default = _sp.get_default()
+    if default and default[0] == llc_name:
+        return default[1]
+    return _latest_config_year(llc_name)
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 DEPS = ["flask", "pandas", "numpy", "pypdf", "deepdiff"]
@@ -911,8 +925,8 @@ def main():
     if not args.llcName:
         ap.error("--llcName is required for --setup, --start, --configPA, and --sync")
 
-    # Resolve year: explicit arg > auto-detect latest config
-    year = args.year or _latest_config_year(args.llcName)
+    # Resolve year: explicit arg > config.json "default" entry > latest registered
+    year = args.year or _default_config_year(args.llcName)
     if not year:
         ap.error(
             f"No config found for '{args.llcName}' in {_sp.TRACKER_CFG_DIR}.\n"
