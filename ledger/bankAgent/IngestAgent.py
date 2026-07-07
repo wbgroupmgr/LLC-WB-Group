@@ -107,6 +107,14 @@ class IngestAgent:
             txn_type, confidence = rule['txn_type'], rule['confidence']
             vendor_key = rule['pattern']
             pID = idx + 1
+            # A rule's own propNm (issue #55) is vendor-specific knowledge and
+            # takes precedence over the batch's propNm_default — e.g. a bank
+            # fee is always "LLC" regardless of which property's CSV it
+            # appeared on. Rules that predate this field (propNm == '') fall
+            # through to the batch default, unchanged from prior behavior.
+            rule_propNm = (rule.get('propNm') or '').strip()
+            if rule_propNm:
+                propNm = rule_propNm
         else:
             # Tier 2: special transaction types (only when no KB rule matched)
             tier2 = self._detector.detect(desc, amt)

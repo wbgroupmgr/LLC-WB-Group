@@ -19,6 +19,7 @@ from ledger.bankAgent.bkCSVParser import BankCSVParser
 from ledger.bankAgent.bkCIPGuard import BkCIPGuard
 from ledger.bankAgent.bkDuplicateDetector import BkDuplicateDetector
 from ledger.bankAgent.bkAuditNotifier import BkAuditNotifier
+from ledger.bankAgent.bkReqPropGuard import BkReqPropGuard
 from ledger.bankAgent.IngestAgent import IngestAgent, ClassifiedRow
 
 
@@ -34,6 +35,7 @@ class PreviewStats:
     return_pair: int = 0
     amount_collision: int = 0
     need_req_doc: int = 0
+    propnm_mismatch: int = 0
 
     def as_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
@@ -129,6 +131,9 @@ class BankAgent:
         # Step 2 — 3-scope dedup (stamps _flag on each raw row)
         scanned = self._dedup.scan(raw_rows)
 
+        # Requisition propNm cross-check (issue #55) — loaded once per preview.
+        req_guard = BkReqPropGuard(year, self._llc)
+
         # Step 3 — classify each non-DUPLICATE row
         result_rows: list[ClassifiedRow] = []
         stats = PreviewStats(total=len(scanned))
@@ -140,18 +145,18 @@ class BankAgent:
             if flag == 'DUPLICATE':
                 cr = self._make_passthrough(raw, flag)
                 stats.duplicate += 1
+                result_rows.append(cr)
+                continue
 
-            elif flag == 'RETURN_PAIR':
+            if flag == 'RETURN_PAIR':
                 cr = self._ia.classify(raw, {'propNm': propNm_default})
                 cr.flag = 'RETURN_PAIR'
                 stats.return_pair += 1
-                self._count_confidence(stats, cr)
 
             elif flag == 'AMOUNT_COLLISION':
                 cr = self._ia.classify(raw, {'propNm': propNm_default})
                 cr.flag = 'AMOUNT_COLLISION'
                 stats.amount_collision += 1
-                self._count_confidence(stats, cr)
 
             else:
                 # Step 4 — classify via IngestAgent
@@ -164,10 +169,18 @@ class BankAgent:
                     cr.flag = 'NEED_REQ_DOC'
                     cr.confidence = 'flagged'
                     stats.need_req_doc += 1
-                    stats.flagged += 1
-                else:
-                    self._count_confidence(stats, cr)
 
+            # Step 6 — requisition propNm cross-check (issue #55). Runs for
+            # every non-duplicate row regardless of any flag already set
+            # above; a mismatch takes display precedence since it blocks
+            # commit outright (see commit()'s hard gate below).
+            mismatch, _req_propNm = req_guard.check(cr.tID, cr.propNm)
+            if mismatch:
+                cr.flag = 'PROPNM_MISMATCH'
+                cr.confidence = 'flagged'
+                stats.propnm_mismatch += 1
+
+            self._count_confidence(stats, cr)
             result_rows.append(cr)
 
         return PreviewResult(
@@ -179,7 +192,7 @@ class BankAgent:
 
     # ── Phase 2 — Commit ──────────────────────────────────────────────────────
 
-    def commit(self, preview: PreviewResult) -> CommitResult:
+    def commit(self, preview: PreviewResult, year: int | None = None) -> CommitResult:
         """
         Write approved rows to llcExpRev + LogHistory.
         Skips DUPLICATE rows. AMOUNT_COLLISION rows are written with a warning.
@@ -192,6 +205,21 @@ class BankAgent:
         csv_name = preview.source
         to_write = [cr for cr in preview.rows if cr.flag != 'DUPLICATE']
         collisions = [cr for cr in to_write if cr.flag == 'AMOUNT_COLLISION']
+
+        # Hard gate (issue #55) — re-verify propNm against linked requisitions
+        # using each row's CURRENT propNm (the operator may have edited it
+        # since preview). Never trust the flag computed at preview time; a
+        # stale mismatch flag or a newly-introduced one must both be caught
+        # here, since this is the last checkpoint before a write.
+        req_guard = BkReqPropGuard(year, self._llc)
+        mismatched = [cr for cr in to_write if req_guard.check(cr.tID, cr.propNm)[0]]
+        if mismatched:
+            tids = ', '.join(cr.tID for cr in mismatched)
+            raise ValueError(
+                f'{len(mismatched)} row(s) have a propNm that disagrees with '
+                f'their linked requisition — fix the transaction or the '
+                f'requisition before committing: {tids}'
+            )
 
         # Build llcExpRev records (convert IngestAgent convention → llcExpRev convention)
         new_records = [_to_exprev_record(cr, csv_name) for cr in to_write]

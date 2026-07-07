@@ -70,9 +70,11 @@ def _preview_path(token: str) -> Path:
     return _PREVIEW_DIR / f'bank_preview_{token}.json'
 
 
-def _store_preview(token, rows_dicts, stats, source, ts, propNm_default='') -> None:
+def _store_preview(token, rows_dicts, stats, source, ts, propNm_default='',
+                    req_year=None) -> None:
     payload = {'token': token, 'rows': rows_dicts, 'stats': stats,
-               'source': source, 'ts': ts, 'propNm_default': propNm_default}
+               'source': source, 'ts': ts, 'propNm_default': propNm_default,
+               'req_year': req_year}
     with open(_preview_path(token), 'w', encoding='utf-8') as f:
         json.dump(payload, f, indent=2)
 
@@ -321,17 +323,19 @@ def bind_bankIngest_routes(app, objects: dict):
             if not csv_path_str:
                 return jsonify({'ok': False, 'error': 'No CSV provided'}), 400
 
-            result = BankAgent(llc).preview(csv_path_str, propNm_default=propNm_default)
-
-            rows_dicts = [_cr_to_dict(cr) for cr in result.rows]
-            _store_preview(result._token, rows_dicts, result.stats.as_dict(),
-                           result.source, result.ts, propNm_default)
-
             csv_year = _detect_csv_year(csv_path_str)
             from ledger import setup_paths
             configured_year = getattr(setup_paths, 'YEAR', None)
             # Requisitions follow the previewed CSV's year, not the active fiscal year.
             req_year = int(csv_year or configured_year or 2025)
+
+            result = BankAgent(llc).preview(csv_path_str, propNm_default=propNm_default,
+                                            year=req_year)
+
+            rows_dicts = [_cr_to_dict(cr) for cr in result.rows]
+            _store_preview(result._token, rows_dicts, result.stats.as_dict(),
+                           result.source, result.ts, propNm_default, req_year=req_year)
+
             req_map = _req_rid_map(req_year, llc)
 
             return jsonify({
@@ -388,7 +392,7 @@ def bind_bankIngest_routes(app, objects: dict):
                                         source=stored['source'], ts=stored['ts'])
             preview_obj._token = token
 
-            commit_result = BankAgent(llc).commit(preview_obj)
+            commit_result = BankAgent(llc).commit(preview_obj, year=stored.get('req_year'))
 
             try:
                 es = current_app.config.get('_esession')

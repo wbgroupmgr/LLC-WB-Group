@@ -41,8 +41,9 @@
 
   function _statusClass(row) {
     const f = (row.flag || '').toUpperCase();
-    if (f === 'DUPLICATE')       return 'iet-dup';
-    if (f === 'NEED_REQ_DOC')    return 'iet-need';
+    if (f === 'DUPLICATE')        return 'iet-dup';
+    if (f === 'PROPNM_MISMATCH')  return 'iet-flagged';
+    if (f === 'NEED_REQ_DOC')     return 'iet-need';
     const c = (row.confidence || '').toLowerCase();
     if (c === 'auto')    return 'iet-auto';
     if (c === 'review')  return 'iet-review';
@@ -109,7 +110,8 @@
   function renderStats(s, source) {
     const chips = [
       ['Source', source], ['New', s.total], ['Auto', s.auto], ['Review', s.review],
-      ['Need-Req-Doc', s.need_req_doc], ['Return-Pair', s.return_pair],
+      ['Need-Req-Doc', s.need_req_doc], ['PropNm-Mismatch', s.propnm_mismatch],
+      ['Return-Pair', s.return_pair],
       ['Amount-Collision', s.amount_collision], ['Duplicate', s.duplicate],
     ];
     document.getElementById('statsBar').innerHTML = chips.map(c =>

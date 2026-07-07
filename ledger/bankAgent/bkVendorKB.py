@@ -59,7 +59,7 @@ class BkVendorKB:
         return ''
 
     def learn(self, vendor_key: str, acct: str, acct_sub: str,
-              txn_type: str = 'ROUTINE_EXPENSE'):
+              txn_type: str = 'ROUTINE_EXPENSE', propNm: str = ''):
         """Raise existing rule's confidence to 'auto' or insert a new auto rule."""
         kl = vendor_key.lower()
         for rule in self._rules:
@@ -68,12 +68,14 @@ class BkVendorKB:
                 rule['acctSub'] = acct_sub
                 rule['txn_type'] = txn_type
                 rule['confidence'] = 'auto'
+                if propNm:
+                    rule['propNm'] = propNm
                 self.save()
                 return
         # Prepend new rule so it takes precedence over generic patterns
         new_rule = {
             'pattern': kl, 'acct': acct, 'acctSub': acct_sub,
-            'txn_type': txn_type, 'confidence': 'auto',
+            'txn_type': txn_type, 'confidence': 'auto', 'propNm': propNm,
         }
         self._rules.insert(0, new_rule)
         self.save()
@@ -85,11 +87,20 @@ class BkVendorKB:
     def rules(self):
         return list(self._rules)
 
-    _FIELDS = ('pattern', 'acct', 'acctSub', 'txn_type', 'confidence')
+    _FIELDS = ('pattern', 'acct', 'acctSub', 'txn_type', 'confidence', 'propNm')
 
     def set_rules(self, rules: list) -> list:
         """Replace the whole rule set (operator KB-edit Save). Validates each rule
-        has a non-empty pattern + acct; normalizes to the 5 KB fields and saves."""
+        has a non-empty pattern + acct; normalizes to the 6 KB fields and saves.
+
+        propNm (issue #55 — every pattern should be associated with a specific
+        propNm, either a property id or the "LLC" entity-level sentinel) is
+        NOT hard-required here: existing rules predate this field, and a
+        replace-all save must not silently delete a working classification
+        rule just because the operator hasn't assigned it a property yet.
+        Missing propNm is instead surfaced in the KB Rules UI (a visible
+        "needs property" state) so it gets filled in deliberately.
+        """
         clean = []
         for r in rules:
             pattern = (r.get('pattern') or '').strip()
@@ -102,6 +113,7 @@ class BkVendorKB:
                 'acctSub':    (r.get('acctSub') or '').strip(),
                 'txn_type':   (r.get('txn_type') or 'ROUTINE_EXPENSE').strip(),
                 'confidence': (r.get('confidence') or 'review').strip(),
+                'propNm':     (r.get('propNm') or '').strip(),
             })
         self._rules = clean
         self.save()

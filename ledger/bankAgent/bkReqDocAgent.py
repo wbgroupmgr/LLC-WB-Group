@@ -112,12 +112,15 @@ class BkReqDocAgent:
 
     def set_all(self, docs: list) -> list:
         """Replace-all save from the Requisition editor. Each doc needs a tID
-        (the GL link) — incomplete rows are skipped. Preserves/creates 'created'."""
+        (the GL link) and a propNm (issue #55 — every requisition must be
+        associated with a specific property) — incomplete rows are skipped.
+        Preserves/creates 'created'."""
         existing = self.as_map()
         clean = []
         for d in docs:
             tID = (d.get('tID') or '').strip()
-            if not tID:
+            propNm = (d.get('propNm') or '').strip()
+            if not tID or not propNm:
                 continue
             prior = existing.get(tID, {})
             clean.append({

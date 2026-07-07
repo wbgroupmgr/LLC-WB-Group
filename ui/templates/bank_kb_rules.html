@@ -9,11 +9,17 @@
   const KNOWN_ACCTS = {{ known_accts | tojson }};
   const TXN_TYPES   = {{ txn_types | tojson }};
   const CONFIDENCES = {{ confidences | tojson }};
+  const PROP_NAMES  = {{ prop_names | tojson }};
   let   _kbCtrl     = null;
 
   function _opts(list)   { return list.map(v => ({ value: v, label: v })); }
   function _acctOpts()   { return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] })); }
+  function _propOpts()   { return PROP_NAMES.map(p => ({ value: p, label: p })); }
   function _confClass(row){
+    // issue #55 — every pattern should be tied to a property; rules that
+    // predate this field still classify fine (fall back to the batch
+    // default) but are visually nudged for cleanup, same amber as 'review'.
+    if (!row.propNm) return 'iet-review';
     const c = (row.confidence || '').toLowerCase();
     if (c === 'auto')    return 'iet-auto';
     if (c === 'review')  return 'iet-review';
@@ -45,7 +51,9 @@
     if (!j.ok) { document.getElementById('kbMsg').innerHTML =
       '<span class="err">Load failed: ' + (j.error||'') + '</span>'; return; }
     buildTable(j.rules);
-    document.getElementById('kbCount').textContent = j.rules.length + ' rules';
+    const missingProp = j.rules.filter(r => !r.propNm).length;
+    document.getElementById('kbCount').textContent = j.rules.length + ' rules' +
+      (missingProp ? ' · ' + missingProp + ' missing property' : '');
     _applyPrefill();
   }
 
@@ -74,6 +82,7 @@
       emptyText: 'No KB rules yet — click ➕ Add to create one.',
       columns: [
         { key: 'pattern',    label: 'Pattern (regex, lowercase)', editable: true, input: 'text', filter: true },
+        { key: 'propNm',     label: 'Property', editable: true, input: 'select', options: _propOpts(), filter: true },
         { key: 'acct',       label: 'Account',  editable: true, input: 'select', options: _acctOpts(), filter: true },
         { key: 'acctSub',    label: 'Sub',      editable: true, input: 'text', filter: true, list: 'fv-datalist-acctSub' },
         { key: 'txn_type',   label: 'Txn Type', editable: true, input: 'select', options: _opts(TXN_TYPES) },
@@ -97,7 +106,9 @@
       if (!j.ok) { btnMsg.innerHTML = '<span class="err">Save failed: ' + (j.error||'') + '</span>'; return; }
       btnMsg.innerHTML = '<span class="ok">✅ Saved ' + j.count + ' rules to vendor_rules.json</span>';
       ctrl.refresh(j.rules);  // reload clean state (clears pending)
-      document.getElementById('kbCount').textContent = j.count + ' rules';
+      const missingProp = j.rules.filter(r => !r.propNm).length;
+      document.getElementById('kbCount').textContent = j.count + ' rules' +
+        (missingProp ? ' · ' + missingProp + ' missing property' : '');
     } catch (e) {
       btnMsg.innerHTML = '<span class="err">Save error: ' + e.message + '</span>';
     }

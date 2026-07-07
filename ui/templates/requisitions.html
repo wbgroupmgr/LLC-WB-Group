@@ -13,6 +13,11 @@
 
   function _acctOpts() { return KNOWN_ACCTS.map(a => ({ value: a[0], label: a[1] })); }
   function _propOpts() { return PROP_NAMES.map(p => ({ value: p, label: p })); }
+  function _reqStatusClass(row) {
+    // issue #55 — every requisition must have a property; unsaved rows
+    // without one yet (e.g. "Need" drafts) can't be saved until filled in.
+    return row.propNm ? '' : 'iet-review';
+  }
 
   async function loadReqs() {
     const res = await fetch(_scriptRoot + '/api/bank/reqdocs?year=' + ACTIVE_YEAR);
@@ -68,6 +73,7 @@
     _rdCtrl = window.InlineEditTable.create({
       mount: 'rdTable',
       rowKeyField: 'tID',
+      statusClass: _reqStatusClass,
       showCommit: true,
       commitLabel: 'Save Requisitions',
       emptyText: 'No requisitions — ➕ Add to create one.',
@@ -90,6 +96,17 @@
   async function saveReqs(payload, ctrl) {
     const docs = payload.allRows || [];
     const msg = document.getElementById('rdMsg');
+    // issue #55 — every requisition must have a property; the backend
+    // silently drops rows missing one on save, so warn before that happens
+    // rather than let rows vanish without explanation.
+    const noProp = docs.filter(d => d.tID && !d.propNm);
+    if (noProp.length &&
+        !confirm(noProp.length + ' requisition(s) have no Property set and ' +
+                 'will be DROPPED on save (not written to disk):\n' +
+                 noProp.map(d => d.tID).join(', ') +
+                 '\n\nSet Property on those rows, or continue and lose them?')) {
+      return;
+    }
     msg.textContent = 'Saving…';
     try {
       const res = await fetch(_scriptRoot + '/api/bank/reqdocs', {
