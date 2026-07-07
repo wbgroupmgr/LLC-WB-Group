@@ -42,14 +42,6 @@
     .mr-month-item.active     { background: #dbeafe; font-weight: 700; color: #1e3a8a; }
     .mr-month-label { font-size: 12px; }
     .mr-month-meta  { font-size: 10px; color: #6b7280; margin-top: 1px; }
-    .mr-badge-warn  {
-        background: #fef3c7; color: #92400e;
-        padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600;
-    }
-    .mr-badge-ok    {
-        background: #d1fae5; color: #065f46;
-        padding: 1px 6px; border-radius: 10px; font-size: 10px;
-    }
 
     /* ── year selector ── */
     .mr-year-row {
@@ -275,9 +267,6 @@
                         <div class="mr-month-label">${_esc(m.label)}</div>
                         <div class="mr-month-meta">${m.txn_count} transaction${m.txn_count!==1?'s':''}</div>
                     </div>
-                    ${m.missing_reqs > 0
-                        ? `<span class="mr-badge-warn">⚠ ${m.missing_reqs}</span>`
-                        : `<span class="mr-badge-ok">✓</span>`}
                 </div>`).join('');
             // Auto-select first (oldest) month
             if (_months.length) selectMonth(_months[0].ym);

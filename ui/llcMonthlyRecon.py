@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import calendar
 import io
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -374,17 +373,6 @@ def bind_monthly_recon_routes(app, objects: dict) -> None:
             year    = int(request.args.get('year', _active_year()))
             gl_rows = _gl_for_year(year)
 
-            from ledger.bankAgent.bkReqDocAgent import BkReqDocAgent
-            es  = _get_es()
-            llc = es.llc if es else None
-            req_map = {d['tID']: d for d in BkReqDocAgent(year, llc).all()}
-            missing = _missing_reqs_for_year(objects, year, req_map)
-            missing_by_ym: dict[str, int] = defaultdict(int)
-            for m in missing:
-                ym = str(m.get('dt', ''))[:7]
-                if ym:
-                    missing_by_ym[ym] += 1
-
             # Collect unique year-months present in GL
             ym_set: set[str] = set()
             for r in gl_rows:
@@ -394,11 +382,10 @@ def bind_monthly_recon_routes(app, objects: dict) -> None:
 
             months = sorted(ym_set)
             result = [{
-                'ym':           ym,
-                'label':        _month_label(ym),
-                'txn_count':    sum(1 for r in gl_rows
-                                    if str(r.get('dt', '')).startswith(ym)),
-                'missing_reqs': missing_by_ym.get(ym, 0),
+                'ym':        ym,
+                'label':     _month_label(ym),
+                'txn_count': sum(1 for r in gl_rows
+                                 if str(r.get('dt', '')).startswith(ym)),
             } for ym in months]
 
             return jsonify({'ok': True, 'year': year, 'months': result})
