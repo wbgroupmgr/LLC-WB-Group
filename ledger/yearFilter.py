@@ -25,12 +25,19 @@ under-stating cash. So:
      already split each record into one row per account): drop Income/
      Expense rows not dated in the active year specifically. Each row now
      has exactly one `acct`, so this is unambiguous.
+
+Acct.Equity.Income.Summary is a temporary/clearing account despite its
+Equity acctType — by definition (a classic closing-entry suspense account)
+it should never carry a balance into a later fiscal year. It's excluded
+from cumulative carry-forward the same way Income/Expense are, even though
+COA classifies its acctType as Equity, not Income/Expense.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
 _PERIOD_TYPES = {'Income', 'Expense'}
+_ALWAYS_PERIOD_ACCTS = {'Acct.Equity.Income.Summary'}
 
 
 def filter_cumulative(records: List[Dict[str, Any]], year: str) -> List[Dict[str, Any]]:
@@ -42,14 +49,16 @@ def filter_cumulative(records: List[Dict[str, Any]], year: str) -> List[Dict[str
 
 
 def filter_period_rows(rows: List[Dict[str, Any]], llc, year: str) -> List[Dict[str, Any]]:
-    """Post-expansion filter: drop Income/Expense rows not dated in `year`."""
+    """Post-expansion filter: drop Income/Expense (and Income.Summary) rows
+    not dated in `year`."""
     if not year:
         return rows
     coa = llc.coa
     kept = []
     for r in rows:
-        acct_type = coa._Type(r.get('acct', ''))
-        if acct_type in _PERIOD_TYPES and not str(r.get('dt') or '').startswith(year):
+        acct = str(r.get('acct', ''))
+        is_period = coa._Type(acct) in _PERIOD_TYPES or acct in _ALWAYS_PERIOD_ACCTS
+        if is_period and not str(r.get('dt') or '').startswith(year):
             continue
         kept.append(r)
     return kept

@@ -500,7 +500,9 @@ class YEFinancialReportAgent:
     # ── Section 5: Member Capital ─────────────────────────────────────────────
 
     def _section5_capital(self) -> list:
-        from irs.taxAgents.FormSchK1Agent import gl_contributions, gl_distributions
+        from irs.taxAgents.FormSchK1Agent import (
+            gl_contributions, gl_distributions, gl_beginning_capital,
+        )
         st  = self._styles()
         ni  = self._is_agg.get('net_income', 0)   # authoritative IS net income
         items = [
@@ -520,12 +522,17 @@ class YEFinancialReportAgent:
             tot = sum(vals)
             return [label] + [_fmt(v) for v in vals] + [_fmt(tot)]
 
-        beg_vals  = [0.0] * len(members)
+        beg_vals  = []
         cont_vals = []
         dist_vals = []
         for m in members:
             oID = m.get('oID', '')
+            pct = float(m.get('pct', 0) or 0)
             attributed, _ = gl_contributions(self.llc, oID)
+            # Beginning Capital = prior year's Ending Capital (IRC §705
+            # roll-forward) — $0 only falls out naturally for the LLC's
+            # first fiscal year, when there's no prior year.
+            beg_vals.append(gl_beginning_capital(self.llc, oID, pct))
             cont_vals.append(attributed)
             dist_vals.append(gl_distributions(self.llc, oID))  # returns float
 

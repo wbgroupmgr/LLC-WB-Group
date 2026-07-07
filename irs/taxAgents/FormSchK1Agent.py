@@ -131,13 +131,21 @@ def _gl_load_all(llc) -> List[dict]:
 
 def _gl_capital_rows(llc) -> List[dict]:
     """
-    All Capital.Funds/Reinvestment/Dist rows from the FULL double-entry stmtGL.
+    All Capital.Funds/Reinvestment/Dist rows from the FULL double-entry stmtGL,
+    scoped to llc.yr's period activity only (current year's contributions/
+    distributions — IRC §705/§722 Box L L2/L5, and issue #66's capital
+    rollforward "this period" lines).
 
     Raw source loaders (_gl_load_all) only find Capital accounts when they are
     the PRIMARY account on a record.  When Capital.Funds is the CONTRA (credit
     side) — e.g. DR Fixed.Asset / CR Capital.Funds for a property contribution —
     the raw loader misses it.  stmtGL expands every source record to two rows so
     both sides are visible.  This is the correct source for Box L (IRC §705/722).
+
+    stmtGL treats Capital.Funds/Dist/Reinvestment as cumulative-to-date (issue
+    #54 — correct for the Balance Sheet's Schedule L total), so this function
+    applies its own explicit year filter on top — these callers need "this
+    year's" contributions/distributions specifically, not the running total.
     """
     from ledger.stmtGL import stmtGL
     _TRACKED = {
@@ -145,9 +153,12 @@ def _gl_capital_rows(llc) -> List[dict]:
         'Acct.Equity.Owner.Capital.Reinvestment',
         'Acct.Equity.Owner.Capital.Dist',
     }
+    yr = str(getattr(llc, 'yr', '') or '')
     try:
-        return [r for r in stmtGL(llc).load()
-                if str(r.get('acct', '')) in _TRACKED]
+        rows = [r for r in stmtGL(llc).load() if str(r.get('acct', '')) in _TRACKED]
+        if yr:
+            rows = [r for r in rows if str(r.get('dt', '')).startswith(yr)]
+        return rows
     except Exception:
         return []
 
@@ -255,11 +266,39 @@ def gl_untagged_contributions(llc) -> List[dict]:
     return result
 
 
+def gl_beginning_capital(llc, oID: str, owner_pct: float) -> float:
+    """
+    Beginning-of-year capital account — the prior year's Ending Capital.
+
+    Statement of Partners' Capital roll-forward (IRC §705): <prior period
+    ending> -> <this period beginning>, then this period's GL activity
+    (contributions + income share − distributions) aggregates into the
+    period's capital delta. Recurses back through every earlier registered
+    year; returns 0.0 once there's no year before the earliest one (the
+    LLC's first fiscal year genuinely has no beginning capital).
+    """
+    from ledger import setup_paths as _sp
+    llc_name = getattr(llc, 'objName', '')
+    try:
+        this_year = int(getattr(llc, 'yr', 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    prior_years = sorted((y for y in _sp.available_years(llc_name) if y < this_year),
+                         reverse=True)
+    if not prior_years:
+        return 0.0
+    prior_year = prior_years[0]
+    from ledger.LLC import LLC
+    prior_llc = LLC(llc_name, debug=False, year=prior_year)
+    return gl_ending_capital(prior_llc, oID, owner_pct)
+
+
 def gl_ending_capital(llc, oID: str, owner_pct: float,
                       net_rental: float = None) -> float:
     """
     Box L L6 (f44) — ending capital account, GL-sourced (IRC §705).
-    Formula: L2(attributed contributions) + L3(IS.net_rental × pct) − L5(distributions).
+    Formula: L1(beginning, prior year's ending) + L2(attributed contributions)
+    + L3(IS.net_rental × pct) − L5(distributions).
     Untagged contributions are excluded from the ending balance (surfaced as WARN).
     """
     if net_rental is None:
@@ -268,10 +307,11 @@ def gl_ending_capital(llc, oID: str, owner_pct: float,
             net_rental = float(stmtIS(llc).taxAggregates().get('net_rental', 0))
         except Exception:
             net_rental = 0.0
+    beginning     = gl_beginning_capital(llc, oID, owner_pct)
     attributed, _ = gl_contributions(llc, oID)
     distrib       = gl_distributions(llc, oID)
     income        = round(net_rental * owner_pct, 2)
-    return round(attributed + income - distrib, 2)
+    return round(beginning + attributed + income - distrib, 2)
 
 
 # ────────────────────────────────────────────────────────────────────────────

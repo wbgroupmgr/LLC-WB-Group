@@ -386,7 +386,9 @@ class stmtOwnerEquity(stmtDB):
         the Total Ending Capital — the LLC's book value as of this fiscal
         year (issue #66's explicit ask).
         '''
-        from irs.taxAgents.FormSchK1Agent import gl_contributions, gl_distributions
+        from irs.taxAgents.FormSchK1Agent import (
+            gl_contributions, gl_distributions, gl_beginning_capital,
+        )
 
         owners = list(owners if owners is not None else (self._init_owners or []))
 
@@ -404,7 +406,10 @@ class stmtOwnerEquity(stmtDB):
             oID = o.get('oID', '')
             pct = float(o.get('pct', 0) or 0)
             attributed, _ = gl_contributions(self.llc, oID)
-            beg_vals.append(0.0)   # matches Section 5 — LLC's first fiscal year
+            # Beginning Capital = prior year's Ending Capital (IRC §705
+            # roll-forward), not always $0 — $0 only falls out naturally
+            # for the LLC's first fiscal year, when there's no prior year.
+            beg_vals.append(gl_beginning_capital(self.llc, oID, pct))
             cont_vals.append(attributed)
             dist_vals.append(gl_distributions(self.llc, oID))
             ni_vals.append(round(ni * pct, 2))
