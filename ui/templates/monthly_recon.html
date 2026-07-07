@@ -161,23 +161,6 @@
     .mr-tot-chip.net-pos .value { color: #15803d; }
     .mr-tot-chip.net-neg .value { color: #dc2626; }
 
-    /* ── BookState status chip (issue #53/#57) ── */
-    .mr-bookstate {
-        margin: 12px 12px 0; padding: 6px 12px; border-radius: 6px;
-        font-size: 12px; font-weight: 600;
-        display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    }
-    .mr-bookstate-ok   { background: #dcfce7; color: #15803d; }
-    .mr-bookstate-warn { background: #fef3c7; color: #92400e; }
-    .mr-bookstate-unk  { background: #f3f4f6; color: #6b7280; }
-    .mr-bookstate-refresh {
-        background: #92400e; color: white; border: none; border-radius: 5px;
-        padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer;
-        white-space: nowrap; flex-shrink: 0;
-    }
-    .mr-bookstate-refresh:hover     { background: #78350f; }
-    .mr-bookstate-refresh:disabled { opacity: 0.6; cursor: default; }
-
     /* ── req status banner ── */
     .req-ok   { background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px;
                 padding: 8px 14px; font-size: 12px; color: #14532d; margin: 8px 0; }
@@ -320,7 +303,7 @@
             const data = await res.json();
             if (!data.ok) { content.innerHTML = `<div style="padding:16px;color:#dc2626">Error: ${_esc(data.error)}</div>`; return; }
             _currentReport = data.report;
-            content.innerHTML = _renderBookStateChip(data.bookState) + _renderReport(data.report);
+            content.innerHTML = _renderReport(data.report);
         } catch(err) {
             content.innerHTML = `<div style="padding:16px;color:#dc2626">Network error: ${_esc(String(err))}</div>`;
         }
@@ -331,33 +314,6 @@
         window.open(`${_root}/api/monthly_recon/pdf?ym=${_selectedYm}`, '_blank');
         const d = document.getElementById('actionsMenu');
         if (d) d.removeAttribute('open');
-    };
-
-    // BookState status chip (issue #53/#57) — is this report's GL snapshot
-    // currently in sync with the RealDB files it was built from?
-    function _renderBookStateChip(bs) {
-        if (!bs) return '';
-        let cls, label, action = '';
-        if (bs.inSync === true) { cls = 'ok';   label = '🟢 Books in sync'; }
-        else if (bs.inSync === false) {
-            cls = 'warn';
-            label = `🟡 Books changed since last GL build (${(bs.changedSince||[]).join(', ')})`;
-            action = `<button class="mr-bookstate-refresh" onclick="refreshBookState(this)">↻ Refresh GL cache</button>`;
-        } else { cls = 'unk'; label = '⚪ BookState unknown'; }
-        return `<div class="mr-bookstate mr-bookstate-${cls}" title="RealDB vs cached GL snapshot comparison (issue #53)">
-            <span>${label}</span>${action}</div>`;
-    }
-
-    window.refreshBookState = async function(btn) {
-        if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
-        try {
-            const res  = await fetch(`${_root}/api/monthly_recon/refresh_books`, {method: 'POST'});
-            const data = await res.json();
-            if (!data.ok) { alert('Refresh failed: ' + (data.error || 'unknown error')); return; }
-            if (_selectedYm) selectMonth(_selectedYm);
-        } catch(err) {
-            alert('Refresh error: ' + String(err));
-        }
     };
 
     function _renderReport(r) {

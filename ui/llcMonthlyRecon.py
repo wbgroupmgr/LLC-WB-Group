@@ -426,39 +426,7 @@ def bind_monthly_recon_routes(app, objects: dict) -> None:
 
             report = _build_month_report(gl_rows, year, ym, req_map, missing)
 
-            # BookState (issue #53/#57) — surface whether this report's GL
-            # snapshot is currently in sync with RealDB, so drift is visible
-            # on the one view an operator checks month to month.
-            book_state_status = None
-            if llc is not None:
-                from ledger import bookState
-                books = getattr(es, 'books', None)
-                book_state_status = books.book_state_status() if books else {
-                    'inSync': None, 'current': bookState.compute(llc),
-                }
-
-            return jsonify({'ok': True, 'report': report, 'bookState': book_state_status})
-        except Exception as err:
-            import traceback
-            return jsonify({'ok': False, 'error': str(err),
-                            'traceback': traceback.format_exc()}), 500
-
-    @app.route('/api/monthly_recon/refresh_books', methods=['POST'])
-    def api_monthly_recon_refresh_books():
-        """Force the session's shared BooksContext GL cache to rebuild against
-        the current RealDB files, clearing the "Books changed since last GL
-        build" warning. That warning is a diagnostic-only comparison (issue
-        #53/#57) — it never self-clears unless something elsewhere in the app
-        happens to touch es.books.gl_rows, which nothing on this view does.
-        """
-        try:
-            es = _get_es()
-            books = getattr(es, 'books', None) if es else None
-            if books is None:
-                return jsonify({'ok': False, 'error': 'no active session'}), 400
-            books.invalidate()
-            books.gl_rows  # force rebuild now, recording a fresh source_state
-            return jsonify({'ok': True, 'bookState': books.book_state_status()})
+            return jsonify({'ok': True, 'report': report})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),
