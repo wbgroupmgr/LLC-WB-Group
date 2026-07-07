@@ -6,6 +6,94 @@ and [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.0] — 2026-07-07  **BUS Corruption Recovery Phase 3 complete + 2026 H1 ingestion**
+
+Major milestone: Phase 3 of the BUS corruption recovery (see
+`logs/20260704-BUSCorruption.md`) is complete, and the 2026 H1 bank statement has been
+ingested into the live books. This release spans issues #53/#57 (BookState integrity),
+#54 (YearStart carry-forward), #56 (Home Fiscal State redesign), and #55 (BankStmt
+ingestion propNm enforcement + UI rework), plus follow-on fixes discovered during live
+2026 ingestion testing.
+
+### Added — Home Fiscal State redesign (issue #56)
+- **View selector** — Year (rolling 12mo) / YTD (fiscal year) / Qtrly (since LLC start)
+  for the Financial Snapshot bar chart, via new `llcReportEngine.getGLListAllTime()`
+  (reads the shared Accts JSON with no fiscal-year filter — needed since Year/Qtrly can
+  cross fiscal-year boundaries).
+- **Assets/Equity are now point-in-time** (LLC Start → today), independent of the
+  selected window or the active fiscal year — always sourced from
+  `stmtBS._taxAggregates_local()` called directly (not `taxAggregates()`, which
+  unconditionally tries a single-year fast path that would silently discard multi-year
+  `gl_records`).
+- **E:R** (expense-to-revenue ratio, mean over the active view's buckets) replaces the
+  old `EarnedPnL` metric, which was a dead duplicate of `net_income`.
+- **"Other" expense bucket redefined** — now includes `Acct.Exp.Depreciation`,
+  `Acct.Exp.Tax.*`, and `Acct.Exp.Operating` (was Depreciation only). Represents annual/
+  periodic costs not tied to day-to-day property management, as opposed to "Ops"
+  (routine rental management costs). Internal field renamed `expense_cap` →
+  `expense_other`.
+
+### Added — BankStmt ingestion propNm enforcement (issue #55)
+- KB rules (`vendor_rules.json`) gained an optional `propNm` field — overrides the
+  batch's default property during classification when set. Not hard-required on save
+  (would silently delete pre-existing rules); the KB Rules editor shows a "missing
+  property" count instead.
+- Requisitions now hard-require `propNm` on save (safe — all live records already had
+  one).
+- New `BkReqPropGuard` flags a transaction whose propNm disagrees with its linked
+  requisition's propNm; hard-blocked at commit (re-verified using the row's post-edit
+  propNm, so it can't be bypassed by editing around it).
+
+### Fixed — Bank Reconciliation UI concurrent-editing (issue #55 follow-up)
+Operator testing of the above surfaced a workflow that was unusable in practice:
+- **KB Rules and Requisitions now open as a modal overlay (iframe) from Preview**
+  instead of full-page navigation — Preview's in-progress edits are never torn down by
+  switching between the three views. Both views gained `?embed=1` to hide their own nav
+  chrome when shown this way.
+- **New "Apply Rules" bulk action** — re-classifies selected Preview rows against the
+  current KB rules, using each row's current desc/propNm (not the original CSV state).
+- **Commit-conflict dialog** replaces a dead-end alert on `PROPNM_MISMATCH`: Fix
+  Requisition (patches the requisition to match, retries automatically), Commit As-Is
+  (explicit override — `BankAgent.commit()` gained `override_propnm_mismatch`;
+  `PropNmMismatchError` now carries structured `{tID, propNm, req_propNm}` detail), or
+  Cancel (no edits lost). Commit route returns 409 + `error_type=PROPNM_MISMATCH`.
+- `_inline_edit_table.html` (shared by all 3 views) gained `updateRows()` and
+  `rerender()` controller methods to patch specific rows without wiping other rows'
+  pending edits — the existing `refresh()` cleared all pending state, which is exactly
+  what needed to stop happening on cross-view sync.
+
+### Fixed — Monthly Reconciliation (issues #53/#57)
+- Year-scoping bug: `_gl_for_year()`/`_missing_reqs_for_year()` were reading data
+  scoped to the session's active fiscal year rather than the year the view's own
+  selector requested — switching the in-view year selector without also using the
+  app-wide Switch Year control silently zeroed the Income/Expenses/Net summary and
+  under-reported missing-requisition counts for any non-active year.
+- Removed the "Books changed since last GL build" BookState warning chip — it flagged
+  a shared cache this view never reads (its own GL is always built fresh from disk), so
+  the warning was never actionable here; the underlying condition self-heals the moment
+  any other view touches the cache.
+- Removed the per-month missing-requisition badge from the sidebar (operator request —
+  redundant with the detailed Section 3 breakdown in the report panel).
+
+### Fixed — Account dropdown labeling (issue #52 regression)
+- KB Rules / Preview / Requisitions Account dropdown was showing `"5090 — Utilities
+  (...)"` instead of `"Acct.Exp.Util (5090)"` — the path format from issue #52, lost
+  when the BankToBook UI was rebuilt after the #40 revert. Restored via the shared
+  `_coa_accts()` in `ui/llcBankIngest.py`.
+
+### Fixed — YearStart carry-forward (issue #54)
+- Two-stage `ledger/yearFilter.py`: `filter_cumulative()` (pre-expansion, coarse) then
+  `filter_period_rows()` (post-expansion, precise) — see code comments for why the
+  split is necessary (dual-account records mix one permanent + one temporary account).
+- `Acct.Equity.Income.Summary` added as an always-period-type exception (temporary
+  clearing account despite its Equity acctType).
+- New `gl_beginning_capital()` recursively rolls Beginning Capital forward from the
+  prior year's Ending Capital.
+- `_sync_active_year()` before_request hook reconciles the session-year cookie against
+  `eSession.year` on every request — fixes a label/data mismatch after server restart.
+
+---
+
 ## [2.4.0] — 2026-06-26  **Issue #42 — BankToBook 3-view Flask UI + LLC Admin Business frame**
 
 ### Added — BankToBook (issue #42)

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "llcRentalTracker",
+      "runtimeExecutable": "/opt/anaconda3/bin/python3",
+      "runtimeArgs": ["wsCmd.py", "--start", "--llcName", "WBGroupLLC", "--load", "--port", "5050"],
+      "port": 5050
+    }
+  ]
+}

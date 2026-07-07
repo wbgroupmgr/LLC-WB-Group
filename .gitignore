@@ -211,3 +211,9 @@ __marimo__/
 *_fillDict.json
 *_namespace.json
 *_namespace.pdf
+
+# Local files containing live secrets — never commit (found uncommitted 2026-07-07,
+# wsgi_host.py has a plaintext SMTP app password, setup.out has plaintext
+# APP_GPG_PASSPHRASE + APP_SECRET_KEY)
+wsgi_host.py
+setup.out

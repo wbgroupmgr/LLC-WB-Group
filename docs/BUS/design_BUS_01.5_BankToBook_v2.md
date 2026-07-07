@@ -710,4 +710,36 @@ display(tb_2026)
 
 ---
 
+## 10. v2.5 Update (2026-07-07) — KB Rules propNm + "Apply Rules"
+
+**KB rules gained an optional `propNm` field.** `vendor_rules.json` rules may now carry
+a `propNm` — when a matched rule has one set, `IngestAgent.classify()` uses it in place
+of the batch's `propNm_default` (e.g. a bank fee is always `LLC` no matter whose
+property's CSV it appeared on). This is deliberately **not** hard-required at save time
+(`BkVendorKB.set_rules()`) — the rules that existed before this field was added have no
+propNm, and a replace-all save must not silently delete a working rule just because the
+operator hasn't gotten to assigning it a property yet. The KB Rules editor instead shows
+a "N missing property" count and tints those rows for visibility.
+
+**New "Apply Rules" bulk action in Preview** (`ui/templates/bank_preview.html`,
+`POST /api/bank/ingest/apply_rules`) — re-classifies selected Preview rows against
+whatever KB rules exist *right now*, using each row's *current* desc/propNm as it
+stands in Preview (not the original CSV state). This closes the gap where fixing or
+adding a KB rule mid-session previously required discarding and re-running the entire
+Preview to see it take effect. Operates purely on `IngestAgent.classify()` — no new
+matching logic, so KB precedence/behavior is identical to a fresh preview.
+
+**Known gap (not built):** this only reclassifies *Preview* rows, before commit.
+Transactions already posted to `llcExpRev` under `Acct.Exp.Other` (the classification
+fallback) are not retroactively reclassified even after a matching KB rule is added
+later — as of 2026-07-07, 11 such transactions exist in the live 2025/2026 books, 3 of
+which already match rules that exist today. A "reclassify already-posted transactions"
+tool would need to write directly to `llcExpRev` (not go through the Preview/commit
+pipeline) and is not yet designed.
+
+See `docs/design_Requisitions.md` §10 for the companion propNm-mismatch enforcement and
+Preview/KBRules/Requisitions concurrent-editing (modal) redesign from the same session.
+
+---
+
 *End of design_BUS_01.5_BankToBook.md — v0.5, 2026-06-19*

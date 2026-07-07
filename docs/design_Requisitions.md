@@ -2,7 +2,7 @@
 
 **Namespace:** BankToBook (ledger/bankAgent)
 **Stage:** 02.6 — Operator Audit / Commit Workflow
-**Version:** v2.3 (2026-06)
+**Version:** v2.5 (2026-07) — see §10 for the propNm-enforcement + conflict-resolution update
 
 ---
 
@@ -218,9 +218,47 @@ Do not close the year until MISSING = 0.
 
 | File | Role |
 |------|------|
-| `ledger/bankAgent/bkReqDocAgent.py` | Storage CRUD — `BkReqDocAgent.add()`, `update()`, `set_all()` |
+| `ledger/bankAgent/bkReqDocAgent.py` | Storage CRUD — `BkReqDocAgent.add()`, `update()`, `set_all()` (propNm required as of §10) |
 | `ledger/bankAgent/bkCIPGuard.py` | Detection — flags CIP rows during Preview |
-| `ledger/bankAgent/BankAgent.py` | Orchestrator — calls CIPGuard at Step 5, counts `need_req_doc` |
-| `ui/llcBankIngest.py` | Routes — `/view/requisitions`, `/api/bank/reqdocs` GET/POST, `_missing_reqs()` |
-| `ui/templates/requisitions.html` | View — MISSING table + saved requisitions table |
+| `ledger/bankAgent/bkReqPropGuard.py` | Detection — flags a transaction whose propNm disagrees with its linked requisition's propNm (§10) |
+| `ledger/bankAgent/BankAgent.py` | Orchestrator — calls CIPGuard + BkReqPropGuard at Preview; re-verifies BkReqPropGuard as a hard gate at commit (`PropNmMismatchError`, `override_propnm_mismatch`) |
+| `ui/llcBankIngest.py` | Routes — `/view/requisitions`, `/api/bank/reqdocs` GET/POST, `/api/bank/reqdocs/set_propnm` POST, `_missing_reqs()` |
+| `ui/templates/requisitions.html` | View — MISSING table + saved requisitions table; opens as a modal iframe from Preview (`?embed=1`) as of §10 |
+| `ui/templates/bank_preview.html` | Commit-conflict dialog (Fix Requisition / Commit As-Is / Cancel) when a propNm mismatch blocks commit |
 | `books/<year>/BankStmts/req_docs_<year>.json` | Persisted records |
+
+---
+
+## 10. v2.5 Update (2026-07-07) — propNm Enforcement + Concurrent-Editing UX
+
+**propNm is now required on every requisition** (`BkReqDocAgent.set_all()` skips rows
+missing it — safe to hard-enforce because, unlike KB rules, every live requisition
+already had one before this change). The Requisitions editor warns before a save would
+silently drop a row missing it.
+
+**New cross-check: transaction propNm vs. requisition propNm.** A transaction whose
+propNm disagrees with the propNm on its linked requisition means one of the two records
+has the wrong property. `BkReqPropGuard` flags this in Preview (`PROPNM_MISMATCH`) and
+`BankAgent.commit()` re-verifies it as a hard gate — using the transaction's *current*
+(possibly operator-edited) propNm, never a value cached from Preview time — before any
+write to `llcExpRev`. This mirrors `BkCIPGuard`'s "cannot silently bypass" posture, but
+unlike the IRC §263(a) capitalization rule, a propNm/requisition disagreement is a
+data-consistency check, not a legal requirement — so `commit()` accepts an explicit,
+UI-driven `override_propnm_mismatch` flag for a deliberate "commit as-is, leave the
+requisition alone" operator call.
+
+**Requisitions now opens as a modal (iframe), not a page navigation.** Operator testing
+of the original 3-separate-pages design found it unusable in practice: switching
+between Preview ↔ KB Rules ↔ Requisitions silently discarded in-progress Preview edits,
+and there was no way to sync Preview after fixing a Requisition in another tab. The fix:
+`/view/requisitions?embed=1` (and `/view/bank_kb_rules?embed=1`) render without their
+own nav chrome and load inside an overlay `<iframe>` launched from Preview
+(`ui/templates/bank_preview.html`, `openAidModal()`); Preview's DOM/JS state is never
+torn down. Closing the modal re-syncs Preview's requisition map so mismatch tints
+update immediately. A commit-time `PROPNM_MISMATCH` rejection now surfaces a real
+dialog (Fix Requisition / Commit As-Is / Cancel) instead of a dead-end alert — see
+`ledger/bankAgent/BankAgent.py`'s `PropNmMismatchError` for the structured
+`{tID, propNm, req_propNm}` detail it carries.
+
+A companion "Apply Rules" bulk action was added to Preview (not Requisitions) — see
+`docs/BUS/design_BUS_01.5_BankToBook_v2.md` §10 for that half of the same update.
