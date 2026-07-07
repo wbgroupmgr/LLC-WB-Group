@@ -919,12 +919,17 @@ class llcMgmt:
                         key = f"{yy}.{mm}"
                     amt = float(r.get('amt') or 0)
                     if key not in buckets:
-                        buckets[key] = {'income': 0.0, 'expense_op': 0.0, 'expense_cap': 0.0}
+                        buckets[key] = {'income': 0.0, 'expense_op': 0.0, 'expense_other': 0.0}
                     if acct.startswith('Acct.Rev'):
                         buckets[key]['income'] = round(buckets[key]['income'] + amt, 2)
-                    elif acct == 'Acct.Exp.Depreciation':
-                        # Capitalization expense — depreciation recorded at year-end
-                        buckets[key]['expense_cap'] = round(buckets[key]['expense_cap'] + amt, 2)
+                    elif (acct == 'Acct.Exp.Depreciation'
+                          or acct.startswith('Acct.Exp.Tax')
+                          or acct.startswith('Acct.Exp.Operating')):
+                        # "Other" = annual/periodic costs not tied to day-to-day
+                        # property management: depreciation, property tax, and
+                        # operating/subscription overhead — as opposed to
+                        # "Ops" below, which is routine rental management costs.
+                        buckets[key]['expense_other'] = round(buckets[key]['expense_other'] + amt, 2)
                     elif acct.startswith('Acct.Exp'):
                         buckets[key]['expense_op'] = round(buckets[key]['expense_op'] + amt, 2)
 
@@ -945,7 +950,7 @@ class llcMgmt:
                 ratios = []
                 for key in sorted(buckets.keys()):
                     b = buckets[key]
-                    expense_total = b['expense_op'] + b['expense_cap']
+                    expense_total = b['expense_op'] + b['expense_other']
                     if b['income'] > 0:
                         ratios.append(expense_total / b['income'])
                     chart_data.append({'label': _label(key), **b})
