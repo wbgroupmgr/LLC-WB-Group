@@ -162,9 +162,13 @@
 {% block content %}
 <div class="bp-panel">
   <div class="bp-title">
+    {% if not embed %}
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
+    {% endif %}
     <span class="nm">🧾 Requisitions</span>
+    {% if not embed %}
     <a class="ret" href="{{ request.script_root }}/view/bank_reconcile">← Return to Preview</a>
+    {% endif %}
     <span class="cnt" id="rdCount"></span>
   </div>
   <p style="font-size:13px;color:#6b7280;margin-top:0;">

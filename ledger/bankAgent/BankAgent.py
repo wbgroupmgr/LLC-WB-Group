@@ -50,6 +50,23 @@ class PreviewResult:
     _token: str = field(default_factory=lambda: str(uuid.uuid4()), repr=False)
 
 
+class PropNmMismatchError(ValueError):
+    """
+    Raised by commit() when one or more rows' propNm disagrees with their
+    linked requisition's propNm and the caller hasn't explicitly opted to
+    override (issue #55 conflict-resolution UI). Carries structured detail
+    — not just a message — so the UI can offer real choices (fix the
+    requisition, commit as-is, cancel) instead of a dead-end alert.
+    """
+    def __init__(self, mismatches: list[dict]):
+        self.mismatches = mismatches
+        tids = ', '.join(m['tID'] for m in mismatches)
+        super().__init__(
+            f'{len(mismatches)} row(s) have a propNm that disagrees with '
+            f'their linked requisition: {tids}'
+        )
+
+
 @dataclass
 class CommitResult:
     rows_written: int
@@ -192,7 +209,8 @@ class BankAgent:
 
     # ── Phase 2 — Commit ──────────────────────────────────────────────────────
 
-    def commit(self, preview: PreviewResult, year: int | None = None) -> CommitResult:
+    def commit(self, preview: PreviewResult, year: int | None = None,
+               override_propnm_mismatch: bool = False) -> CommitResult:
         """
         Write approved rows to llcExpRev + LogHistory.
         Skips DUPLICATE rows. AMOUNT_COLLISION rows are written with a warning.
@@ -211,15 +229,23 @@ class BankAgent:
         # since preview). Never trust the flag computed at preview time; a
         # stale mismatch flag or a newly-introduced one must both be caught
         # here, since this is the last checkpoint before a write.
-        req_guard = BkReqPropGuard(year, self._llc)
-        mismatched = [cr for cr in to_write if req_guard.check(cr.tID, cr.propNm)[0]]
-        if mismatched:
-            tids = ', '.join(cr.tID for cr in mismatched)
-            raise ValueError(
-                f'{len(mismatched)} row(s) have a propNm that disagrees with '
-                f'their linked requisition — fix the transaction or the '
-                f'requisition before committing: {tids}'
-            )
+        #
+        # override_propnm_mismatch is an explicit, operator-visible choice
+        # made through the commit-conflict dialog (not a silent default) —
+        # unlike BkCIPGuard's IRC §263 capitalization rule, a propNm/req
+        # disagreement is a data-consistency check, not a legal requirement,
+        # so a deliberate "commit as-is, leave the requisition alone" is a
+        # legitimate operator call.
+        if not override_propnm_mismatch:
+            req_guard = BkReqPropGuard(year, self._llc)
+            mismatches = []
+            for cr in to_write:
+                is_mismatch, req_propNm = req_guard.check(cr.tID, cr.propNm)
+                if is_mismatch:
+                    mismatches.append({'tID': cr.tID, 'propNm': cr.propNm,
+                                       'req_propNm': req_propNm})
+            if mismatches:
+                raise PropNmMismatchError(mismatches)
 
         # Build llcExpRev records (convert IngestAgent convention → llcExpRev convention)
         new_records = [_to_exprev_record(cr, csv_name) for cr in to_write]

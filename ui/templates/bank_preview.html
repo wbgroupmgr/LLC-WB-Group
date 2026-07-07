@@ -12,6 +12,7 @@
   let   _previewToken = null;
   let   _ietCtrl      = null;
   let   _reqMap       = {};   // {tID: rID} from last preview
+  let   _reqDocs      = {};   // {tID: {propNm, ...}} full requisition records — live mismatch checks
   let   _reqYear      = null; // requisition year = previewed CSV year
 
   function _acctOptions() {
@@ -39,11 +40,20 @@
   }
   document.addEventListener('DOMContentLoaded', loadFieldValueLists);
 
+  // Live mismatch check — reads _reqDocs at call time rather than trusting a
+  // flag baked in at preview time, so the row's tint self-corrects after
+  // "Apply Rules", an inline propNm edit, or fixing the requisition in the
+  // modal, without needing a full server re-preview (issue #55 UI feedback).
+  function _mismatchReqPropNm(row) {
+    const req = _reqDocs[row.tID];
+    if (!req || !req.propNm) return null;
+    return req.propNm !== row.propNm ? req.propNm : null;
+  }
   function _statusClass(row) {
     const f = (row.flag || '').toUpperCase();
-    if (f === 'DUPLICATE')        return 'iet-dup';
-    if (f === 'PROPNM_MISMATCH')  return 'iet-flagged';
-    if (f === 'NEED_REQ_DOC')     return 'iet-need';
+    if (f === 'DUPLICATE')          return 'iet-dup';
+    if (_mismatchReqPropNm(row))    return 'iet-flagged';
+    if (f === 'NEED_REQ_DOC')       return 'iet-need';
     const c = (row.confidence || '').toLowerCase();
     if (c === 'auto')    return 'iet-auto';
     if (c === 'review')  return 'iet-review';
@@ -80,8 +90,7 @@
       _previewToken = j.token;
       _reqMap = j.req_map || {};
       _reqYear = j.req_year || j.csv_year || null;
-      const navReq = document.getElementById('navReq');
-      if (navReq && _reqYear) navReq.href = _scriptRoot + '/view/requisitions?year=' + _reqYear;
+      await resyncRequisitions();   // populate _reqDocs for live mismatch checks
       stashNeedRows(j.rows);
       // If file was uploaded and saved to BankStmts, add it to the dropdown and select it
       if (j.saved_path) {
@@ -126,9 +135,10 @@
       acctSub:   r.acctSub || '',
       txn_type:  r.txn_type || 'ROUTINE_EXPENSE',
       confidence:'review',
+      propNm:    r.propNm || '',
     }));
     sessionStorage.setItem('bank_kb_prefill', JSON.stringify(prefill));
-    window.location.href = _scriptRoot + '/view/bank_kb_rules';
+    openAidModal('kb');
   }
 
   function newRequisition(selRows) {
@@ -139,8 +149,87 @@
       propNm: r.propNm || '', purpose: r.acctSub || '', notes: r.desc || '',
     }));
     sessionStorage.setItem('bank_req_prefill', JSON.stringify(prefill));
-    const yr = _reqYear ? ('?year=' + _reqYear) : '';
-    window.location.href = _scriptRoot + '/view/requisitions' + yr;
+    openAidModal('req');
+  }
+
+  // ── Aid modal (KB Rules / Requisitions) — opened as an overlay iframe so
+  // Preview's in-progress edits are never torn down by navigating away;
+  // closing it just hides the overlay (issue #55 UI feedback).
+  let _aidModalKind = null;
+  function openAidModal(kind) {
+    _aidModalKind = kind;
+    const frame = document.getElementById('aidModalFrame');
+    const title = document.getElementById('aidModalTitle');
+    if (kind === 'kb') {
+      title.textContent = '📓 Bank Knowledge / Rules';
+      frame.src = _scriptRoot + '/view/bank_kb_rules?embed=1';
+    } else {
+      title.textContent = '🧾 Requisitions';
+      const yrParam = _reqYear ? ('year=' + _reqYear + '&') : '';
+      frame.src = _scriptRoot + '/view/requisitions?' + yrParam + 'embed=1';
+    }
+    document.getElementById('aidModalBackdrop').style.display = 'flex';
+  }
+  async function closeAidModal() {
+    document.getElementById('aidModalBackdrop').style.display = 'none';
+    document.getElementById('aidModalFrame').src = 'about:blank';
+    const wasReq = _aidModalKind === 'req';
+    _aidModalKind = null;
+    if (wasReq) await resyncRequisitions();   // pick up any propNm fixes made in the modal
+  }
+
+  // Re-fetch requisitions and refresh the ReqID column + mismatch tints
+  // without disturbing any pending Preview edits.
+  async function resyncRequisitions() {
+    if (!_reqYear) return;
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/reqdocs?year=' + _reqYear);
+      const j = await res.json();
+      if (!j.ok) return;
+      _reqMap = {}; _reqDocs = {};
+      (j.docs || []).forEach((d, i) => { _reqMap[d.tID] = i + 1; _reqDocs[d.tID] = d; });
+      if (_ietCtrl) {
+        const patches = {};
+        _ietCtrl.getRows().forEach(r => {
+          patches[r.tID] = { reqID: _reqMap[r.tID] != null ? String(_reqMap[r.tID])
+                                                             : (_needsReq(r) ? 'need' : 'na') };
+        });
+        _ietCtrl.updateRows(patches);
+      }
+    } catch (e) { /* silent */ }
+  }
+
+  // ── Apply Rules (issue #55) — re-classify selected rows against the
+  // CURRENT KB rules, using each row's CURRENT desc/propNm as they stand in
+  // Preview right now (not the original CSV state).
+  async function applyRules(selRows) {
+    if (!selRows.length) { alert('Select one or more rows first.'); return; }
+    const payload = selRows.map(r => ({
+      tID: r.tID, dt: r.dt, amt: r.amt, aType: r.aType, desc: r.desc,
+      refDoc: r.refDoc, propNm: r.propNm,
+    }));
+    try {
+      const res = await fetch(_scriptRoot + '/api/bank/ingest/apply_rules', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          rows: payload,
+          propNm_default: (document.getElementById('propSelect') || {}).value || 'LLC',
+        }),
+      });
+      const j = await res.json();
+      if (!j.ok) { alert('Apply Rules failed: ' + (j.error || '')); return; }
+      const patches = {};
+      j.results.forEach(r => {
+        patches[r.tID] = {
+          acct: r.acct, acctSub: r.acctSub, txn_type: r.txn_type,
+          confidence: r.confidence, propNm: r.propNm,
+          confPid: (r.confidence || '') + ':' + (r.pID != null ? ('p' + r.pID) : 'na'),
+        };
+      });
+      _ietCtrl.updateRows(patches);
+    } catch (e) {
+      alert('Apply Rules error: ' + e.message);
+    }
   }
 
   function _needsReq(r) {
@@ -185,6 +274,7 @@
       extraActions: [
         { id:'newPattern', label:'＋ NewPattern', title:'Create KB rule(s) from selected rows', onClick:newPattern },
         { id:'newReq',     label:'＋ NewRequisition', title:'Create requisition(s) for selected rows', onClick:newRequisition },
+        { id:'applyRules', label:'⚙ Apply Rules', title:'Re-classify selected rows against the current KB rules', onClick:applyRules },
       ],
       emptyText: 'No new transactions in this CSV.',
       columns: [
@@ -205,24 +295,41 @@
     });
   }
 
-  async function commitPreview() {
-    if (!_previewToken) { alert('Run a preview first.'); return; }
+  function _currentEdits() {
     const pend = _ietCtrl ? _ietCtrl.getPending() : { edited: [] };
-    const edits = (pend.edited || []).map(r => ({
+    return (pend.edited || []).map(r => ({
       tID: r.tID, acct: r.acct, propNm: r.propNm, acctSub: r.acctSub,
     }));
+  }
+
+  async function commitPreview() {
+    if (!_previewToken) { alert('Run a preview first.'); return; }
+    const edits = _currentEdits();
     if (!confirm('Commit previewed rows to llcExpRev?\n' +
                  edits.length + ' row(s) edited; duplicates are skipped automatically.')) return;
+    await _doCommit(edits, false);
+  }
 
+  async function _doCommit(edits, override) {
     const btn = document.getElementById('btnCommit');
     btn.disabled = true; btn.textContent = 'Committing…';
     try {
       const res = await fetch(_scriptRoot + '/api/bank/ingest/commit', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ token: _previewToken, edits }),
+        body: JSON.stringify({ token: _previewToken, edits, override_propnm_mismatch: override }),
       });
       const j = await res.json();
-      if (!j.ok) { alert('Commit failed: ' + (j.error || '')); return; }
+      if (!j.ok) {
+        if (j.error_type === 'PROPNM_MISMATCH') {
+          // Not a dead-end — offer real choices instead of just alerting.
+          // Preview state (token, all edits) is untouched either way.
+          showMismatchDialog(j.mismatches, edits);
+          return;
+        }
+        alert('Commit failed: ' + (j.error || ''));
+        btn.disabled = false; btn.textContent = 'Commit to llcExpRev ✓';
+        return;
+      }
       document.getElementById('commitDone').innerHTML =
         '✅ ' + j.rows_written + ' written · ' + j.rows_duplicate + ' duplicates skipped · ' +
         j.rows_amount_collision + ' amount-collision · ' +
@@ -233,9 +340,50 @@
       _previewToken = null; _ietCtrl = null;
     } catch (e) {
       alert('Commit error: ' + e.message);
-    } finally {
       btn.disabled = false; btn.textContent = 'Commit to llcExpRev ✓';
     }
+  }
+
+  // issue #55 UI feedback — commit-conflict dialog: Fix Requisition (update
+  // the requisition to match the transaction, then retry), Commit As-Is
+  // (explicit operator override, requisition left untouched), or Cancel
+  // (return to Preview — nothing committed, no edits lost).
+  function showMismatchDialog(mismatches, edits) {
+    const backdrop = document.getElementById('mismatchBackdrop');
+    const body = document.getElementById('mismatchBody');
+    body.innerHTML = mismatches.map(m =>
+      '<div style="margin-bottom:6px;padding:6px 8px;background:#fffbeb;border-radius:6px;">' +
+      '<b>' + _esc(m.tID) + '</b><br>transaction property: <code>' + _esc(m.propNm) +
+      '</code> &middot; requisition property: <code>' + _esc(m.req_propNm) + '</code></div>'
+    ).join('');
+    backdrop.style.display = 'flex';
+
+    document.getElementById('btnFixReq').onclick = async () => {
+      const b = document.getElementById('btnFixReq');
+      b.disabled = true; b.textContent = 'Fixing…';
+      try {
+        for (const m of mismatches) {
+          await fetch(_scriptRoot + '/api/bank/reqdocs/set_propnm', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ year: _reqYear, tID: m.tID, propNm: m.propNm }),
+          });
+        }
+        await resyncRequisitions();
+        backdrop.style.display = 'none';
+        await _doCommit(edits, false);
+      } finally {
+        b.disabled = false; b.textContent = 'Fix Requisition (match transaction)';
+      }
+    };
+    document.getElementById('btnCommitAsIs').onclick = async () => {
+      backdrop.style.display = 'none';
+      await _doCommit(edits, true);
+    };
+    document.getElementById('btnCancelMismatch').onclick = () => {
+      backdrop.style.display = 'none';
+      const btn = document.getElementById('btnCommit');
+      btn.disabled = false; btn.textContent = 'Commit to llcExpRev ✓';
+    };
   }
 
   async function discardPreview() {
@@ -311,8 +459,8 @@
   <div class="bp-title">
     <div class="menu"><details><summary>☰</summary>{% include '_nav_dropdown.html' %}</details></div>
     <span class="nm">🏧 Bank Reconciliation — Preview</span>
-    <a class="ret" href="{{ request.script_root }}/view/bank_kb_rules">📓 Knowledge/Rules</a>
-    <a class="ret" id="navReq" href="{{ request.script_root }}/view/requisitions">🧾 Requisitions</a>
+    <a class="ret" href="javascript:void(0)" onclick="openAidModal('kb')">📓 Knowledge/Rules</a>
+    <a class="ret" id="navReq" href="javascript:void(0)" onclick="openAidModal('req')">🧾 Requisitions</a>
   </div>
 
   <div class="bp-row">
@@ -356,6 +504,35 @@
     <button id="btnCommit" class="btn btn-success" onclick="commitPreview()">Commit to llcExpRev ✓</button>
     <button class="btn btn-ghost" onclick="discardPreview()">Discard</button>
     <span style="font-size:12px;color:#6b7280;">Phase 1 is read-only — nothing is written until you Commit.</span>
+  </div>
+</div>
+
+<!-- ── Aid modal — KB Rules / Requisitions run as an overlay so Preview's
+     in-progress edits are never lost by navigating away (issue #55). ── -->
+<div id="aidModalBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;width:95vw;max-width:1400px;height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <div style="display:flex;align-items:center;padding:10px 16px;background:#111827;color:white;flex-shrink:0;">
+      <span id="aidModalTitle" style="font-weight:700;font-size:14px;"></span>
+      <span style="margin-left:10px;font-size:12px;color:#9ca3af;">Preview stays open underneath — Save inside here, or just close to return.</span>
+      <button onclick="closeAidModal()" style="margin-left:auto;background:none;border:1px solid #4b5563;color:white;border-radius:6px;font-size:14px;padding:4px 10px;cursor:pointer;">✕ Close</button>
+    </div>
+    <iframe id="aidModalFrame" style="flex:1;border:none;width:100%;background:white;"></iframe>
+  </div>
+</div>
+
+<!-- ── Commit-conflict dialog (issue #55) ── -->
+<div id="mismatchBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:600;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;width:560px;max-width:92vw;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">⚠ Property mismatch</h3>
+    <p style="font-size:13px;color:#374151;margin:0 0 10px;">
+      These transactions disagree with their linked requisition's property. Nothing has been committed. Choose how to resolve:
+    </p>
+    <div id="mismatchBody" style="font-size:12px;max-height:220px;overflow:auto;margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="btnFixReq" class="btn btn-primary">Fix Requisition (match transaction)</button>
+      <button id="btnCommitAsIs" class="btn" style="background:#b45309;color:white;border-color:#b45309;">Commit As-Is</button>
+      <button id="btnCancelMismatch" class="btn btn-ghost">Cancel</button>
+    </div>
   </div>
 </div>
 {% endblock %}

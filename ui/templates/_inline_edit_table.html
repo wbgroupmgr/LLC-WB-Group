@@ -522,6 +522,26 @@
           updateBar();
         }
       },
+      // Patch specific rows in place by their business key (rowKeyField value,
+      // not the internal __key) without disturbing other rows' pending state —
+      // used by "Apply Rules" (issue #55) to merge re-classification results
+      // back into Preview without wiping unrelated in-progress edits.
+      updateRows: (patchesByKey) => {
+        Object.keys(patchesByKey || {}).forEach(k => {
+          const row = rows.find(r => String(r[rowKeyField]) === String(k));
+          if (!row) return;
+          Object.assign(row, patchesByKey[k]);
+          const existing = pending.get(row.__key);
+          if (!existing || existing.op !== 'add') {
+            pending.set(row.__key, { op: 'update', row });
+          }
+        });
+        render();
+      },
+      // Repaint using current row/pending state — no data or pending changes.
+      // Used to re-evaluate statusClass() after external state changes (e.g.
+      // a Requisition was edited in a modal since this table last rendered).
+      rerender: () => render(),
     };
 
     render();

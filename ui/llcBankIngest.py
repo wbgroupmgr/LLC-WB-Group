@@ -360,6 +360,7 @@ def bind_bankIngest_routes(app, objects: dict):
             body = request.get_json(force=True) or {}
             token = (body.get('token') or '').strip()
             edits = body.get('edits', [])  # [{tID, acct, propNm, acctSub}]
+            override_propnm_mismatch = bool(body.get('override_propnm_mismatch'))
             if not token:
                 return jsonify({'ok': False, 'error': 'token required'}), 400
 
@@ -371,7 +372,8 @@ def bind_bankIngest_routes(app, objects: dict):
             if llc is None:
                 return jsonify({'ok': False, 'error': 'LLC not initialised'}), 500
 
-            from ledger.bankAgent.BankAgent import BankAgent, PreviewResult, PreviewStats
+            from ledger.bankAgent.BankAgent import (BankAgent, PreviewResult,
+                                                    PreviewStats, PropNmMismatchError)
 
             rows = [_dict_to_cr(d) for d in stored['rows']]
             edit_map = {e['tID']: e for e in edits if e.get('tID')}
@@ -395,7 +397,16 @@ def bind_bankIngest_routes(app, objects: dict):
                                         source=stored['source'], ts=stored['ts'])
             preview_obj._token = token
 
-            commit_result = BankAgent(llc).commit(preview_obj, year=stored.get('req_year'))
+            try:
+                commit_result = BankAgent(llc).commit(
+                    preview_obj, year=stored.get('req_year'),
+                    override_propnm_mismatch=override_propnm_mismatch)
+            except PropNmMismatchError as err:
+                # Not a dead-end — the token/preview is left intact so the UI
+                # can offer Fix Requisition / Commit As-Is / Cancel and retry
+                # against the SAME preview without losing any edits.
+                return jsonify({'ok': False, 'error_type': 'PROPNM_MISMATCH',
+                                'error': str(err), 'mismatches': err.mismatches}), 409
 
             try:
                 es = current_app.config.get('_esession')
@@ -437,6 +448,7 @@ def bind_bankIngest_routes(app, objects: dict):
             known_accts=_coa_accts(),
             txn_types=_TXN_TYPES,
             confidences=_CONFIDENCES,
+            embed=request.args.get('embed') == '1',
         )
 
     @app.route('/api/bank/kb/rules', methods=['GET'])
@@ -456,6 +468,43 @@ def bind_bankIngest_routes(app, objects: dict):
             rules = body.get('rules', [])
             saved = BkVendorKB().set_rules(rules)
             return jsonify({'ok': True, 'rules': saved, 'count': len(saved)})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/bank/ingest/apply_rules', methods=['POST'])
+    def api_bank_ingest_apply_rules():
+        """
+        Re-classify selected Preview rows against the CURRENT KB rules
+        (issue #55 — 'Apply Rules' bulk action). Applied to each row's
+        CURRENT desc/propNm as they stand in Preview right now, NOT the
+        original CSV state — so editing a row, or fixing a KB rule in the
+        modal, then re-applying, uses whatever is on screen at the moment.
+        """
+        try:
+            llc = _get_llc()
+            if llc is None:
+                return jsonify({'ok': False, 'error': 'LLC not initialised'}), 500
+            from ledger.bankAgent.IngestAgent import IngestAgent
+            body = request.get_json(force=True) or {}
+            rows = body.get('rows', [])
+            propNm_default = body.get('propNm_default', 'LLC') or 'LLC'
+            ia = IngestAgent(llc)
+            results = []
+            for r in rows:
+                tID = r.get('tID', '')
+                raw = {'dt': r.get('dt', ''), 'amt': r.get('amt', 0),
+                       'aType': r.get('aType', 'Debit'), 'desc': r.get('desc', ''),
+                       'refDoc': r.get('refDoc', r.get('desc', '')), 'tID': tID}
+                ctx_propNm = r.get('propNm') or propNm_default
+                cr = ia.classify(raw, {'propNm': ctx_propNm})
+                results.append({
+                    'tID': tID, 'acct': cr.acct, 'acctSub': cr.acctSub,
+                    'txn_type': cr.txn_type, 'confidence': cr.confidence,
+                    'propNm': cr.propNm, 'vendor_key': cr.vendor_key, 'pID': cr.pID,
+                })
+            return jsonify({'ok': True, 'results': results})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),
@@ -517,6 +566,7 @@ def bind_bankIngest_routes(app, objects: dict):
             prop_names=_get_prop_names(objects),
             known_accts=_coa_accts(),
             configured_year=year,
+            embed=request.args.get('embed') == '1',
         )
 
     @app.route('/api/bank/reqdocs', methods=['GET'])
@@ -528,6 +578,29 @@ def bind_bankIngest_routes(app, objects: dict):
             docs = rda.all()
             return jsonify({'ok': True, 'year': year, 'docs': docs,
                             'missing': _missing_reqs(rda.as_map(), year)})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/bank/reqdocs/set_propnm', methods=['POST'])
+    def api_bank_reqdocs_set_propnm():
+        """Patch a single requisition's propNm in place (issue #55 commit-
+        conflict UI 'Fix Requisition' action) — does not touch any other field."""
+        try:
+            from ledger.bankAgent.bkReqDocAgent import BkReqDocAgent
+            body = request.get_json(force=True) or {}
+            year   = int(body.get('year', _active_year()))
+            tID    = (body.get('tID') or '').strip()
+            propNm = (body.get('propNm') or '').strip()
+            if not tID or not propNm:
+                return jsonify({'ok': False, 'error': 'tID and propNm required'}), 400
+            rda = BkReqDocAgent(year, _get_llc())
+            doc = rda.update(tID, propNm=propNm)
+            if doc is None:
+                return jsonify({'ok': False,
+                                'error': f'No requisition found for tID {tID}'}), 404
+            return jsonify({'ok': True, 'doc': doc})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),
