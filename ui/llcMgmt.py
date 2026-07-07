@@ -467,6 +467,30 @@ class llcMgmt:
         """Rebuild the objects dict after an eSession switch (e.g. Switch Year)."""
         self.objects = self._build_objects()
 
+    def _switch_to_year(self, year: int) -> bool:
+        """Rebuild self.eSession/self.objects for `year`. Returns True on success.
+
+        Shared by the /switch_year route and the before_request sync hook
+        (issue #54 — "initialization mixup"): the session cookie's "year" is
+        the single source of truth for which year is active, and must
+        survive a server restart. On restart, self.eSession always starts
+        at config.json's registered default (e.g. 2025) regardless of what
+        year the browser's cookie remembers — without reconciling the two,
+        the year label (from the cookie) and the actual data shown (from
+        self.eSession, freshly booted to the default) silently disagree.
+        """
+        from util.utilEditSession import utilEditSession as _UES
+        llc_nm = self.app.config.get("_llc_name")
+        try:
+            new_es = _UES(llcName=llc_nm, year=year)
+            self.eSession = new_es
+            self.app.config["_esession"] = new_es
+            self._rebuild_objects()
+            return True
+        except Exception as exc:
+            self.app.logger.error("_switch_to_year(%s) failed: %s", year, exc)
+            return False
+
     def available_views(self) -> List[Dict[str, Any]]:
         items = []
         for name in self.VIEW_ORDER:
@@ -726,6 +750,23 @@ class llcMgmt:
                 )
                 return redirect(url_for("login", next=next_path))
 
+        @app.before_request
+        def _sync_active_year():
+            # Reconcile self.eSession's year to the session cookie's year
+            # (issue #54 "initialization mixup"): after a server restart,
+            # self.eSession boots to config.json's default regardless of
+            # what year the browser last had active, so the displayed year
+            # label (from the cookie) and the actual data served (from
+            # self.eSession) can silently disagree until this runs.
+            if not request.endpoint or request.endpoint in self._PUBLIC_ENDPOINTS:
+                return
+            if not session.get("logged_in"):
+                return
+            want_year = session.get("year")
+            have_year = getattr(self.eSession, "year", None)
+            if want_year and int(want_year) != int(have_year or 0):
+                self._switch_to_year(int(want_year))
+
         @app.route("/.well-known/appspecific/com.chrome.devtools.json")
         def chrome_devtools_json():
             return jsonify([])
@@ -878,19 +919,11 @@ class llcMgmt:
         # ── Switch Year ───────────────────────────────────────────────────────
         @app.route("/switch_year", methods=["POST"])
         def switch_year():
-            from util.utilEditSession import utilEditSession as _UES
             year = request.form.get("year", type=int)
             if not year:
                 return redirect(url_for("home"))
-            llc_nm = self.app.config.get("_llc_name")
-            try:
-                new_es = _UES(llcName=llc_nm, year=year)
-                self.eSession = new_es
-                self.app.config["_esession"] = new_es
-                self._rebuild_objects()
+            if self._switch_to_year(year):
                 session["year"] = year
-            except Exception as exc:
-                app.logger.error("Switch Year failed: %s", exc)
             return redirect(url_for("home"))
 
         # ── LLC Admin ─────────────────────────────────────────────────────────
