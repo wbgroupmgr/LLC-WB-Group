@@ -26,8 +26,11 @@ from pathlib import Path
 from flask import current_app, jsonify, render_template, request
 
 def _coa_accts() -> list[tuple[str, str]]:
-    """Return full COA as [(acct_path, 'ID — description'), ...] sorted by acctID.
-    Falls back to a minimal hardcoded list if the COA cannot be loaded."""
+    """Return full COA as [(acct_path, 'acct_path (ID)'), ...] sorted by acctID.
+    Label shows the account path (what acct/Ledger fields actually store),
+    not just the numeric code + description — see issue #52 for why: the
+    path is what the operator needs to recognize/type, the code is a minor
+    detail. Falls back to a minimal hardcoded list if the COA cannot be loaded."""
     try:
         llc = _get_llc()
         if llc is None:
@@ -35,25 +38,25 @@ def _coa_accts() -> list[tuple[str, str]]:
         from ledger.llcCOA import ChartOfAccounts
         entries = ChartOfAccounts(llc).load()  # {acct_path: {acctID, acctDesc}}
         return sorted(
-            [(path, f"{meta['acctID']} — {meta['acctDesc']}")
+            [(path, f"{path} ({meta['acctID']})")
              for path, meta in entries.items()
              if meta.get('acctID')],
-            key=lambda t: t[1],
+            key=lambda t: entries[t[0]]['acctID'],
         )
     except Exception:
         return [
-            ('Acct.Cash.Bank',                     '1010 — Cash (Operating Bank Account)'),
-            ('Acct.Exp.Ins',                       'Expense — Insurance'),
-            ('Acct.Exp.Other',                     'Expense — Other'),
-            ('Acct.Exp.Repair',                    'Expense — Repair/Maint'),
-            ('Acct.Exp.Tax.Prop',                  'Expense — Property Tax'),
-            ('Acct.Exp.Util',                      'Expense — Utilities'),
-            ('Acct.Rev.Fees.Other',                'Revenue — Fees/Other'),
-            ('Acct.Rev.Rent',                      'Revenue — Rent'),
-            ('Acct.Fixed.Tangible.InConstruction', 'Fixed Asset — CIP (In Construction)'),
-            ('Acct.Fixed.Tangible.InService',      'Fixed Asset — In Service'),
-            ('Acct.Equity.Capital.Member',         'Equity — Member Capital'),
-            ('Acct.Liab.Loan.Mortgage',            'Liability — Mortgage'),
+            ('Acct.Cash.Bank',                     'Acct.Cash.Bank (1010)'),
+            ('Acct.Exp.Ins',                       'Acct.Exp.Ins'),
+            ('Acct.Exp.Other',                     'Acct.Exp.Other'),
+            ('Acct.Exp.Repair',                    'Acct.Exp.Repair'),
+            ('Acct.Exp.Tax.Prop',                  'Acct.Exp.Tax.Prop'),
+            ('Acct.Exp.Util',                      'Acct.Exp.Util'),
+            ('Acct.Rev.Fees.Other',                'Acct.Rev.Fees.Other'),
+            ('Acct.Rev.Rent',                       'Acct.Rev.Rent'),
+            ('Acct.Fixed.Tangible.InConstruction', 'Acct.Fixed.Tangible.InConstruction'),
+            ('Acct.Fixed.Tangible.InService',      'Acct.Fixed.Tangible.InService'),
+            ('Acct.Equity.Capital.Member',         'Acct.Equity.Capital.Member'),
+            ('Acct.Liab.Loan.Mortgage',            'Acct.Liab.Loan.Mortgage'),
         ]
 
 _TXN_TYPES = ['ROUTINE_EXPENSE', 'RENT_INCOME', 'MEMBER_INVEST', 'SPECIAL_WIRE',
