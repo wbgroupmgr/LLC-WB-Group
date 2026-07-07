@@ -8,29 +8,42 @@
     const _scriptRoot = {{ request.script_root | tojson }};
 
     // ── Financial Snapshot ────────────────────────────────────────────────
-    const _fmt = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', maximumFractionDigits:0}).format(v);
+    const _fmt    = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', maximumFractionDigits:0}).format(v);
+    const _fmtPct = (v) => new Intl.NumberFormat('en-US', {style:'percent', maximumFractionDigits:1}).format(v);
     let _fsChart = null;
 
-    async function loadFinancialSnapshot() {
+    function onFsViewChange(selectEl) {
+        loadFinancialSnapshot(selectEl.value);
+    }
+
+    async function loadFinancialSnapshot(view) {
+        view = view || (document.getElementById('fsViewSelect') || {}).value || 'YTD';
         try {
-            const res  = await fetch(_scriptRoot + '/api/home/snapshot');
+            const res  = await fetch(_scriptRoot + '/api/home/snapshot?view=' + encodeURIComponent(view));
             const data = await res.json();
             if (!data.ok) return;
 
-            const set = (id, val, cls) => {
+            const set = (id, val, cls, fmt) => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                el.textContent = _fmt(val);
+                el.textContent = (fmt || _fmt)(val);
                 el.classList.remove('fs-empty');
                 if (cls) el.classList.add(cls);
             };
 
             const ni = data.net_income || 0;
+            const er = data.expense_revenue_ratio || 0;
             set('fsRevenue',    data.total_income);
             set('fsExpenses',   data.total_expenses);
             set('fsNetIncome',  ni, ni < 0 ? 'fs-negative' : 'fs-positive');
-            set('fsTotalEquity', data.total_equity);
-            set('fsEarnedPnl',  data.earned_pnl, data.earned_pnl < 0 ? 'fs-negative' : 'fs-positive');
+            set('fsEquity',     data.equity);
+            set('fsAssets',     data.assets);
+            set('fsExpRevRatio', er, er > 1 ? 'fs-negative' : 'fs-positive', _fmtPct);
+
+            const chartLabelEl = document.getElementById('fsChartLabel');
+            if (chartLabelEl) {
+                chartLabelEl.textContent = view === 'Qtrly' ? 'Per Quarter: Revenue-Expense' : 'Per Month: Revenue-Expense';
+            }
 
             // Bar chart
             const monthly   = data.monthly || [];
@@ -65,7 +78,7 @@
         } catch (e) { console.warn('FS snapshot error:', e); }
     }
 
-    document.addEventListener('DOMContentLoaded', loadFinancialSnapshot);
+    document.addEventListener('DOMContentLoaded', () => loadFinancialSnapshot('YTD'));
 
     async function confirmNewSession() {
         document.getElementById("newSessionBackdrop").style.display = "flex";
@@ -331,7 +344,12 @@
     <div class="fs-header">
         <span style="font-size:20px">📊</span>
         <h2>LLC Financial Snapshot</h2>
-        <span class="fs-year">FY {{ current_year }}</span>
+        <select id="fsViewSelect" onchange="onFsViewChange(this)" title="Bar graph time window"
+                style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #d1d5db;margin-left:auto;">
+            <option value="Year">Year (rolling 12mo)</option>
+            <option value="YTD" selected>YTD (fiscal year)</option>
+            <option value="Qtrly">Qtrly (since LLC start)</option>
+        </select>
         <a href="{{ url_for('llc_admin') }}"
            style="font-size:12px;padding:4px 12px;border-radius:6px;background:#374151;color:white;text-decoration:none;white-space:nowrap;">
             📚 Books Manager-Admin Agent
@@ -341,7 +359,7 @@
     <!-- Chart full-width · metrics table below -->
     <div class="fs-body">
         <div class="fs-chart-box">
-            <div class="fs-chart-label">Per Month: Revenue-Expense</div>
+            <div class="fs-chart-label" id="fsChartLabel">Per Month: Revenue-Expense</div>
             <div class="fs-chart-canvas-wrap">
                 <canvas id="fsBarChart" height="60"></canvas>
             </div>
@@ -350,11 +368,12 @@
         <table class="fs-metrics-table">
             <thead>
                 <tr>
-                    <th>YTD Revenue</th>
-                    <th>YTD Expenses</th>
+                    <th>Revenue</th>
+                    <th>Expenses</th>
                     <th>Net Income / Loss</th>
-                    <th class="fs-divider-col">Total Equity</th>
-                    <th>Earned P&amp;L</th>
+                    <th>E:R</th>
+                    <th class="fs-divider-col">Equity</th>
+                    <th>Assets</th>
                 </tr>
             </thead>
             <tbody>
@@ -362,8 +381,9 @@
                     <td class="fs-metric-value fs-empty" id="fsRevenue">—</td>
                     <td class="fs-metric-value fs-empty" id="fsExpenses">—</td>
                     <td class="fs-metric-value fs-empty" id="fsNetIncome">—</td>
-                    <td class="fs-metric-value fs-empty fs-divider-col" id="fsTotalEquity">—</td>
-                    <td class="fs-metric-value fs-empty" id="fsEarnedPnl">—</td>
+                    <td class="fs-metric-value fs-empty" id="fsExpRevRatio">—</td>
+                    <td class="fs-metric-value fs-empty fs-divider-col" id="fsEquity">—</td>
+                    <td class="fs-metric-value fs-empty" id="fsAssets">—</td>
                 </tr>
             </tbody>
         </table>

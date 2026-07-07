@@ -113,6 +113,38 @@ class llcReportEngine:
         self._gl_cache = merged
         return self._gl_cache
 
+    def _load_source_raw(self, name: str) -> List[Dict[str, Any]]:
+        '''Same as _load_source but skips the per-year filter_cumulative pass —
+        returns every record across every fiscal year in the shared Accts JSON.
+        '''
+        wk = self.eSession.oDict.get(name)
+        if wk is None:
+            return []
+        try:
+            data = wk.o.load()
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def getGLListAllTime(self, resolve_dups: bool = True) -> List[Dict[str, Any]]:
+        '''
+        Build the full General Ledger across every fiscal year in the shared
+        Accts/*.json DB — no year filter applied. Used where a metric must be
+        point-in-time (LLC Start -> today) rather than bound to the active
+        session's fiscal year, e.g. the Home Financial Snapshot's Assets/Equity
+        totals and its rolling-window chart views (issue #56).
+        '''
+        asset_list = self._load_source_raw('llcAssets')
+        er_list    = self._load_source_raw('llcExpRev')
+        ap_list    = self._load_source_raw('llcPayables')
+        ar_list    = self._load_source_raw('llcReceivables')
+
+        return self.gl.mergeGL(
+            [self.gl.toDoubleEntry(asset_list), self.gl.toDoubleEntry(er_list),
+             self.gl.toDoubleEntry(ap_list),    self.gl.toDoubleEntry(ar_list)],
+            resolve_dups=resolve_dups,
+        )
+
     def getGLListWithDups(self) -> List[Dict[str, Any]]:
         '''GL list keeping all records and flagging cross-source dups.'''
         er_list    = self._load_source('llcExpRev')

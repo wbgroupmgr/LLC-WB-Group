@@ -857,60 +857,113 @@ class llcMgmt:
         @app.route("/api/home/snapshot")
         def api_home_snapshot():
             try:
+                from datetime import datetime, timedelta
                 from ui.llcReportEngine import llcReportEngine as _RE
                 from ledger.stmtIS import stmtIS as _stmtIS
                 from ledger.stmtBS import stmtBS as _stmtBS
 
-                engine     = _RE(self.eSession)
-                gl_records = engine.getGLList(resolve_dups=True, force=True)
+                view = request.args.get('view', 'YTD')
+                if view not in ('Year', 'YTD', 'Qtrly'):
+                    view = 'YTD'
+
+                engine = _RE(self.eSession)
+
+                # Assets/Equity are point-in-time (LLC Start -> today), never
+                # bound to the active fiscal year (issue #56 items 3/4) — always
+                # computed off the unfiltered, all-fiscal-year GL. Calling
+                # _taxAggregates_local() directly (not taxAggregates()) is
+                # required here: taxAggregates() unconditionally tries the v0.2
+                # single-year stmtFinancialReport fast path first, which would
+                # silently discard these multi-year gl_records.
+                all_records = engine.getGLListAllTime(resolve_dups=True)
+                bs_alltime  = _stmtBS(self.eSession.llc,
+                                      gl_records=all_records)._taxAggregates_local()
+
+                today = datetime.now()
+
+                if view == 'YTD':
+                    # Current fiscal year — unchanged, single-year GL.
+                    gl_records = engine.getGLList(resolve_dups=True, force=True)
+                elif view == 'Year':
+                    # Rolling 12 months, may span two fiscal years.
+                    cutoff = (today - timedelta(days=365)).strftime('%Y.%m.%d')
+                    gl_records = [r for r in all_records
+                                  if str(r.get('dt') or '') >= cutoff]
+                else:
+                    # Qtrly — every record since LLC inception.
+                    gl_records = all_records
 
                 is_agg = _stmtIS(self.eSession.llc, gl_records=gl_records).taxAggregates()
-                bs_agg = _stmtBS(self.eSession.llc, gl_records=gl_records).taxAggregates()
 
-                # Monthly Revenue/Expense for bar chart — GL rows only,
-                # filtered to Acct.Rev.* (income) and Acct.Exp.* (expense).
-                # Using one side of double-entry per account avoids double-counting
-                # and excludes Asset/Equity/Liability entries (e.g. capital contributions).
-                monthly: Dict[str, Dict] = {}
+                # Period buckets for the bar chart — GL rows only, filtered to
+                # Acct.Rev.* (income) and Acct.Exp.* (expense). Using one side
+                # of double-entry per account avoids double-counting and
+                # excludes Asset/Equity/Liability entries (e.g. capital
+                # contributions). Monthly buckets for Year/YTD, quarterly for
+                # Qtrly (since LLC start spans many fiscal years).
+                buckets: Dict[str, Dict] = {}
                 for r in gl_records:
                     dt   = str(r.get('dt') or '')
                     acct = str(r.get('acct') or '')
-                    if len(dt) < 7:
+                    parts = dt.split('.')
+                    if len(parts) < 2:
                         continue
-                    ym  = dt[:7]   # "2025.08"
+                    yy, mm = parts[0], parts[1]
+                    try:
+                        mm_i = int(mm)
+                    except ValueError:
+                        continue
+                    if view == 'Qtrly':
+                        key = f"{yy}.Q{(mm_i - 1) // 3 + 1}"
+                    else:
+                        key = f"{yy}.{mm}"
                     amt = float(r.get('amt') or 0)
-                    if ym not in monthly:
-                        monthly[ym] = {'income': 0.0, 'expense_op': 0.0, 'expense_cap': 0.0}
+                    if key not in buckets:
+                        buckets[key] = {'income': 0.0, 'expense_op': 0.0, 'expense_cap': 0.0}
                     if acct.startswith('Acct.Rev'):
-                        monthly[ym]['income'] = round(monthly[ym]['income'] + amt, 2)
+                        buckets[key]['income'] = round(buckets[key]['income'] + amt, 2)
                     elif acct == 'Acct.Exp.Depreciation':
                         # Capitalization expense — depreciation recorded at year-end
-                        monthly[ym]['expense_cap'] = round(monthly[ym]['expense_cap'] + amt, 2)
+                        buckets[key]['expense_cap'] = round(buckets[key]['expense_cap'] + amt, 2)
                     elif acct.startswith('Acct.Exp'):
-                        monthly[ym]['expense_op'] = round(monthly[ym]['expense_op'] + amt, 2)
+                        buckets[key]['expense_op'] = round(buckets[key]['expense_op'] + amt, 2)
 
                 _ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                chart_data = []
-                for ym in sorted(monthly.keys()):
-                    parts = ym.split('.')
+
+                def _label(key: str) -> str:
+                    yy, part = key.split('.', 1)
+                    suffix = yy[-2:]
+                    if part.startswith('Q'):
+                        return f"{part}'{suffix}"
                     try:
-                        lbl = _ABBR[int(parts[1])] if len(parts) >= 2 else ym
+                        return f"{_ABBR[int(part)]}'{suffix}"
                     except (ValueError, IndexError):
-                        lbl = ym
-                    chart_data.append({'label':       lbl,
-                                       'income':      monthly[ym]['income'],
-                                       'expense_op':  monthly[ym]['expense_op'],
-                                       'expense_cap': monthly[ym]['expense_cap']})
+                        return key
+
+                chart_data = []
+                ratios = []
+                for key in sorted(buckets.keys()):
+                    b = buckets[key]
+                    expense_total = b['expense_op'] + b['expense_cap']
+                    if b['income'] > 0:
+                        ratios.append(expense_total / b['income'])
+                    chart_data.append({'label': _label(key), **b})
+
+                # E:R — expense-to-revenue ratio, mean over the buckets shown
+                # in the currently selected bar-graph view (issue #56 item 2).
+                expense_revenue_ratio = round(sum(ratios) / len(ratios), 4) if ratios else 0
 
                 return jsonify({
-                    'ok':             True,
-                    'total_income':   is_agg.get('total_income', 0),
-                    'total_expenses': is_agg.get('total_expenses', 0),
-                    'net_income':     is_agg.get('net_income', 0),
-                    'total_equity':   bs_agg.get('total_equity', 0),
-                    'earned_pnl':     is_agg.get('net_income', 0),
-                    'monthly':        chart_data,
+                    'ok':                    True,
+                    'view':                  view,
+                    'total_income':          is_agg.get('total_income', 0),
+                    'total_expenses':        is_agg.get('total_expenses', 0),
+                    'net_income':            is_agg.get('net_income', 0),
+                    'equity':                bs_alltime.get('total_equity', 0),
+                    'assets':                bs_alltime.get('total_assets', 0),
+                    'expense_revenue_ratio': expense_revenue_ratio,
+                    'monthly':               chart_data,
                 })
             except Exception as exc:
                 app.logger.exception("api_home_snapshot error")
