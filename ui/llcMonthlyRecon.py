@@ -45,13 +45,18 @@ def _get_es():
 
 
 def _gl_for_year(year: int) -> list[dict]:
-    """Return all GL rows for `year` using the live session."""
+    """Return all GL rows for `year`, independent of the session's active
+    fiscal year (eSession.llc.yr). getGLList() filters to whatever year the
+    session is currently switched to, which silently broke this view's own
+    year selector when it differed from the requested `year` — always use
+    the unfiltered all-time GL and do our own date-prefix filtering here.
+    """
     try:
         from ui.llcReportEngine import llcReportEngine
         es = _get_es()
         if es is None:
             return []
-        rows = llcReportEngine(es).getGLList(resolve_dups=True, force=True)
+        rows = llcReportEngine(es).getGLListAllTime(resolve_dups=True)
         yr = str(year)
         return [r for r in rows if str(r.get('dt', '')).startswith(yr)]
     except Exception:
@@ -110,7 +115,12 @@ def _build_month_report(gl_all: list[dict], year: int, ym: str,
 
 
 def _missing_reqs_for_year(objects: dict, year: int, req_map: dict) -> list[dict]:
-    """CIP GL entries for `year` that have no requisition."""
+    """CIP GL entries for `year` that have no requisition.
+
+    Uses load_object() (raw, unfiltered) rather than load() — the latter
+    filters to the session's active fiscal year, which broke this check
+    whenever the requested `year` differed from that active year.
+    """
     missing = []
     seen: set[str] = set()
     yr = str(year)
@@ -119,7 +129,7 @@ def _missing_reqs_for_year(objects: dict, year: int, req_map: dict) -> list[dict
         if not mgr:
             continue
         try:
-            for r in mgr.load():
+            for r in mgr.load_object():
                 if not str(r.get('dt', '')).startswith(yr):
                     continue
                 acct = str(r.get('acct', '')) + '|' + str(r.get('Ledger', ''))
@@ -428,6 +438,27 @@ def bind_monthly_recon_routes(app, objects: dict) -> None:
                 }
 
             return jsonify({'ok': True, 'report': report, 'bookState': book_state_status})
+        except Exception as err:
+            import traceback
+            return jsonify({'ok': False, 'error': str(err),
+                            'traceback': traceback.format_exc()}), 500
+
+    @app.route('/api/monthly_recon/refresh_books', methods=['POST'])
+    def api_monthly_recon_refresh_books():
+        """Force the session's shared BooksContext GL cache to rebuild against
+        the current RealDB files, clearing the "Books changed since last GL
+        build" warning. That warning is a diagnostic-only comparison (issue
+        #53/#57) — it never self-clears unless something elsewhere in the app
+        happens to touch es.books.gl_rows, which nothing on this view does.
+        """
+        try:
+            es = _get_es()
+            books = getattr(es, 'books', None) if es else None
+            if books is None:
+                return jsonify({'ok': False, 'error': 'no active session'}), 400
+            books.invalidate()
+            books.gl_rows  # force rebuild now, recording a fresh source_state
+            return jsonify({'ok': True, 'bookState': books.book_state_status()})
         except Exception as err:
             import traceback
             return jsonify({'ok': False, 'error': str(err),
