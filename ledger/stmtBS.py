@@ -336,15 +336,19 @@ class stmtBS(stmtDB):
         other_assets = round(total_assets
                              - cash - ar - buildings - accum_dep - land, 2)
 
-        payables  = s(lambda r: r.get('acctType') == 'Liability'
+        # Liability and Equity are credit-normal accounts, so their raw
+        # Balance (Debit − Credit) is negative when the account carries its
+        # normal balance. Schedule L / M-2 present these as positive
+        # amounts, so flip the sign here.
+        payables  = -s(lambda r: r.get('acctType') == 'Liability'
                                  and starts(r, 'Acct.AP'))
-        mortgage  = s(lambda r: r.get('acctType') == 'Liability'
+        mortgage  = -s(lambda r: r.get('acctType') == 'Liability'
                                  and (starts(r, 'Acct.Mortgage')
                                       or starts(r, 'Acct.Notes.LongTerm')))
-        total_liab = s(lambda r: r.get('acctType') == 'Liability')
+        total_liab = -s(lambda r: r.get('acctType') == 'Liability')
         other_liab = round(total_liab - payables - mortgage, 2)
 
-        total_equity      = s(lambda r: r.get('acctType') == 'Equity')
+        total_equity      = -s(lambda r: r.get('acctType') == 'Equity')
         total_liab_capital = round(total_liab + total_equity, 2)
 
         return {
